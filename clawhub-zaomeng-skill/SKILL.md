@@ -50,8 +50,22 @@ Phase 4: Quality gates
 - Gate B: Evidence coverage (each profile has at least 1 evidence item)
 - Gate C: Consistency check (speech style and decision rules do not contradict values)
 - Gate D: Safety policy check via `references/safety_policy.md`
+- Gate E: Triple validation via `references/validation_policy.md`
 
 If any gate fails, return a `needs_revision` result with missing items.
+
+## Triple Validation Rules
+
+For every major extracted claim (trait, relation, dialogue constraint), run:
+
+1. Evidence Validation
+- Must cite at least one direct sentence-level evidence from source text.
+
+2. Consistency Validation
+- Must not conflict with `values`, `speech_style`, and `decision_rules`.
+
+3. Transfer Validation
+- Must be reusable in a new dialogue turn without changing core persona.
 
 ## Output Contract
 
@@ -89,6 +103,11 @@ Command-style trigger mapping:
 - `/chat` -> run dialogue constraints and correction memory retrieval
 - `/correct` -> append correction memory with rationale
 
+Pre-response check for `/chat`:
+- Check candidate reply against profile (`speech_style`, `values`, `decision_rules`).
+- If mismatch: rewrite once with stricter persona constraints.
+- If still mismatch: return `needs_revision` with mismatch reasons.
+
 ## Update Workflow
 
 Use this workflow when user asks to "update/迭代/修订" the skill output:
@@ -103,6 +122,7 @@ Use this workflow when user asks to "update/迭代/修订" the skill output:
 3. Regression check
 - Re-run against sample artifacts in `examples/`.
 - Ensure keys/ranges still satisfy `references/output_schema.md`.
+- Re-run `examples/test-prompts.json` and ensure no new validation failures.
 
 4. Version note
 - Add a one-line release note in `PUBLISH.txt` version section.
@@ -112,6 +132,7 @@ Use this workflow when user asks to "update/迭代/修订" the skill output:
 - `examples/sample_input_excerpt.txt`
 - `examples/sample_character_profile.json`
 - `examples/sample_relations.json`
+- `examples/test-prompts.json`
 
 ## Prompt Templates
 

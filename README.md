@@ -32,6 +32,12 @@ npx skills add wkbin/Dreamforge
 2. 关系网构建：按角色对生成 `trust/affection/power_gap` 等关系参数。  
 3. 角色群聊模拟：支持旁观/代入，并用纠错记忆降低 OOC 漂移。
 
+## 质量保障（对提取和群聊直接生效）
+
+- 三重验证：`证据验证 -> 一致性验证 -> 可迁移验证`
+- 群聊发言前检查：若发言与人设冲突，先自动重写一次；仍冲突则返回 `needs_revision`
+- 回归用例：`clawhub-zaomeng-skill/examples/test-prompts.json`
+
 ## 常用命令
 
 ```bash
@@ -104,4 +110,3 @@ hermes-skill/                # Hermes 适配
 ## License
 
 MIT
-

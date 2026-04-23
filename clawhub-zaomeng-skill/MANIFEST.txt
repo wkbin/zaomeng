@@ -8,6 +8,7 @@ Core files:
 Reference files:
 - references/output_schema.md
 - references/safety_policy.md
+- references/validation_policy.md
 
 Prompt templates:
 - prompts/distill_prompt.txt
@@ -18,6 +19,7 @@ Example files:
 - examples/sample_input_excerpt.txt
 - examples/sample_character_profile.json
 - examples/sample_relations.json
+- examples/test-prompts.json
 
 Packaging intent:
 - Self-contained skill-definition bundle

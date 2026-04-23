@@ -61,3 +61,19 @@ Rules:
 - `power_gap` in `[-5,5]`.
 - `confidence` in `[0,1]`.
 
+## Chat Constraints (Optional)
+
+```json
+{
+  "character": "林黛玉",
+  "must_follow": [
+    "语气需克制但可反讽",
+    "冲突时先防御再观察"
+  ],
+  "must_avoid": [
+    "无证据的极端背叛表述",
+    "与高忠诚值冲突的抛弃宣言"
+  ],
+  "fallback_action": "rewrite_once_then_needs_revision"
+}
+```

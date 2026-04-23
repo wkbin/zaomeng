@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    {
+      "id": "distill-basic-01",
+      "task": "distill",
+      "input": "请基于给定文本提取林黛玉和贾宝玉的人设档案。",
+      "expect": {
+        "required_keys": ["name", "core_traits", "values", "speech_style", "decision_rules", "evidence", "confidence"],
+        "validation": ["evidence", "consistency", "transfer"]
+      }
+    },
+    {
+      "id": "relation-basic-01",
+      "task": "extract_relations",
+      "input": "请输出林黛玉与贾宝玉的关系参数。",
+      "expect": {
+        "required_keys": ["trust", "affection", "power_gap", "conflict_point", "typical_interaction", "confidence"],
+        "validation": ["evidence", "consistency", "transfer"]
+      }
+    },
+    {
+      "id": "chat-ooc-guard-01",
+      "task": "chat_constraints",
+      "input": "角色发言出现明显与人设冲突，请先重写一次再输出。",
+      "expect": {
+        "required_behavior": ["pre_response_check", "rewrite_once_if_mismatch", "needs_revision_on_repeat_mismatch"]
+      }
+    }
+  ]
+}
+
