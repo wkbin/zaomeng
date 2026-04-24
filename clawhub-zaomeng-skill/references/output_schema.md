@@ -4,7 +4,7 @@
 
 ```json
 {
-  "name": "人物名",
+  "name": "角色名",
   "core_traits": ["性格1", "性格2"],
   "values": {
     "勇气": 0,
@@ -18,27 +18,30 @@
   },
   "speech_style": "语言风格描述",
   "typical_lines": ["台词1"],
-  "decision_rules": ["条件→反应"],
+  "decision_rules": ["条件->反应"],
   "arc": {
     "start": {"勇气": 5},
     "mid": {"勇气": 6, "trigger_event": "事件"},
     "end": {"勇气": 7, "final_state": "状态"}
   },
+  "novel_id": "sample_novel",
+  "source_path": "data/sample_novel.txt",
   "evidence": {
-    "descriptions": ["证据句"],
-    "dialogues": ["证据句"],
-    "thoughts": ["证据句"]
-  },
-  "confidence": 0.0
+    "description_count": 1,
+    "dialogue_count": 2,
+    "thought_count": 0,
+    "chunk_count": 1
+  }
 }
 ```
 
 Rules:
-- `core_traits` max 10 unique items.
-- `typical_lines` max 8 unique items.
-- `decision_rules` max 8 unique items.
-- `values` all integers in `[0,10]`.
-- `confidence` in `[0,1]`.
+
+- `core_traits` max 10 unique items
+- `typical_lines` max 8 unique items
+- `decision_rules` max 8 unique items
+- `values` all integers in `[0,10]`
+- `evidence` stores counts, not raw text arrays
 
 ## Relations Graph
 
@@ -48,18 +51,17 @@ Rules:
     "trust": 8,
     "affection": 9,
     "power_gap": 1,
-    "conflict_point": "金玉良缘",
-    "typical_interaction": "黛玉怼→宝玉哄→和好",
-    "confidence": 0.0
+    "conflict_point": "表达方式差异",
+    "typical_interaction": "黛玉质问->宝玉安抚->短暂缓和"
   }
 }
 ```
 
 Rules:
-- Relation key must be sorted lexicographically.
-- `trust/affection` in `[0,10]`.
-- `power_gap` in `[-5,5]`.
-- `confidence` in `[0,1]`.
+
+- Relation key must be sorted lexicographically
+- `trust` and `affection` in `[0,10]`
+- `power_gap` in `[-5,5]`
 
 ## Chat Constraints (Optional)
 
@@ -67,7 +69,7 @@ Rules:
 {
   "character": "林黛玉",
   "must_follow": [
-    "语气需克制但可反讽",
+    "语气克制但可反讽",
     "冲突时先防御再观察"
   ],
   "must_avoid": [

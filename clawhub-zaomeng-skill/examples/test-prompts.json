@@ -1,12 +1,12 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "cases": [
     {
       "id": "distill-basic-01",
       "task": "distill",
       "input": "请基于给定文本提取林黛玉和贾宝玉的人设档案。",
       "expect": {
-        "required_keys": ["name", "core_traits", "values", "speech_style", "decision_rules", "evidence", "confidence"],
+        "required_keys": ["name", "core_traits", "values", "speech_style", "decision_rules", "novel_id", "source_path", "evidence"],
         "validation": ["evidence", "consistency", "transfer"]
       }
     },
@@ -15,7 +15,7 @@
       "task": "extract_relations",
       "input": "请输出林黛玉与贾宝玉的关系参数。",
       "expect": {
-        "required_keys": ["trust", "affection", "power_gap", "conflict_point", "typical_interaction", "confidence"],
+        "required_keys": ["trust", "affection", "power_gap", "conflict_point", "typical_interaction"],
         "validation": ["evidence", "consistency", "transfer"]
       }
     },
@@ -29,4 +29,3 @@
     }
   ]
 }
-
