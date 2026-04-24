@@ -1,4 +1,4 @@
-# zaomeng
+# 造梦.skill
 
 [中文](README.md) | [English](README.en.md)
 
@@ -164,4 +164,4 @@ tests/test_relation_behavior.py
 
 ## License
 
-MIT
+[MIT](LICENSE)

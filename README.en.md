@@ -1,6 +1,6 @@
-# zaomeng
+# 造梦.skill
 
-[中文](README.zh.md) | [English](README.en.md)
+[中文](README.md) | [English](README.en.md)
 
 Local toolkit for novel character distillation, relationship extraction, and roleplay chat. The current version runs on a local rule engine and does not require any cloud model or API key.
 
@@ -113,19 +113,18 @@ curl -L https://raw.githubusercontent.com/wkbin/zaomeng/main/skills/zaomeng-skil
 
 ```bash
 python -m src.core.main distill --novel data/sample_novel.txt --force
-python -m src.core.main distill --novel data/sample_novel.txt --characters 林黛玉,贾宝玉 --force
 python -m src.core.main extract --novel data/sample_novel.txt --force
 python -m src.core.main chat --novel data/sample_novel.txt --mode observe
-python -m src.core.main chat --novel data/sample_novel.txt --mode act --character 林黛玉
-python -m src.core.main view --character 林黛玉 --novel data/sample_novel.txt
-python -m src.core.main correct --session <ID> --message "<raw>" --corrected "<fixed>" --character 林黛玉
+python -m src.core.main chat --novel data/sample_novel.txt --mode act --character <name>
+python -m src.core.main view --character <name> --novel data/sample_novel.txt
+python -m src.core.main correct --session <ID> --message "<raw>" --corrected "<fixed>" --character <name>
 ```
 
 Inline chat commands:
 
 - `/save`
 - `/reflect`
-- `/correct 角色|对象|原句|修正句|原因`
+- `/correct character|target|original|corrected|reason`
 - `/quit`
 
 ## Output Layout
@@ -164,4 +163,4 @@ tests/test_relation_behavior.py
 
 ## License
 
-MIT
+[MIT](LICENSE)
