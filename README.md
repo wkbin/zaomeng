@@ -121,6 +121,14 @@ python -m src.core.main view --character 林黛玉 --novel data/sample_novel.txt
 python -m src.core.main correct --session <ID> --message "<原句>" --corrected "<修正句>" --character 林黛玉
 ```
 
+群聊前提：
+
+- `chat` 是交互式命令，启动前应先确认小说、模式和首轮输入
+- 建议先运行 `distill`，如需关系感知回复再运行 `extract`
+- `observe` 模式可直接输入：`请让大家围绕这件事各说一句。`
+- `act` 模式可直接输入：`我先表态，你们再接。`
+- `distill` 和 `extract` 默认也会要求确认费用；如果是在工具或 Agent 中执行，应先确认再使用 `--force`
+
 群聊内联命令：
 
 - `/save`

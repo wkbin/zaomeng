@@ -114,6 +114,22 @@ Command-style trigger mapping:
 
 For `/chat`, validate the candidate reply against `speech_style`, `values`, and `decision_rules`. Rewrite once if needed; if it still conflicts, return `needs_revision`.
 
+## Interactive Execution Rules
+
+- Treat `/chat` as an interactive session, not as a one-shot batch task.
+- Before starting `/chat`, first confirm:
+  - novel or source text scope
+  - mode: `observe` or `act`
+  - controlled character when mode is `act`
+  - whether character distillation has already been completed
+  - whether relation extraction has already been completed if relation-aware chat is expected
+- Before entering the session, tell the operator what the first user turn should be.
+- If the operator does not provide one, offer a starter turn:
+  - `observe`: `请让大家围绕这件事各说一句。`
+  - `act`: `我先表态，你们再接。`
+- Do not claim PTY/input failure and do not auto-script stdin unless the operator explicitly asks for scripted execution.
+- Treat `/distill` and `/extract` as confirmation-gated operations; in tool-driven execution, require user agreement first and then run with the non-interactive equivalent.
+
 ## Update Workflow
 
 When the user asks to update or iterate on the skill:

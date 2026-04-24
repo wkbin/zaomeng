@@ -33,13 +33,50 @@ class ZaomengCLI:
         )
         subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-        distill_parser = subparsers.add_parser("distill", help="Distill character profiles from a novel")
+        distill_parser = subparsers.add_parser(
+            "distill",
+            help="Distill character profiles from a novel",
+            description=(
+                "Distill character profiles from a novel.\n\n"
+                "Interaction rule:\n"
+                "  - By default this command asks for cost confirmation.\n"
+                "  - In tool-driven or non-interactive runs, use `--force` after the user has agreed.\n"
+                "  - Use `--characters` when the user already knows the target roles."
+            ),
+            formatter_class=argparse.RawTextHelpFormatter,
+        )
         distill_parser.add_argument("--novel", "-n", required=True, help="Novel file path (.txt or .epub)")
         distill_parser.add_argument("--characters", "-c", help="Comma-separated target character names")
         distill_parser.add_argument("--output", "-o", help="Optional output directory override")
-        distill_parser.add_argument("--force", "-f", action="store_true", help="Skip cost confirmation")
+        distill_parser.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="Skip cost confirmation for non-interactive runs",
+        )
 
-        chat_parser = subparsers.add_parser("chat", help="Start a multi-character chat session")
+        chat_parser = subparsers.add_parser(
+            "chat",
+            help="Start an interactive multi-character chat session",
+            description=(
+                "Start an interactive chat session.\n\n"
+                "Prerequisites:\n"
+                "  1. Run `distill` first so character profiles exist.\n"
+                "  2. Run `extract` first if you want relation-aware replies.\n"
+                "  3. In `act` mode, pass `--character` for the role you control.\n\n"
+                "Starter inputs:\n"
+                "  observe: 请让大家围绕这件事各说一句。\n"
+                "  act: 我先表态，你们再接。"
+            ),
+            epilog=(
+                "Inline commands:\n"
+                "  /save\n"
+                "  /reflect\n"
+                "  /correct 角色|对象|原句|修正句|原因\n"
+                "  /quit"
+            ),
+            formatter_class=argparse.RawTextHelpFormatter,
+        )
         chat_parser.add_argument("--novel", "-n", required=True, help="Novel path or novel name")
         chat_parser.add_argument("--mode", "-m", choices=["observe", "act"], default="observe")
         chat_parser.add_argument("--character", "-c", help="Controlled character in act mode")
@@ -57,10 +94,26 @@ class ZaomengCLI:
         correct_parser.add_argument("--target", "-t", help="Target character name")
         correct_parser.add_argument("--reason", help="Correction reason")
 
-        extract_parser = subparsers.add_parser("extract", help="Extract relationship graph from a novel")
+        extract_parser = subparsers.add_parser(
+            "extract",
+            help="Extract relationship graph from a novel",
+            description=(
+                "Extract a relationship graph from a novel.\n\n"
+                "Interaction rule:\n"
+                "  - By default this command asks for cost confirmation.\n"
+                "  - In tool-driven or non-interactive runs, use `--force` after the user has agreed.\n"
+                "  - Run `distill` first if you also need character profiles for chat."
+            ),
+            formatter_class=argparse.RawTextHelpFormatter,
+        )
         extract_parser.add_argument("--novel", "-n", required=True, help="Novel file path")
         extract_parser.add_argument("--output", "-o", help="Optional output path override")
-        extract_parser.add_argument("--force", "-f", action="store_true", help="Skip cost confirmation")
+        extract_parser.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="Skip cost confirmation for non-interactive runs",
+        )
 
         return parser
 
@@ -92,6 +145,10 @@ class ZaomengCLI:
 
     def _handle_distill(self, args: argparse.Namespace) -> None:
         print("=== Character Distillation ===")
+        if args.force:
+            print("Confirmation: skipped via --force")
+        else:
+            print("This command is confirmation-gated. Use --force only after confirming with the user.")
         distiller = NovelDistiller(self.config)
 
         if not args.force:
@@ -114,6 +171,15 @@ class ZaomengCLI:
 
     def _handle_chat(self, args: argparse.Namespace) -> None:
         print("=== Chat Engine ===")
+        print("This is an interactive command. Prepare your first user turn before entering the session.")
+        if args.mode == "act":
+            role = args.character or "<character>"
+            print(f"Mode: act | Controlled role: {role}")
+            print("Starter input example: 我先表态，你们再接。")
+        else:
+            print("Mode: observe")
+            print("Starter input example: 请让大家围绕这件事各说一句。")
+        print("Inline commands: /save /reflect /correct /quit")
         engine = ChatEngine(self.config)
 
         if args.session:
@@ -190,6 +256,10 @@ class ZaomengCLI:
 
     def _handle_extract(self, args: argparse.Namespace) -> None:
         print("=== Relationship Extraction ===")
+        if args.force:
+            print("Confirmation: skipped via --force")
+        else:
+            print("This command is confirmation-gated. Use --force only after confirming with the user.")
         extractor = RelationshipExtractor(self.config)
 
         if not args.force:

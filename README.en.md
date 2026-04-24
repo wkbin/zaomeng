@@ -120,6 +120,14 @@ python -m src.core.main view --character <name> --novel data/sample_novel.txt
 python -m src.core.main correct --session <ID> --message "<raw>" --corrected "<fixed>" --character <name>
 ```
 
+Chat prerequisites:
+
+- `chat` is an interactive command, so confirm the novel, mode, and first user turn before launching it
+- Run `distill` first, and run `extract` first if you want relation-aware replies
+- Suggested `observe` starter: `请让大家围绕这件事各说一句。`
+- Suggested `act` starter: `我先表态，你们再接。`
+- `distill` and `extract` are confirmation-gated by default; in tool-driven runs, confirm first and then use `--force`
+
 Inline chat commands:
 
 - `/save`

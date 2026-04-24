@@ -13,6 +13,21 @@ Use these CLI commands as the canonical entrypoints:
 - `python -m src.core.main view --character <name> [--novel <path-or-name>]`
 - `python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>]`
 
+## Interactive Chat Rule
+
+- `chat` is an interactive terminal session, not a fire-and-forget command.
+- Before running `chat`, first confirm:
+  - novel path or novel name
+  - mode: `observe` or `act`
+  - controlled character when mode is `act`
+  - whether `distill` has already been run
+  - whether `extract` has already been run if relation-aware replies are desired
+- Before launching the session, tell the user what input they should type first.
+- Offer a simple starter turn when the user does not provide one:
+  - `observe`: `请让大家围绕这件事各说一句。`
+  - `act`: `我先表态，你们再接。`
+- Do not claim PTY failure and do not simulate stdin or auto-script chat turns unless the user explicitly asks for that behavior.
+
 ## I/O Contract
 
 - Character profiles: `data/characters/<novel_id>/<character>.json`
@@ -23,6 +38,8 @@ Use these CLI commands as the canonical entrypoints:
 ## Runtime Rules
 
 - Require confirmation before high-cost distill/extract runs unless `--force` is present.
+- In agent-driven runs, do not wait for confirmation prompts and then improvise stdin injection.
+- First ask the user whether the run should proceed, then execute `distill` or `extract` with `--force`.
 - Keep chat turns local-only and compact.
 - Apply correction memory before speech generation.
 - Preserve UTF-8 JSON outputs with stable keys.
