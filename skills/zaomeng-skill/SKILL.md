@@ -1,50 +1,36 @@
 ---
 name: zaomeng-skill
-description: zaomeng local skill for character distillation, relationship extraction, and roleplay chat workflows.
+description: zaomeng 本地规则型中文小说人物工作流技能。
 ---
 
-# Zaomeng Skill
+# Zaomeng 技能
 
-Use this skill to run zaomeng's local workflow without cloud model dependencies.
+## 先看这个
 
-## Commands
+- `zaomeng` 是本地规则驱动的人物引擎。
+- 它不是通用大模型聊天机器人。
+- 它支持的是基于人物档案和关系数据的受约束角色互动。
+- 不要把它解释成真正的自由聊天或开放式创意生成。
+- Agent 必须直接调用 CLI，不要从源码里重建流程。
 
-- `python -m src.core.main distill --novel <path> [--characters A,B] [--force]`
-- `python -m src.core.main extract --novel <path> [--output <path>] [--force]`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] --session <id> --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>]`
-- `python -m src.core.main view --character <name> [--novel <path-or-name>]`
-- `python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>]`
+## Chat 调用规则
 
-## Chat Execution Rule
+- 默认规则：任何 agent 或工具调用 `chat` 时，都应该带 `--message`。
+- 首选用法：
+  - `python -m src.core.main chat --novel <路径或名称> --mode observe --message "<提示语>"`
+  - `python -m src.core.main chat --novel <路径或名称> --mode act --character <角色名> --message "<提示语>"`
+- 多轮继续时，持续使用 `--session <id> --message "<提示语>"`。
+- 只有当用户明确想要交互式终端会话时，才允许使用不带 `--message` 的 `chat`。
 
-- Default rule: any agent or tool calling `chat` should use `--message`.
-- Use interactive `chat` only when the user explicitly wants a terminal session.
-- Never conclude that chat is unusable because the environment lacks interactive input before trying `--message`.
-- Do not simulate stdin or auto-play the conversation unless the user explicitly asks for scripted interaction.
-- For continued conversation, keep using `--session <id> --message "..."`.
-- Before running interactive `chat`, first confirm:
-  - novel path or novel name
-  - mode: `observe` or `act`
-  - controlled character in `act` mode
-  - whether `distill` has already generated profiles
-  - whether `extract` has already generated relations if relation-aware chat is expected
-- If the user does not specify a first turn, offer:
-  - `observe`: `请让大家围绕这件事各说一句。`
-  - `act`: `我先表态，你们再接。`
+## 禁止行为
 
-## Data Paths
+- 不要在尝试 `--message` 之前就认定“环境不支持交互，所以 chat 不能用”。
+- 不要模拟 stdin，也不要自动播放整段对话，除非用户明确要求脚本化交互。
+- 不要读取 `chat_engine.py`、直接调用 `speaker.generate()`、或手动加载角色 JSON，除非用户明确要求你检查代码。
 
-- `data/characters/<novel_id>/`
-- `data/relations/<novel_id>/`
-- `data/sessions/`
-- `data/corrections/`
+## 其他命令
 
-## Notes
-
-- The workflow is local-first and does not require OpenAI API access.
-- The host project only needs Python plus this repository's CLI entrypoints.
-- `distill` and `extract` ask for confirmation by default; in agent-driven runs, confirm with the user first and then use `--force`.
-- Do not simulate stdin to bypass confirmation prompts unless the user explicitly wants scripted execution.
+- 蒸馏：`python -m src.core.main distill --novel <路径> [--characters A,B] [--force]`
+- 关系抽取：`python -m src.core.main extract --novel <路径> [--output <路径>] [--force]`
+- 查看角色：`python -m src.core.main view --character <角色名> [--novel <路径或名称>]`
+- 保存纠错：`python -m src.core.main correct --session <id> --message <原句> --corrected <修正句> [--character <角色名>]`

@@ -28,7 +28,10 @@ class ZaomengCLI:
 
     def _create_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            description="zaomeng: local novel character distillation and chat tooling",
+            description=(
+                "zaomeng: local rule-based novel character tooling. "
+                "Not a general-purpose LLM chatbot."
+            ),
             epilog="See PROJECT.md for project notes.",
         )
         subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -57,9 +60,14 @@ class ZaomengCLI:
 
         chat_parser = subparsers.add_parser(
             "chat",
-            help="Start an interactive or single-turn multi-character chat session",
+            help="Run constrained roleplay chat via CLI",
             description=(
-                "Start a chat session.\n\n"
+                "Run constrained roleplay chat.\n\n"
+                "Important:\n"
+                "  - This is a local rule-based character engine.\n"
+                "  - It is not a general-purpose LLM chatbot.\n"
+                "  - For agent use, default to `--message`.\n"
+                "  - Do not rebuild chat manually from source files.\n\n"
                 "Prerequisites:\n"
                 "  1. Run `distill` first so character profiles exist.\n"
                 "  2. Run `extract` first if you want relation-aware replies.\n"

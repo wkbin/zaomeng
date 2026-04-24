@@ -1,47 +1,36 @@
 ---
 name: hermes-zaomeng
-description: Hermes Agent adapter for zaomeng local novel distillation, relation extraction, and roleplay chat.
+description: Hermes 适配器，用于 zaomeng 的本地规则型中文小说人物工作流。
 ---
 
-# Hermes Adapter
+# Hermes 适配器
 
-## Supported Tasks
+## 先看这个
 
-1. Distill character profiles from `.txt` and `.epub` novels.
-2. Build pairwise relationship graphs for same-sentence co-occurring characters.
-3. Run `observe` or `act` roleplay turns.
-4. Persist and retrieve correction memories to reduce repeated OOC behavior.
+- `zaomeng` 是本地规则驱动的人物引擎。
+- 它不是通用大模型聊天机器人。
+- 它做的是基于人物档案和关系数据的受约束角色互动。
+- 不要把它描述成自由聊天、开放式生成、创意型模型对话。
+- Hermes 必须直接调用 CLI，不要去读源码后自己重建流程。
 
-## Invocation Mapping
+## Chat 调用规则
 
-- Distillation: `python -m src.core.main distill --novel ... [--characters A,B] [--force]`
-- Relationship extraction: `python -m src.core.main extract --novel ... [--force]`
-- One-shot observe chat: `python -m src.core.main chat --novel ... --mode observe --message "..."`
-- One-shot act chat: `python -m src.core.main chat --novel ... --mode act --character ... --message "..."`
-- Continued agent turn: `python -m src.core.main chat --novel ... --mode ... [--character ...] --session <id> --message "..."`
-- Interactive chat: `python -m src.core.main chat --novel ... --mode ... [--character ...]`
-- Character view: `python -m src.core.main view --character ... [--novel ...]`
-- Manual correction: `python -m src.core.main correct --session ... --message ... --corrected ...`
+- 默认规则：Hermes 调用 `chat` 时，必须带 `--message`。
+- 首选用法：
+  - `python -m src.core.main chat --novel <路径> --mode observe --message "<提示语>"`
+  - `python -m src.core.main chat --novel <路径> --mode act --character <角色名> --message "<提示语>"`
+- 多轮继续时，持续使用 `--session <id> --message "<提示语>"`。
+- 只有当用户明确要求“实时终端交互”时，才允许使用不带 `--message` 的 `chat`。
 
-## Chat Execution Rule
+## 禁止行为
 
-- Default rule: when Hermes runs `chat`, it must use `--message`.
-- Do not treat `chat` as an interactive terminal command unless the user explicitly asks for a live terminal session.
-- Do not say the environment lacks PTY or interactive input before first trying `chat ... --message "..."`.
-- Do not recover by scripting stdin when `--message` can express the request directly.
-- For multi-turn agent workflows, keep reusing `--session <id> --message "..."` instead of switching to terminal interaction.
-- If relation-aware replies are expected, ensure `extract` has already been run.
-- If `act` mode is requested, require `--character`.
-- Recommended starter turns:
-  - `observe`: `请让大家围绕这件事各说一句。`
-  - `act`: `我先表态，你们再接。`
+- 不要在尝试 `--message` 之前先说环境不支持 PTY 或交互输入。
+- 不要在 `--message` 能表达请求时改用 stdin 脚本。
+- 不要读取 `chat_engine.py`、直接调用 `speaker.generate()`、或手动加载角色 JSON，除非用户明确要求你检查代码。
 
-## Behavioral Constraints
+## 其他命令
 
-- Use chunk strategy with token window and overlap for long novels.
-- Save durable artifacts under novel-scoped `data/` directories.
-- Show local token/cost stats from `llm_client.py`.
-- Enforce the daily budget from `config.yaml`.
-- Treat `distill` and `extract` as confirmation-gated commands unless `--force` is explicitly chosen after user confirmation.
-- Do not work around confirmation prompts by faking stdin unless the user explicitly asks for scripted execution.
-- Do not rely on external cloud model providers.
+- 蒸馏：`python -m src.core.main distill --novel <路径> [--characters A,B] [--force]`
+- 关系抽取：`python -m src.core.main extract --novel <路径> [--force]`
+- 查看角色：`python -m src.core.main view --character <角色名> [--novel <路径>]`
+- 保存纠错：`python -m src.core.main correct --session <id> --message <原句> --corrected <修正句>`

@@ -1,51 +1,36 @@
 ---
 name: openclaw-zaomeng
-description: OpenClaw adapter for zaomeng local character distillation, relationship extraction, and roleplay chat.
+description: OpenClaw 适配器，用于 zaomeng 的本地规则型中文小说人物工作流。
 ---
 
-# OpenClaw Adapter
+# OpenClaw 适配器
 
-Use these CLI commands as the canonical entrypoints:
+## 先看这个
 
-- `python -m src.core.main distill --novel <path> [--characters A,B] [--force]`
-- `python -m src.core.main extract --novel <path> [--output <path>] [--force]`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] --session <id> --message "<prompt>"`
-- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>]`
-- `python -m src.core.main view --character <name> [--novel <path-or-name>]`
-- `python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>]`
+- `zaomeng` 是本地规则驱动的人物引擎。
+- 它不是通用大模型聊天机器人。
+- 它支持的是受约束角色互动，不是开放式自由生成。
+- OpenClaw 必须直接使用项目公开的 CLI 入口。
+- 不要读取内部模块后自己手搓一套流程。
 
-## Chat Execution Rule
+## Chat 调用规则
 
-- Default rule: OpenClaw must call `chat` with `--message`.
-- Treat plain `chat` without `--message` as interactive, and only use it when the user explicitly requests terminal interaction.
-- Do not claim PTY failure, stdin failure, or interactive-input limitations before trying the `--message` form.
-- Do not simulate stdin or auto-script chat turns when `--message` can express the request directly.
-- For continued roleplay, reuse the saved session with `--session <id> --message "..."`.
-- Before running interactive `chat`, confirm:
-  - novel path or novel name
-  - mode: `observe` or `act`
-  - controlled character when mode is `act`
-  - whether `distill` has already been run
-  - whether `extract` has already been run if relation-aware replies are desired
-- Use these starter turns when the user does not provide one:
-  - `observe`: `请让大家围绕这件事各说一句。`
-  - `act`: `我先表态，你们再接。`
+- 默认规则：OpenClaw 调用 `chat` 时，必须带 `--message`。
+- 首选用法：
+  - `python -m src.core.main chat --novel <路径或名称> --mode observe --message "<提示语>"`
+  - `python -m src.core.main chat --novel <路径或名称> --mode act --character <角色名> --message "<提示语>"`
+- 多轮继续时，复用 `--session <id> --message "<提示语>"`。
+- 只有当用户明确要求终端交互时，才允许使用不带 `--message` 的 `chat`。
 
-## I/O Contract
+## 禁止行为
 
-- Character profiles: `data/characters/<novel_id>/<character>.json`
-- Relationship graph: `data/relations/<novel_id>/<novel_id>_relations.json`
-- Session data: `data/sessions/<session_id>.json`
-- Correction data: `data/corrections/correction_<session>_<ts>.json`
+- 不要在尝试 `--message` 之前先说 PTY 失败、stdin 失败或环境不支持交互。
+- 不要在 `--message` 能表达请求时模拟 stdin 或自动脚本化聊天。
+- 不要读取 `chat_engine.py`、直接调用 `speaker.generate()`、或手动适配角色档案字段，除非用户明确要求你检查代码。
 
-## Runtime Rules
+## 其他命令
 
-- Require confirmation before high-cost distill/extract runs unless `--force` is present.
-- In agent-driven runs, do not wait for confirmation prompts and then improvise stdin injection.
-- First ask the user whether the run should proceed, then execute `distill` or `extract` with `--force`.
-- Keep chat turns local-only and compact.
-- Apply correction memory before speech generation.
-- Preserve UTF-8 JSON outputs with stable keys.
-- Do not require cloud LLM or OpenAI API keys.
+- 蒸馏：`python -m src.core.main distill --novel <路径> [--characters A,B] [--force]`
+- 关系抽取：`python -m src.core.main extract --novel <路径> [--output <路径>] [--force]`
+- 查看角色：`python -m src.core.main view --character <角色名> [--novel <路径或名称>]`
+- 保存纠错：`python -m src.core.main correct --session <id> --message <原句> --corrected <修正句> [--character <角色名>]`
