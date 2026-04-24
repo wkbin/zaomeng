@@ -2,22 +2,308 @@
 
 [中文](README.md) | [English](README.en.md)
 
-Local toolkit for novel character distillation, relationship extraction, and roleplay chat. The current version runs on a local rule engine and does not require any cloud model or API key.
+Local toolkit for novel character distillation, relationship extraction, roleplay chat, and correction memory.
 
-## Quick Start
+This project is not meant to be a generic chatbot. Its purpose is to turn novel text into reusable character assets:
+
+- character profiles
+- relationship graphs
+- dialogue constraints
+- correction memory
+- agent-ready skill packages
+
+The current version runs on a local rule engine and does not require any cloud model or API key. It is suitable for offline analysis, roleplay experiments, fanfiction workflows, literature research, and agent orchestration.
+
+## What It Does
+
+### 1. Character Distillation
+
+Extract major characters from `.txt` or `.epub` novels and build structured profiles, including:
+
+- `core_traits`
+- `values`
+- `speech_style`
+- `typical_lines`
+- `decision_rules`
+- `arc`
+- `evidence`
+
+Useful for:
+
+- organizing character sheets
+- summarizing original character design
+- producing reusable assets for later chat and story experiments
+
+### 2. Relationship Extraction
+
+Build a relationship graph from the novel. Current fields include:
+
+- `trust`
+- `affection`
+- `power_gap`
+- `conflict_point`
+- `typical_interaction`
+
+The current edge-building strategy is sentence-level co-occurrence, which is more conservative and more useful for downstream roleplay than rough chunk-level co-occurrence.
+
+### 3. Roleplay Chat
+
+Start local multi-character dialogue using distilled profiles and relationship data.
+
+Supported modes:
+
+- `observe`
+  You provide a scene or opening prompt, and the system lets characters react naturally.
+- `act`
+  You control one character, and the rest respond according to profile and relationship state.
+
+During chat, the system supports:
+
+- `/save`
+- `/reflect`
+- `/correct character|target|original|corrected|reason`
+- `/quit`
+
+### 4. Correction Memory
+
+When a character says something clearly out of character, you can save a correction:
 
 ```bash
-pip install -r requirements.txt
-cp config.yaml.example config.yaml
-python -m src.core.main distill --novel data/sample_novel.txt --force
-python -m src.core.main extract --novel data/sample_novel.txt --force
+python -m src.core.main correct \
+  --session <session_id> \
+  --message "Baoyu says he wants to leave the Jia household and become a merchant" \
+  --corrected "Baoyu has little interest in worldly ambition and would rather stay among poetry, gardens, and the inner household" \
+  --character 贾宝玉
 ```
 
-On Windows:
+Corrections are stored in `data/corrections/` and later chat runs try to avoid repeating similar OOC behavior.
 
-```powershell
-Copy-Item config.yaml.example config.yaml
+### 5. Fast Agent Integration
+
+The repository ships with:
+
+- `openclaw-skill/`
+- `hermes-skill/`
+- `skills/zaomeng-skill/`
+- `clawhub-zaomeng-skill/`
+
+You can plug the project into OpenClaw, Hermes Agent, ClawHub CLI, or your own local project.
+
+## Core Play Patterns
+
+### Pattern 1: Distill characters first, then enter chat
+
+Using *Dream of the Red Chamber* as an example:
+
+```bash
+python -m src.core.main distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉 --force
+python -m src.core.main extract --novel data/hongloumeng.txt --force
 ```
+
+This generates novel-scoped outputs:
+
+- `data/characters/hongloumeng/*.json`
+- `data/relations/hongloumeng/hongloumeng_relations.json`
+
+The system now supports reliable two-character aliases when explicit targets are provided, for example:
+
+- `林黛玉 -> 黛玉`
+- `贾宝玉 -> 宝玉`
+
+So even if the source text frequently uses `黛玉` and `宝玉` instead of full names, distillation and relationship extraction can still match the evidence more reliably.
+
+### Pattern 2: Observe mode
+
+```bash
+python -m src.core.main chat --novel data/hongloumeng.txt --mode observe
+```
+
+This is not a fire-and-forget command. It is an interactive session, so you should provide an opening prompt such as:
+
+```text
+Please let everyone speak naturally around Daiyu's arrival at the Jia household.
+```
+
+Useful for:
+
+- observing natural interaction between characters
+- seeing how relationship values affect tone and behavior
+- checking whether the distilled personas feel faithful to the source
+
+### Pattern 3: Act mode
+
+```bash
+python -m src.core.main chat --novel data/hongloumeng.txt --mode act --character 林黛玉
+```
+
+In this mode, you control the named character and others reply. Good first turns include:
+
+```text
+I will speak first. The rest of you continue from there.
+```
+
+Or something more scene-specific:
+
+```text
+Baoyu, why did you arrive so late again today?
+```
+
+Useful for:
+
+- immersive roleplay
+- testing a character under a specific relationship state
+- branching-scene experiments
+
+### Pattern 4: Inspect a character profile
+
+```bash
+python -m src.core.main view --character 林黛玉 --novel data/hongloumeng.txt
+python -m src.core.main view --character 贾宝玉 --novel data/hongloumeng.txt
+```
+
+`view` currently shows one character at a time. For multiple characters, browse:
+
+- `data/characters/<novel_id>/`
+
+Useful for:
+
+- checking distillation quality
+- comparing values and speech styles across roles
+- preparing manual adjustments
+
+### Pattern 5: Edit relationships, then re-enter chat
+
+If the automatic relationship extraction is not detailed enough, you can edit the relation file manually and then run chat again:
+
+- inspect `data/relations/hongloumeng/hongloumeng_relations.json`
+- adjust or add a specific pair
+- run `chat` again
+
+For example:
+
+```json
+{
+  "林黛玉_贾宝玉": {
+    "trust": 8,
+    "affection": 9,
+    "power_gap": 2,
+    "conflict_point": "Golden Jade destiny vs. Wood-Stone bond",
+    "typical_interaction": "Daiyu questions him, Baoyu tries to soothe her, tension softens briefly"
+  }
+}
+```
+
+This is especially useful for relationships with layered emotional history that current rules cannot fully reconstruct.
+
+## Dream Of The Red Chamber Examples
+
+### Example 1: Observe Daiyu and Baoyu
+
+```bash
+python -m src.core.main chat --novel data/hongloumeng.txt --mode observe
+```
+
+Suggested first turn:
+
+```text
+Scene: Inside Rongguo House, Daiyu has just arrived, and Baoyu is meeting her for the first time. Let the relevant characters begin naturally.
+```
+
+### Example 2: You play Daiyu
+
+```bash
+python -m src.core.main chat --novel data/hongloumeng.txt --mode act --character 林黛玉
+```
+
+You might type:
+
+```text
+Baoyu, why are you looking at me like that today?
+```
+
+### Example 3: Correct an OOC reply
+
+```bash
+python -m src.core.main correct \
+  --session <session_id> \
+  --message "Baoyu plans to leave home and build a business" \
+  --corrected "Baoyu despises worldly advancement and would rather remain in the world of poetry, gardens, and the inner chambers" \
+  --character 贾宝玉
+```
+
+## Good Use Cases
+
+### 1. Fanfiction workflows
+
+- place original characters into alternate scenarios
+- test how a scene changes if one crucial line is different
+- draft missing conversations between known characters
+
+### 2. Literature research
+
+- compare character traits in a structured way
+- analyze the social graph of a novel
+- study dialogue style and interaction patterns
+
+### 3. Story experiments
+
+- begin from a canonical scene prompt
+- modify a conflict point
+- observe how different relationship values change behavior
+
+### 4. Agent use
+
+- reuse characters as persona assets
+- plug them into OpenClaw / Hermes / ClawHub workflows
+- use them for multi-agent simulation, branching narrative experiments, or persona-constraint testing
+
+## Configuration
+
+### 1. Value dimensions
+
+You can adapt `values_dimensions` in `config.yaml` to better fit a specific work:
+
+```yaml
+distillation:
+  values_dimensions:
+    - "情缘"
+    - "才情"
+    - "命运"
+    - "家族责任"
+    - "个人追求"
+    - "礼教束缚"
+```
+
+### 2. Chat parameters
+
+```yaml
+chat_engine:
+  max_history_turns: 20
+  max_speakers_per_turn: 6
+  token_limit_per_turn: 800
+```
+
+Useful for:
+
+- keeping more context
+- allowing more speakers per round
+- increasing dialogue capacity in dense scenes
+
+## Command Overview
+
+```bash
+python -m src.core.main distill --novel <path> [--characters A,B] [--output <dir>] [--force]
+python -m src.core.main extract --novel <path> [--output <path>] [--force]
+python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] [--session <id>]
+python -m src.core.main view --character <name> [--novel <path-or-name>]
+python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>] [--target <name>] [--reason <text>]
+```
+
+Interaction notes:
+
+- `chat` is interactive, so prepare the first user turn before entering the session
+- `distill` and `extract` ask for confirmation by default
+- in agent-driven or tool-driven flows, get user approval first and then use `--force`
 
 ## Quick Integration
 
@@ -29,44 +315,11 @@ https://github.com/wkbin/zaomeng.git
 
 ### OpenClaw
 
-Recommended install:
+Recommended:
 
 ```bash
 openclaw skills install wkbin/zaomeng-skill
 ```
-
-Repository script install (for local development or environments without ClawHub):
-
-```bash
-python scripts/install_skill.py --openclaw-dir <openclaw-skills-root>
-```
-
-Manual install, choose one:
-
-```bash
-# Option 1: clone the repo and copy the adapter
-git clone https://github.com/wkbin/zaomeng.git
-mkdir -p <openclaw-skills-root>/zaomeng-skill
-cp zaomeng/openclaw-skill/SKILL.md <openclaw-skills-root>/zaomeng-skill/SKILL.md
-```
-
-```bash
-# Option 2: download only the adapter file
-mkdir -p <openclaw-skills-root>/zaomeng-skill
-curl -L https://raw.githubusercontent.com/wkbin/zaomeng/main/openclaw-skill/SKILL.md -o <openclaw-skills-root>/zaomeng-skill/SKILL.md
-```
-
-Command mapping inside OpenClaw:
-
-```bash
-python -m src.core.main distill --novel <path> [--characters A,B] [--force]
-python -m src.core.main extract --novel <path> [--force]
-python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>]
-python -m src.core.main view --character <name> [--novel <path-or-name>]
-python -m src.core.main correct --session <id> --message <raw> --corrected <fixed>
-```
-
-The same `zaomeng-skill` also works in Hermes Agent with the same command mapping, so there is no separate integration path to maintain in the docs.
 
 ### Your Own Project
 
@@ -76,85 +329,21 @@ Recommended via ClawHub CLI:
 npx clawhub@latest install zaomeng-skill
 ```
 
-If your project already has a `skills/` root, you can also use the repository install script:
+If your project already has a `skills/` directory:
 
 ```bash
 python scripts/install_skill.py --skills-dir <your-skills-root>
 ```
 
-If you want to install directly into a project root:
-
-```bash
-python scripts/install_skill.py --project-root <your-project-root>
-```
-
-To override the installed skill folder name:
-
-```bash
-python scripts/install_skill.py --project-root <your-project-root> --skill-name zaomeng-skill
-```
-
-If you prefer not to run the installer script, you can integrate manually:
-
-```bash
-# Option 1: clone the repo and copy the whole generic skill directory
-git clone https://github.com/wkbin/zaomeng.git
-mkdir -p <your-project-root>/skills
-cp -r zaomeng/skills/zaomeng-skill <your-project-root>/skills/
-```
-
-```bash
-# Option 2: download only the generic SKILL.md
-mkdir -p <your-project-root>/skills/zaomeng-skill
-curl -L https://raw.githubusercontent.com/wkbin/zaomeng/main/skills/zaomeng-skill/SKILL.md -o <your-project-root>/skills/zaomeng-skill/SKILL.md
-```
-
-## Core Commands
-
-```bash
-python -m src.core.main distill --novel data/sample_novel.txt --force
-python -m src.core.main extract --novel data/sample_novel.txt --force
-python -m src.core.main chat --novel data/sample_novel.txt --mode observe
-python -m src.core.main chat --novel data/sample_novel.txt --mode act --character <name>
-python -m src.core.main view --character <name> --novel data/sample_novel.txt
-python -m src.core.main correct --session <ID> --message "<raw>" --corrected "<fixed>" --character <name>
-```
-
-Chat prerequisites:
-
-- `chat` is an interactive command, so confirm the novel, mode, and first user turn before launching it
-- Run `distill` first, and run `extract` first if you want relation-aware replies
-- Suggested `observe` starter: `请让大家围绕这件事各说一句。`
-- Suggested `act` starter: `我先表态，你们再接。`
-- `distill` and `extract` are confirmation-gated by default; in tool-driven runs, confirm first and then use `--force`
-
-Inline chat commands:
-
-- `/save`
-- `/reflect`
-- `/correct character|target|original|corrected|reason`
-- `/quit`
-
-## Output Layout
-
-Artifacts are isolated by novel to avoid cross-novel contamination:
-
-- `data/characters/<novel_id>/`
-- `data/relations/<novel_id>/`
-- `data/sessions/`
-- `data/corrections/`
-
-For `data/sample_novel.txt`, the default output is:
-
-- `data/characters/sample_novel/*.json`
-- `data/relations/sample_novel/sample_novel_relations.json`
-
 ## Current Implementation Notes
 
 - Input formats: `.txt` and `.epub`
-- Distilled profiles include `novel_id`, `source_path`, and lightweight evidence counters
-- Relationships are created only for character pairs that co-occur in the same sentence
-- Chat sessions load character and relationship assets from the scoped novel namespace first
+- Character profiles are written to `data/characters/<novel_id>/`
+- Relationship graphs are written to `data/relations/<novel_id>/`
+- Chat loads novel-scoped character and relation data first
+- Relationship scoring is currently rule-based and sentence-scoped: reliable, but still limited
+- `view` currently shows one character at a time
+- The current system is local-rule-engine-first and does not rely on external cloud models
 
 ## Project Structure
 
@@ -166,6 +355,10 @@ src/modules/chat_engine.py
 src/modules/reflection.py
 src/modules/speaker.py
 src/utils/
+openclaw-skill/
+hermes-skill/
+skills/zaomeng-skill/
+clawhub-zaomeng-skill/
 tests/test_relation_behavior.py
 ```
 
