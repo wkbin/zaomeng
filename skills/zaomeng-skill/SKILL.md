@@ -13,14 +13,18 @@ Use this skill to run zaomeng's local workflow without cloud model dependencies.
 - `python -m src.core.main extract --novel <path> [--output <path>] [--force]`
 - `python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"`
 - `python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<prompt>"`
+- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] --session <id> --message "<prompt>"`
 - `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>]`
 - `python -m src.core.main view --character <name> [--novel <path-or-name>]`
 - `python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>]`
 
 ## Chat Execution Rule
 
-- Prefer the non-interactive single-turn form with `--message` when an agent needs to call chat directly.
+- Default rule: any agent or tool calling `chat` should use `--message`.
 - Use interactive `chat` only when the user explicitly wants a terminal session.
+- Never conclude that chat is unusable because the environment lacks interactive input before trying `--message`.
+- Do not simulate stdin or auto-play the conversation unless the user explicitly asks for scripted interaction.
+- For continued conversation, keep using `--session <id> --message "..."`.
 - Before running interactive `chat`, first confirm:
   - novel path or novel name
   - mode: `observe` or `act`
@@ -30,7 +34,6 @@ Use this skill to run zaomeng's local workflow without cloud model dependencies.
 - If the user does not specify a first turn, offer:
   - `observe`: `请让大家围绕这件事各说一句。`
   - `act`: `我先表态，你们再接。`
-- Do not treat interactive input failure as a reason to simulate stdin or auto-play the conversation unless the user explicitly asks for scripted interaction.
 
 ## Data Paths
 

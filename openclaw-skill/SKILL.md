@@ -11,14 +11,18 @@ Use these CLI commands as the canonical entrypoints:
 - `python -m src.core.main extract --novel <path> [--output <path>] [--force]`
 - `python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"`
 - `python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<prompt>"`
+- `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] --session <id> --message "<prompt>"`
 - `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>]`
 - `python -m src.core.main view --character <name> [--novel <path-or-name>]`
 - `python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>]`
 
 ## Chat Execution Rule
 
-- Prefer `chat ... --message "..."` for agent-driven runs.
-- Treat plain `chat` without `--message` as an interactive terminal session.
+- Default rule: OpenClaw must call `chat` with `--message`.
+- Treat plain `chat` without `--message` as interactive, and only use it when the user explicitly requests terminal interaction.
+- Do not claim PTY failure, stdin failure, or interactive-input limitations before trying the `--message` form.
+- Do not simulate stdin or auto-script chat turns when `--message` can express the request directly.
+- For continued roleplay, reuse the saved session with `--session <id> --message "..."`.
 - Before running interactive `chat`, confirm:
   - novel path or novel name
   - mode: `observe` or `act`
@@ -28,7 +32,6 @@ Use these CLI commands as the canonical entrypoints:
 - Use these starter turns when the user does not provide one:
   - `observe`: `请让大家围绕这件事各说一句。`
   - `act`: `我先表态，你们再接。`
-- Do not claim PTY failure and do not simulate stdin or auto-script chat turns unless the user explicitly asks for that behavior.
 
 ## I/O Contract
 

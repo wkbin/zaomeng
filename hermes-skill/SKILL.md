@@ -9,24 +9,27 @@ description: Hermes Agent adapter for zaomeng local novel distillation, relation
 
 1. Distill character profiles from `.txt` and `.epub` novels.
 2. Build pairwise relationship graphs for same-sentence co-occurring characters.
-3. Run immersive `observe` or `act` chat sessions.
+3. Run `observe` or `act` roleplay turns.
 4. Persist and retrieve correction memories to reduce repeated OOC behavior.
 
 ## Invocation Mapping
 
 - Distillation: `python -m src.core.main distill --novel ... [--characters A,B] [--force]`
 - Relationship extraction: `python -m src.core.main extract --novel ... [--force]`
-- Single-turn observe chat: `python -m src.core.main chat --novel ... --mode observe --message "..."`
-- Single-turn act chat: `python -m src.core.main chat --novel ... --mode act --character ... --message "..."`
+- One-shot observe chat: `python -m src.core.main chat --novel ... --mode observe --message "..."`
+- One-shot act chat: `python -m src.core.main chat --novel ... --mode act --character ... --message "..."`
+- Continued agent turn: `python -m src.core.main chat --novel ... --mode ... [--character ...] --session <id> --message "..."`
 - Interactive chat: `python -m src.core.main chat --novel ... --mode ... [--character ...]`
 - Character view: `python -m src.core.main view --character ... [--novel ...]`
 - Manual correction: `python -m src.core.main correct --session ... --message ... --corrected ...`
 
 ## Chat Execution Rule
 
-- For agent-driven usage, prefer the non-interactive single-turn form with `--message`.
-- Use interactive `chat` only when the user explicitly wants to stay inside a terminal session.
-- Do not claim PTY failure and do not recover by scripting stdin when `--message` can express the request directly.
+- Default rule: when Hermes runs `chat`, it must use `--message`.
+- Do not treat `chat` as an interactive terminal command unless the user explicitly asks for a live terminal session.
+- Do not say the environment lacks PTY or interactive input before first trying `chat ... --message "..."`.
+- Do not recover by scripting stdin when `--message` can express the request directly.
+- For multi-turn agent workflows, keep reusing `--session <id> --message "..."` instead of switching to terminal interaction.
 - If relation-aware replies are expected, ensure `extract` has already been run.
 - If `act` mode is requested, require `--character`.
 - Recommended starter turns:

@@ -116,11 +116,14 @@ For `/chat`, validate the candidate reply against `speech_style`, `values`, and 
 
 ## Chat Execution Rules
 
-- Prefer one-shot chat calls over interactive `/chat` when an agent can express the turn directly.
+- Default rule: any agent using this skill must call chat with `--message`.
 - Canonical one-shot forms:
   - `python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"`
   - `python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<prompt>"`
-- Use interactive `chat` only when the operator explicitly wants a live terminal session.
+  - `python -m src.core.main chat --novel <path-or-name> --mode observe|act [--character <name>] --session <id> --message "<prompt>"`
+- Do not treat `chat` as interactive unless the operator explicitly asks for a live terminal session.
+- Do not say the environment lacks PTY, stdin, or interactive input before first trying the one-shot `--message` form.
+- Do not auto-script stdin when `--message` can express the request directly.
 - Before starting interactive `chat`, first confirm:
   - novel or source text scope
   - mode: `observe` or `act`
@@ -130,7 +133,6 @@ For `/chat`, validate the candidate reply against `speech_style`, `values`, and 
 - If the operator does not provide a first turn, offer:
   - `observe`: `请让大家围绕这件事各说一句。`
   - `act`: `我先表态，你们再接。`
-- Do not claim PTY/input failure and do not auto-script stdin unless the operator explicitly asks for scripted execution.
 - Treat `/distill` and `/extract` as confirmation-gated operations; in tool-driven execution, require user agreement first and then run with the non-interactive equivalent.
 
 ## Update Workflow
