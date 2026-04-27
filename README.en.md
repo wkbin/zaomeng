@@ -2,140 +2,91 @@
 
 [中文](README.md) | [English](README.en.md)
 
-Local toolkit for turning novels into reusable, constrained character assets:
+`zaomeng` is a local novel-character toolkit.  
+You can use it to distill characters from fiction, extract relationships, and run constrained in-character dialogue.
 
-- character distillation
-- relationship extraction
-- constrained roleplay chat
-- correction memory
-- agent integration for OpenClaw, Hermes, ClawHub, and similar tools
+It is not a generic chatbot.  
+It is closer to a character engine: the goal is not casual chatting, but making characters sound like themselves.
 
-This is not a generic chatbot. The goal is to make characters behave like themselves, not like a generic assistant wearing a costume.
+## What You Can Do With It
 
-## Read This First: Natural Language Is The Primary Interface
+- extract character profiles from `.txt` / `.epub` novels
+- build relationship graphs
+- enter multi-character group chat mode and observe interactions
+- enter one-to-one roleplay mode and speak as a chosen character
+- correct out-of-character replies and write them into memory
 
-If you are integrating `zaomeng` through OpenClaw, Hermes, ClawHub, or another agent layer, the recommended approach is:
+## Most Common Ways To Use It
 
-- pass the user's raw request into `chat --mode auto`
-- let `zaomeng` decide whether the request is a mode switch or an actual spoken line
-- avoid manually simulating the scene outside the engine
+### 1. Enter a mode with natural language
 
-Recommended mental model:
+The easiest way to use `zaomeng` is not to think in commands first, but to simply say what kind of interaction you want.
 
-- if the user is describing a play pattern, that is a **mode-intent request**
-- if the user is speaking as a character, that is an **in-character line**
-- `zaomeng` should map the first case to mode setup and the second case to turn execution
-
-### Natural Language To Mode Mapping
-
-Requests like these should usually mean **enter `act` mode**:
-
-- `Let me play Jia Baoyu and chat with Lin Daiyu`
-- `I'll play Jia Baoyu, you make Lin Daiyu reply to me`
-- `I say one line, Daiyu answers one line`
-- `Enter Bao-Dai act mode`
-- `I want to play Liu Bei`
-
-These are setup requests, not spoken dialogue lines.
-
-Expected behavior:
-
-1. create or resume an `act` session
-2. remember which role the user controls
-3. wait for the user's next actual line before generating the other character's reply
-
-Requests like these should usually mean **enter `observe` mode**:
-
-- `Enter Liu Bei, Zhang Fei, Guan Yu group chat mode`
-- `Start a Bao-Dai group chat`
-- `Switch to observe mode`
-
-Requests like these should mean **run one real `observe` turn immediately**, not just switch modes:
-
-- `Let everyone say one line about this matter`
-- `Scene: Daiyu arrives at the Jia household. Let the relevant characters begin naturally`
-- `Have everyone react to the alliance with Sun Quan`
-
-### One Rule For Agent Builders
-
-If the user sounds like they are describing the gameplay, switch mode first.  
-If the user sounds like they are already speaking in character, run the line.
-
-### What OpenClaw / Hermes Style Tools Should Do
-
-- keep the user's original wording whenever possible
-- default to `chat --mode auto`
-- do not rewrite setup requests into freeform scene demos
-- do not answer `Let me play Baoyu and chat with Daiyu` with `Sure, here's a simulated Bao-Dai interaction...`
-
-Natural language intent should be the first-class entry point. CLI is the execution layer underneath.
-
-## Typical Natural Language Flows
-
-### 1. User wants one-to-one act mode
-
-User says:
+For example:
 
 ```text
-让我扮演贾宝玉和林黛玉聊天
+Let me play Jia Baoyu and chat with Lin Daiyu
 ```
 
-Expected behavior:
-
-- enter `act`
-- set `贾宝玉` as the controlled role
-- prioritize `林黛玉` as the reply target
-- return a resumable session
-
-Then the user says:
+The system will enter the flow where you play Baoyu and Daiyu replies.  
+Then you continue with:
 
 ```text
-妹妹今日可大安了？
+Sister, are you feeling well today?
 ```
 
-Only now should this be treated as Baoyu's actual line.
+Now the system treats that as Baoyu's actual spoken line and lets Daiyu answer.
 
-### 2. User wants multi-character observe mode
-
-User says:
+Another example:
 
 ```text
-进入刘备、张飞、关羽群聊模式
+Enter Liu Bei, Zhang Fei, Guan Yu group chat mode
 ```
 
-Expected behavior:
-
-- enter `observe`
-- scope the session to those characters
-- wait for the next scene prompt or opening line
-
-Then the user says:
+This starts a three-character group chat flow.  
+Then you can continue with:
 
 ```text
-刘备：二位贤弟，近日战事稍歇，倒是难得清闲。
+Liu Bei: Brothers, now that the fighting has briefly eased, this is a rare moment of calm.
 ```
 
-Now Zhang Fei and Guan Yu should respond in character.
+The system will let Zhang Fei and Guan Yu respond from there.
 
-### 3. User wants everyone to speak right away
-
-User says:
+If you say:
 
 ```text
-请让大家围绕联合孙权这件事各说一句
+Let everyone say one line about the alliance with Sun Quan
 ```
 
-Expected behavior:
+The system should begin that round immediately, rather than only telling you that a mode was entered.
 
-- treat it as a real `observe` turn
-- do not only reply with `observe mode activated`
-- generate the character replies immediately
+### 2. Observe mode
+
+Observe mode is useful when you want to watch characters interact.  
+You provide a scene, a topic, or an opening line, and the system lets the relevant characters continue naturally.
+
+Useful for:
+
+- checking whether relationship state affects tone
+- checking whether distilled personas feel close to the source
+- experimenting with ensemble scenes
+
+### 3. Act mode
+
+Act mode is useful when you want to play one character yourself.  
+You speak one line, and the other character or characters reply according to persona and relationship state.
+
+Useful for:
+
+- immersive roleplay
+- testing how a specific character responds under a specific relationship
+- running focused character interactions
 
 ## Core Capabilities
 
 ### 1. Character Distillation
 
-Extract major characters from `.txt` or `.epub` novels and build persona-rich profiles, including:
+Extract major characters from a novel and build structured profiles, including:
 
 - `core_traits`
 - `values`
@@ -150,7 +101,7 @@ Extract major characters from `.txt` or `.epub` novels and build persona-rich pr
 
 ### 2. Relationship Extraction
 
-Build a relationship graph from the novel. Current core fields include:
+Build a relationship graph from the novel. Core fields currently include:
 
 - `trust`
 - `affection`
@@ -158,16 +109,16 @@ Build a relationship graph from the novel. Current core fields include:
 - `conflict_point`
 - `typical_interaction`
 
-### 3. Roleplay Chat
+### 3. Character Chat
 
 Two supported modes:
 
 - `observe`
-  You provide a scene or prompt and the characters interact around it.
+  Give a scene or prompt and let the characters interact around it
 - `act`
-  You control one character and the others reply based on persona and relationship state.
+  Control one character directly while others reply in character
 
-Chat supports:
+During chat, the system supports:
 
 - `/save`
 - `/reflect`
@@ -176,7 +127,8 @@ Chat supports:
 
 ### 4. Correction Memory
 
-If a line is clearly out of character, you can save a correction and later runs will try to avoid the same mistake.
+If a line is clearly out of character, you can save a correction.  
+Later runs will try to avoid repeating the same kind of mistake.
 
 ### 5. Markdown Persona Bundle
 
@@ -192,66 +144,67 @@ Each character lives under:
 - `data/characters/<novel_id>/<character>/MEMORY.md`
 - `data/characters/<novel_id>/<character>/RELATIONS.md`
 
-Runtime reads `NAVIGATION.generated.md` first, then applies `NAVIGATION.md`, and follows `load_order`.
+## Quick Start
 
-## Guidance For Agent Integrators
+### Step 1: distill characters and extract relations
 
-### Recommended Strategy
-
-Prefer this:
-
-```text
-take the user's raw request -> send it to zaomeng -> let zaomeng decide act / observe / setup-only
-```
-
-Avoid this:
-
-```text
-take the raw request -> invent the play pattern outside the engine -> manually simulate the scene -> claim it is act mode
-```
-
-### Rules For Skill Layers
-
-- do not manually simulate role chains
-- do not treat mode-switch requests as spoken dialogue
-- do not treat `zaomeng` as a generic chat model
-- do not rely only on legacy JSON assumptions
-- do treat markdown persona files as the primary source of truth
-
-## CLI Usage
-
-CLI is still available directly, but it comes after the natural-language guidance because it is the execution layer, not the primary product experience.
-
-### Recommended: automatic intent routing
+Using *Dream of the Red Chamber* as an example:
 
 ```bash
-python -m src.core.main chat --novel <path-or-name> --mode auto --message "<raw user request>"
+python -m src.core.main distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉 --force
+python -m src.core.main extract --novel data/hongloumeng.txt --force
 ```
 
-Examples:
+This creates:
+
+- `data/characters/hongloumeng/<character>/`
+- `data/relations/hongloumeng/hongloumeng_relations.md`
+
+### Step 2: start chatting
+
+Recommended natural-language flow:
 
 ```bash
 python -m src.core.main chat --novel data/hongloumeng.txt --mode auto --message "让我扮演贾宝玉和林黛玉聊天"
+```
+
+Then continue with:
+
+```bash
 python -m src.core.main chat --novel data/hongloumeng.txt --session <session_id> --message "妹妹今日可大安了？"
 ```
+
+If you want to start a group chat:
 
 ```bash
 python -m src.core.main chat --novel data/sanguo.txt --mode auto --message "进入刘备、张飞、关羽群聊模式"
 python -m src.core.main chat --novel data/sanguo.txt --session <session_id> --message "刘备：二位贤弟，近日战事稍歇。"
 ```
 
-### Explicit modes
+## Other Commands
+
+### View a character profile
 
 ```bash
-python -m src.core.main chat --novel <path-or-name> --mode observe --message "<prompt>"
-python -m src.core.main chat --novel <path-or-name> --mode act --character <name> --message "<spoken line>"
+python -m src.core.main view --character 林黛玉 --novel data/hongloumeng.txt
 ```
 
-### Other commands
+### Save a correction
+
+```bash
+python -m src.core.main correct \
+  --session <session_id> \
+  --message "Baoyu plans to leave home and become a merchant" \
+  --corrected "Baoyu has long disliked worldly ambition and would rather remain among poetry, gardens, and intimate company" \
+  --character 贾宝玉
+```
+
+## Command Overview
 
 ```bash
 python -m src.core.main distill --novel <path> [--characters A,B] [--output <dir>] [--force]
 python -m src.core.main extract --novel <path> [--output <path>] [--force]
+python -m src.core.main chat --novel <path-or-name> --mode auto|observe|act [--character <name>] [--session <id>] [--message <text>]
 python -m src.core.main view --character <name> [--novel <path-or-name>]
 python -m src.core.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>] [--target <name>] [--reason <text>]
 ```
