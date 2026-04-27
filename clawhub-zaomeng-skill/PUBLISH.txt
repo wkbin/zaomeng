@@ -4,12 +4,12 @@ Suggested metadata:
 - Type: OpenClaw Skill
 - Name: zaomeng-skill
 - Display Name: 造梦技能
-- Version: 2.1.0
+- Version: 2.1.1
 - Category: Writing / Roleplay / Character Simulation
 
 Risk posture:
 - Self-contained skill-definition package
-- Runtime may bootstrap the local zaomeng repository when absent
+- Runtime may bootstrap the local zaomeng repository when absent, but it is pinned to commit `649f7466738f99d60c454e167835462215cffc7d`
 - Explicit safety policy included
 
 Pre-publish checks:
@@ -19,6 +19,7 @@ Pre-publish checks:
 4. No credentials or secrets in bundle.
 
 Release note:
+- 2.1.1: Fixed the auto-bootstrap guidance to pin the external zaomeng repository to commit `649f7466738f99d60c454e167835462215cffc7d`, reducing supply-chain drift during runtime bootstrap.
 - 2.1.0: Switched skill guidance to the A+ bootstrap flow so agents first reuse a local zaomeng repo when present and otherwise clone the repository before executing the real CLI workflow.
 - 2.0.0: Switched the persona workflow to markdown-first storage, introduced navigation/persona bundles plus runtime memory writes, and added natural-language chat intent routing for distill-before-chat and act/observe session setup.
 - 1.0.9: Rewrote skill docs to state plainly that zaomeng is a local rule-based engine and that agents must use `chat --message`.

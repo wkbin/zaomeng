@@ -16,11 +16,13 @@ description: Hermes 适配器，用于 zaomeng 的本地规则型中文小说人
 - 正常顺序：
   - 先检查当前工作区是否已经有 `zaomeng` 仓库
   - 如果没有，就克隆 `https://github.com/wkbin/zaomeng.git`
+  - 克隆后立即固定到指定提交 `649f7466738f99d60c454e167835462215cffc7d`
   - 进入仓库目录后，再执行真实 CLI
 - 默认仓库目录名可用 `zaomeng`。如果当前工作区已经是该仓库，就直接复用。
 - 推荐准备命令：
   - `git clone https://github.com/wkbin/zaomeng.git`
   - `cd zaomeng`
+  - `git checkout 649f7466738f99d60c454e167835462215cffc7d`
 - 只有在无法访问网络、无法克隆、或本地环境禁止执行时，才向用户简短说明阻塞原因。
 
 ## Chat 调用规则
