@@ -467,18 +467,55 @@ python -m src.core.main correct --session <id> --message <raw> --corrected <fixe
 ## 项目结构
 
 ```text
-src/core/main.py
-src/modules/distillation.py
-src/modules/relationships.py
-src/modules/chat_engine.py
-src/modules/reflection.py
-src/modules/speaker.py
-src/utils/
-openclaw-skill/
-hermes-skill/
-skills/zaomeng-skill/
-clawhub-zaomeng-skill/
-tests/test_relation_behavior.py
+Dreamforge/
+├─ src/
+│  ├─ core/
+│  │  ├─ main.py
+│  │  ├─ config.py
+│  │  ├─ contracts.py
+│  │  ├─ llm_client.py
+│  │  ├─ path_provider.py
+│  │  └─ rulebook.py
+│  ├─ modules/
+│  │  ├─ distillation.py
+│  │  ├─ relationships.py
+│  │  ├─ chat_engine.py
+│  │  ├─ reflection.py
+│  │  └─ speaker.py
+│  └─ utils/
+│     ├─ file_utils.py
+│     ├─ text_parser.py
+│     └─ token_counter.py
+├─ rules/
+│  ├─ distillation_rules.md
+│  └─ relationship_rules.md
+├─ clawhub-zaomeng-skill/
+│  ├─ README.md
+│  ├─ README_EN.md
+│  ├─ SKILL.md
+│  ├─ INSTALL.md
+│  ├─ MANIFEST.md
+│  ├─ PUBLISH.md
+│  ├─ prompts/
+│  ├─ references/
+│  ├─ examples/
+│  └─ runtime/
+│     ├─ zaomeng_cli.py
+│     ├─ requirements.txt
+│     ├─ rules/
+│     └─ src/
+├─ skills/
+│  └─ zaomeng-skill/
+├─ openclaw-skill/
+├─ hermes-skill/
+├─ scripts/
+├─ tests/
+│  └─ test_relation_behavior.py
+├─ data/
+├─ README.md
+├─ README.en.md
+├─ LICENSE
+└─ requirements.txt
 ```
 
 ## License
