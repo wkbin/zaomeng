@@ -506,54 +506,54 @@ python -m src.core.main correct --session <id> --message <raw> --corrected <fixe
 
 ```text
 Dreamforge/
-├─ src/
-│  ├─ core/
+├─ src/                          # main source code
+│  ├─ core/                      # entrypoint, config, dependency wiring, rule loading
 │  │  ├─ main.py
 │  │  ├─ config.py
 │  │  ├─ contracts.py
 │  │  ├─ llm_client.py
 │  │  ├─ path_provider.py
 │  │  └─ rulebook.py
-│  ├─ modules/
+│  ├─ modules/                   # business modules: distillation, relations, chat, correction, speaking
 │  │  ├─ distillation.py
 │  │  ├─ relationships.py
 │  │  ├─ chat_engine.py
 │  │  ├─ reflection.py
 │  │  └─ speaker.py
-│  └─ utils/
+│  └─ utils/                     # shared helpers for files, parsing, token counting
 │     ├─ file_utils.py
 │     ├─ text_parser.py
 │     └─ token_counter.py
-├─ rules/
+├─ rules/                        # repository-level editable rule files
 │  ├─ distillation_rules.md
 │  └─ relationship_rules.md
-├─ clawhub-zaomeng-skill/
+├─ clawhub-zaomeng-skill/        # standalone ClawHub/OpenClaw skill package
 │  ├─ README.md
 │  ├─ README_EN.md
 │  ├─ SKILL.md
 │  ├─ INSTALL.md
 │  ├─ MANIFEST.md
 │  ├─ PUBLISH.md
-│  ├─ prompts/
-│  ├─ references/
-│  ├─ examples/
-│  └─ runtime/
+│  ├─ prompts/                   # packaged prompt templates
+│  ├─ references/                # schema, anti-homogenization, logic constraints
+│  ├─ examples/                  # sample persona and relation outputs
+│  └─ runtime/                   # packaged minimal runtime
 │     ├─ zaomeng_cli.py
 │     ├─ requirements.txt
 │     ├─ rules/
 │     └─ src/
-├─ skills/
+├─ skills/                       # other skill directories
 │  └─ zaomeng-skill/
-├─ openclaw-skill/
-├─ hermes-skill/
-├─ scripts/
-├─ tests/
+├─ openclaw-skill/               # OpenClaw-side integration
+├─ hermes-skill/                 # Hermes-side integration
+├─ scripts/                      # install and helper scripts
+├─ tests/                        # regression and behavior tests
 │  └─ test_relation_behavior.py
-├─ data/
-├─ README.md
-├─ README.en.md
-├─ LICENSE
-└─ requirements.txt
+├─ data/                         # local runtime data: characters, relations, sessions
+├─ README.md                     # Chinese documentation
+├─ README.en.md                  # English documentation
+├─ LICENSE                       # repository license
+└─ requirements.txt              # main project dependencies
 ```
 
 ## License

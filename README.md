@@ -468,54 +468,54 @@ python -m src.core.main correct --session <id> --message <raw> --corrected <fixe
 
 ```text
 Dreamforge/
-├─ src/
-│  ├─ core/
+├─ src/                          # 主源码
+│  ├─ core/                      # 入口、配置、依赖注入、规则加载
 │  │  ├─ main.py
 │  │  ├─ config.py
 │  │  ├─ contracts.py
 │  │  ├─ llm_client.py
 │  │  ├─ path_provider.py
 │  │  └─ rulebook.py
-│  ├─ modules/
+│  ├─ modules/                   # 核心业务模块：蒸馏、关系、聊天、纠错、发言
 │  │  ├─ distillation.py
 │  │  ├─ relationships.py
 │  │  ├─ chat_engine.py
 │  │  ├─ reflection.py
 │  │  └─ speaker.py
-│  └─ utils/
+│  └─ utils/                     # 文本解析、文件读写、token 统计等通用工具
 │     ├─ file_utils.py
 │     ├─ text_parser.py
 │     └─ token_counter.py
-├─ rules/
+├─ rules/                        # 仓库主规则文件
 │  ├─ distillation_rules.md
 │  └─ relationship_rules.md
-├─ clawhub-zaomeng-skill/
+├─ clawhub-zaomeng-skill/        # 可独立发布的 ClawHub/OpenClaw skill 包
 │  ├─ README.md
 │  ├─ README_EN.md
 │  ├─ SKILL.md
 │  ├─ INSTALL.md
 │  ├─ MANIFEST.md
 │  ├─ PUBLISH.md
-│  ├─ prompts/
-│  ├─ references/
-│  ├─ examples/
-│  └─ runtime/
+│  ├─ prompts/                   # skill 内置 prompt 模板
+│  ├─ references/                # schema、去同质化、逻辑约束等参考文档
+│  ├─ examples/                  # 示例档案与关系图谱
+│  └─ runtime/                   # skill 打包运行时（最小执行子集）
 │     ├─ zaomeng_cli.py
 │     ├─ requirements.txt
 │     ├─ rules/
 │     └─ src/
-├─ skills/
+├─ skills/                       # 其它宿主技能目录
 │  └─ zaomeng-skill/
-├─ openclaw-skill/
-├─ hermes-skill/
-├─ scripts/
-├─ tests/
+├─ openclaw-skill/               # OpenClaw 侧集成物
+├─ hermes-skill/                 # Hermes 侧集成物
+├─ scripts/                      # 安装与辅助脚本
+├─ tests/                        # 回归与行为测试
 │  └─ test_relation_behavior.py
-├─ data/
-├─ README.md
-├─ README.en.md
-├─ LICENSE
-└─ requirements.txt
+├─ data/                         # 本地运行数据（人物、关系、会话等）
+├─ README.md                     # 中文说明
+├─ README.en.md                  # 英文说明
+├─ LICENSE                       # 仓库许可证
+└─ requirements.txt              # 主项目依赖
 ```
 
 ## License
