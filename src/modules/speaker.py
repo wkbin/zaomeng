@@ -166,11 +166,15 @@ class Speaker:
         for key, label in (
             ("identity_anchor", "核心身份"),
             ("soul_goal", "核心动机"),
+            ("temperament_type", "气质底色"),
             ("worldview", "世界观"),
             ("thinking_style", "思考方式"),
             ("action_style", "行事风格"),
             ("reward_logic", "恩怨逻辑"),
             ("belief_anchor", "信念支点"),
+            ("moral_bottom_line", "底线边界"),
+            ("self_cognition", "自我认知"),
+            ("stress_response", "高压反应"),
             ("hidden_desire", "深层执念"),
             ("inner_conflict", "内在矛盾"),
         ):
@@ -293,6 +297,12 @@ class Speaker:
         experience = self._experience_text(profile, primary, secondary)
         action_style = str(profile.get("action_style", "")).strip()
         social_mode = str(profile.get("social_mode", "")).strip()
+        temperament_type = str(profile.get("temperament_type", "")).strip()
+        moral_bottom_line = str(profile.get("moral_bottom_line", "")).strip()
+        self_cognition = str(profile.get("self_cognition", "")).strip()
+        stress_response = str(profile.get("stress_response", "")).strip()
+        others_impression = str(profile.get("others_impression", "")).strip()
+        restraint_threshold = str(profile.get("restraint_threshold", "")).strip()
         private_self = str(profile.get("private_self", "")).strip()
         reward_logic = str(profile.get("reward_logic", "")).strip()
         story_role = str(profile.get("story_role", "")).strip()
@@ -350,6 +360,12 @@ class Speaker:
             "experience": experience,
             "action_style": action_style,
             "social_mode": social_mode,
+            "temperament_type": temperament_type,
+            "moral_bottom_line": moral_bottom_line,
+            "self_cognition": self_cognition,
+            "stress_response": stress_response,
+            "others_impression": others_impression,
+            "restraint_threshold": restraint_threshold,
             "private_self": private_self,
             "reward_logic": reward_logic,
             "story_role": story_role,

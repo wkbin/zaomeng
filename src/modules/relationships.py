@@ -375,7 +375,7 @@ class RelationshipExtractor:
         for name, style in sorted(node_classes.items()):
             class_name = style.get("class_name", "group_unknown")
             node_id = name if name == "empty" else self._graph_id(name)
-            lines.append(f"    class {node_id} {class_name};")
+            lines.append(f"    class {node_id} {class_name}")
             class_definitions[class_name] = style
         for class_name, style in sorted(class_definitions.items()):
             lines.append(
@@ -384,10 +384,10 @@ class RelationshipExtractor:
                 f"fill:{style.get('fill', '#f3f4f6')},"
                 f"stroke:{style.get('stroke', '#6b7280')},"
                 f"color:{style.get('text', '#111827')},"
-                "stroke-width:2px;"
+                "stroke-width:2px"
             )
         for index, style in enumerate(link_styles):
-            lines.append(f"    linkStyle {index} {style};")
+            lines.append(f"    linkStyle {index} {style}")
         return "\n".join(lines)
 
     def _render_relation_html(
@@ -690,7 +690,7 @@ class RelationshipExtractor:
         else:
             color = "#8a5a2b"
         width = 1 + closeness
-        return f"stroke:{color},stroke-width:{width}px,color:{color};"
+        return f"stroke:{color},stroke-width:{width}px"
 
     @staticmethod
     def _metric_badge(value: int, kind: str) -> str:

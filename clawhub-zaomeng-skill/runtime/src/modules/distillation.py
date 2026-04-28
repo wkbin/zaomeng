@@ -12,7 +12,14 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.core.config import Config
 from src.core.contracts import CostEstimator, PathProviderLike, RuleProvider, RuntimePartsLike
 from src.core.exceptions import ZaomengError
-from src.utils.file_utils import canonical_aliases, ensure_dir, novel_id_from_input, safe_filename
+from src.utils.file_utils import (
+    canonical_aliases,
+    ensure_dir,
+    load_markdown_data,
+    normalize_character_name,
+    novel_id_from_input,
+    safe_filename,
+)
 from src.utils.text_parser import load_novel_text, split_sentences
 from src.utils.token_counter import TokenCounter
 
@@ -225,6 +232,8 @@ class NovelDistiller:
             self.rulebook.get("distillation", "trait_keywords", self.DEFAULT_TRAIT_KEYWORDS)
         )
         self.archetypes = dict(self.rulebook.get("distillation", "archetypes", {}))
+        self.global_character_hints = dict(self.rulebook.get("distillation", "character_hints", {}))
+        self._active_character_hints: Dict[str, Any] = {}
         self.value_markers = dict(self.rulebook.get("distillation", "value_markers", {}))
         speaker_rules = self.rulebook.section("speaker")
         self.generic_fillers = tuple(speaker_rules.get("generic_fillers", []))
@@ -244,6 +253,7 @@ class NovelDistiller:
             self.rulebook.get("distillation", "forbidden_behaviors_by_value", {})
         )
         self.second_pass_mode = str(self.config.get("distillation.second_pass_mode", "auto")).strip().lower()
+        self.refinement_batch_size = max(1, int(self.config.get("distillation.refinement_batch_size", 4) or 4))
         self.stage_window_size = int(self.config.get("distillation.stage_window_size", 6))
         self.llm_evidence_lines_per_stage = int(self.config.get("distillation.llm_evidence_lines_per_stage", 6))
 
@@ -279,57 +289,69 @@ class NovelDistiller:
         chunks = self._chunk_text(text)
         self._last_chunk_count = len(chunks)
         novel_id = novel_id_from_input(novel_path)
+        self._active_character_hints = self._load_novel_character_hints(novel_id)
 
-        target_characters = [item.strip() for item in characters or [] if item.strip()] or self.extract_top_characters(text)
-        if not target_characters:
-            raise ValueError("No character candidates were extracted from the novel text")
+        try:
+            target_characters = [item.strip() for item in characters or [] if item.strip()] or self.extract_top_characters(text)
+            if not target_characters:
+                raise ValueError("No character candidates were extracted from the novel text")
 
-        alias_map = self.build_alias_map(text, target_characters, allow_sparse_alias=bool(characters))
-        aggregated = {name: self._empty_bucket() for name in target_characters}
-        arc_points: Dict[str, List[Tuple[int, Dict[str, int]]]] = defaultdict(list)
+            alias_map = self.build_alias_map(text, target_characters, allow_sparse_alias=bool(characters))
+            aggregated = {name: self._empty_bucket() for name in target_characters}
+            arc_points: Dict[str, List[Tuple[int, Dict[str, int]]]] = defaultdict(list)
 
-        for idx, chunk in enumerate(chunks):
-            chunk_evidence, chunk_values = self._extract_from_chunk(chunk, alias_map)
+            for idx, chunk in enumerate(chunks):
+                chunk_evidence, chunk_values = self._extract_from_chunk(chunk, alias_map)
+                for name in target_characters:
+                    evidence = chunk_evidence.get(name)
+                    if not evidence:
+                        continue
+                    bucket = aggregated[name]
+                    bucket["descriptions"].extend(evidence["descriptions"])
+                    bucket["dialogues"].extend(evidence["dialogues"])
+                    bucket["thoughts"].extend(evidence["thoughts"])
+                    bucket["timeline"].append(
+                        {
+                            "index": idx,
+                            "descriptions": list(evidence["descriptions"]),
+                            "dialogues": list(evidence["dialogues"]),
+                            "thoughts": list(evidence["thoughts"]),
+                        }
+                    )
+                    arc_points[name].append((idx, chunk_values.get(name, {})))
+
+            out_dir = ensure_dir(Path(output_dir) if output_dir else self.path_provider.characters_root(novel_id))
+            draft_profiles: Dict[str, Dict[str, Any]] = {}
             for name in target_characters:
-                evidence = chunk_evidence.get(name)
-                if not evidence:
-                    continue
-                bucket = aggregated[name]
-                bucket["descriptions"].extend(evidence["descriptions"])
-                bucket["dialogues"].extend(evidence["dialogues"])
-                bucket["thoughts"].extend(evidence["thoughts"])
-                bucket["timeline"].append(
-                    {
-                        "index": idx,
-                        "descriptions": list(evidence["descriptions"]),
-                        "dialogues": list(evidence["dialogues"]),
-                        "thoughts": list(evidence["thoughts"]),
-                    }
-                )
-                arc_points[name].append((idx, chunk_values.get(name, {})))
+                profile = self._build_profile(name, aggregated[name], arc_points.get(name, []))
+                profile["novel_id"] = novel_id
+                profile["source_path"] = novel_path
+                profile["evidence"] = {
+                    "description_count": len(aggregated[name]["descriptions"]),
+                    "dialogue_count": len(aggregated[name]["dialogues"]),
+                    "thought_count": len(aggregated[name]["thoughts"]),
+                    "chunk_count": len(arc_points.get(name, [])),
+                }
+                draft_profiles[name] = profile
 
-        out_dir = ensure_dir(Path(output_dir) if output_dir else self.path_provider.characters_root(novel_id))
-        profiles: Dict[str, Dict[str, Any]] = {}
-        for name in target_characters:
-            profile = self._build_profile(name, aggregated[name], arc_points.get(name, []))
-            profile["novel_id"] = novel_id
-            profile["source_path"] = novel_path
-            profile["evidence"] = {
-                "description_count": len(aggregated[name]["descriptions"]),
-                "dialogue_count": len(aggregated[name]["dialogues"]),
-                "thought_count": len(aggregated[name]["thoughts"]),
-                "chunk_count": len(arc_points.get(name, [])),
-            }
-            profile = self._refine_profile_with_llm(
-                profile,
-                bucket=aggregated[name],
-                arc_values=arc_points.get(name, []),
-            )
-            profile["novel_id"] = novel_id
-            profile["source_path"] = novel_path
-            profiles[name] = profile
-            self._export_persona_bundle(out_dir, profile)
-        return profiles
+            profiles: Dict[str, Dict[str, Any]] = {}
+            for batch in self._character_batches(target_characters):
+                batch_profiles = {name: draft_profiles[name] for name in batch}
+                for name in batch:
+                    profile = self._refine_profile_with_llm(
+                        draft_profiles[name],
+                        bucket=aggregated[name],
+                        arc_values=arc_points.get(name, []),
+                        peer_profiles={peer_name: peer for peer_name, peer in batch_profiles.items() if peer_name != name},
+                        overlap_report=self._collect_profile_overlap(draft_profiles[name], batch_profiles),
+                    )
+                    profile["novel_id"] = novel_id
+                    profile["source_path"] = novel_path
+                    profiles[name] = profile
+                    self._export_persona_bundle(out_dir, profile)
+            return profiles
+        finally:
+            self._active_character_hints = {}
 
     def extract_top_characters(self, text: str) -> List[str]:
         return self._extract_top_characters(self.prepare_novel_text(text))
@@ -363,6 +385,140 @@ class NovelDistiller:
             for suffix in self.address_suffixes:
                 aliases.append(f"{clean[0]}{suffix}")
         return self._unique_texts(item for item in aliases if item and item != clean)
+
+    def _character_batches(self, names: List[str]) -> List[List[str]]:
+        batch_size = max(1, self.refinement_batch_size)
+        return [names[index : index + batch_size] for index in range(0, len(names), batch_size)]
+
+    def _load_novel_character_hints(self, novel_id: str) -> Dict[str, Any]:
+        rules_root = self.path_provider.rules_root() if hasattr(self.path_provider, "rules_root") else None
+        if not rules_root:
+            return {}
+        hint_path = Path(rules_root) / "character_hints" / f"{safe_filename(novel_id)}.md"
+        payload = load_markdown_data(hint_path, default={}) or {}
+        if not isinstance(payload, dict):
+            return {}
+        hints = payload.get("character_hints", payload)
+        return dict(hints) if isinstance(hints, dict) else {}
+
+    def _resolve_character_hint(self, name: str) -> Dict[str, Any]:
+        merged_hint_map: Dict[str, Any] = {}
+        if isinstance(self.global_character_hints, dict):
+            merged_hint_map.update(self.global_character_hints)
+        if isinstance(self._active_character_hints, dict):
+            merged_hint_map.update(self._active_character_hints)
+        if not merged_hint_map:
+            return {}
+
+        candidates = [str(name or "").strip(), normalize_character_name(name)]
+        candidates.extend(canonical_aliases(name))
+        normalized_candidates: List[str] = []
+        seen = set()
+        for candidate in candidates:
+            clean = str(candidate or "").strip()
+            if not clean or clean in seen:
+                continue
+            normalized_candidates.append(clean)
+            seen.add(clean)
+
+        for candidate in normalized_candidates:
+            payload = merged_hint_map.get(candidate)
+            if isinstance(payload, dict):
+                return dict(payload)
+
+        for raw_name, payload in merged_hint_map.items():
+            if not isinstance(payload, dict):
+                continue
+            configured_aliases = [str(item).strip() for item in payload.get("aliases", []) if str(item).strip()]
+            all_names = [str(raw_name).strip(), normalize_character_name(str(raw_name))]
+            all_names.extend(configured_aliases)
+            normalized_names = {normalize_character_name(item) for item in all_names if item}
+            if any(normalize_character_name(candidate) in normalized_names for candidate in normalized_candidates):
+                return dict(payload)
+        return {}
+
+    def _apply_character_hint(self, profile: Dict[str, Any], hint: Dict[str, Any]) -> Dict[str, Any]:
+        if not hint:
+            return profile
+        refined = dict(profile)
+        list_fields = {
+            "core_traits",
+            "typical_lines",
+            "decision_rules",
+            "life_experience",
+            "taboo_topics",
+            "forbidden_behaviors",
+            "strengths",
+            "weaknesses",
+            "cognitive_limits",
+            "fear_triggers",
+            "key_bonds",
+        }
+        direct_fields = {
+            "identity_anchor",
+            "soul_goal",
+            "speech_style",
+            "worldview",
+            "thinking_style",
+            "core_identity",
+            "faction_position",
+            "background_imprint",
+            "world_rule_fit",
+            "social_mode",
+            "hidden_desire",
+            "inner_conflict",
+            "story_role",
+            "belief_anchor",
+            "private_self",
+            "stance_stability",
+            "reward_logic",
+            "action_style",
+            "trauma_scar",
+            "temperament_type",
+            "moral_bottom_line",
+            "self_cognition",
+            "stress_response",
+            "others_impression",
+            "restraint_threshold",
+        }
+        for key in list_fields:
+            values = [str(item).strip() for item in hint.get(key, []) if str(item).strip()]
+            if values:
+                refined[key] = values
+        for key in direct_fields:
+            value = str(hint.get(key, "")).strip()
+            if value:
+                refined[key] = value
+        return refined
+
+    @staticmethod
+    def _render_character_hint(name: str, hint: Dict[str, Any]) -> str:
+        if not hint:
+            return "- no character-specific hint"
+        lines = [f"# CHARACTER HINT FOR {name}"]
+        scalar_fields = (
+            "identity_anchor",
+            "soul_goal",
+            "temperament_type",
+            "trauma_scar",
+            "moral_bottom_line",
+            "self_cognition",
+            "stress_response",
+            "others_impression",
+            "restraint_threshold",
+        )
+        for field in scalar_fields:
+            value = str(hint.get(field, "")).strip()
+            if value:
+                lines.append(f"- {field}: {value}")
+        for field in ("distinct_from", "evidence_focus", "avoid_generic"):
+            values = [str(item).strip() for item in hint.get(field, []) if str(item).strip()]
+            if values:
+                lines.append(f"- {field}: {'；'.join(values)}")
+        notes = [str(item).strip() for item in hint.get("notes", []) if str(item).strip()]
+        if notes:
+            lines.append(f"- notes: {'；'.join(notes)}")
+        return "\n".join(lines).rstrip() + "\n"
 
     def prepare_novel_text(self, text: str) -> str:
         return self._prepare_novel_text(text)
@@ -463,6 +619,7 @@ class NovelDistiller:
                     continue
                 prev_sent = sentences[idx - 1] if idx > 0 else ""
                 next_sent = sentences[idx + 1] if idx + 1 < len(sentences) else ""
+                mentioned_names = self._mentioned_characters_in_sentence(sentence, alias_map)
                 contains_name = self._text_mentions_any_alias(sentence, aliases)
                 pronoun_hit = any(token in sentence for token in ("他", "她")) and (
                     self._text_mentions_any_alias(prev_sent, aliases) or self._text_mentions_any_alias(next_sent, aliases)
@@ -487,13 +644,60 @@ class NovelDistiller:
                 values_acc.append(self._score_values(sentence, dims))
 
             if any(evidence.values()):
+                filtered_evidence = self._filter_character_specific_evidence(name, evidence, aliases, alias_map)
                 evidence_map[name] = {
                     key: self._dedupe_texts(items, limit=24 if key == "descriptions" else 12)
-                    for key, items in evidence.items()
+                    for key, items in filtered_evidence.items()
                 }
                 value_map[name] = self._average_values(values_acc, dims)
 
         return evidence_map, value_map
+
+    def _filter_character_specific_evidence(
+        self,
+        name: str,
+        evidence: Dict[str, List[str]],
+        aliases: List[str],
+        alias_map: Dict[str, List[str]],
+    ) -> Dict[str, List[str]]:
+        filtered = {
+            "descriptions": [],
+            "dialogues": list(evidence.get("dialogues", [])),
+            "thoughts": [],
+        }
+        for key in ("descriptions", "thoughts"):
+            for sentence in evidence.get(key, []):
+                mentioned_names = self._mentioned_characters_in_sentence(sentence, alias_map)
+                if len(mentioned_names) <= 1:
+                    filtered[key].append(sentence)
+                    continue
+                if self._sentence_centers_character(sentence, aliases):
+                    filtered[key].append(sentence)
+        return filtered
+
+    def _mentioned_characters_in_sentence(
+        self,
+        sentence: str,
+        alias_map: Dict[str, List[str]],
+    ) -> List[str]:
+        hits: List[str] = []
+        for name, aliases in alias_map.items():
+            if self._text_mentions_any_alias(sentence, aliases):
+                hits.append(name)
+        return hits
+
+    @staticmethod
+    def _sentence_centers_character(sentence: str, aliases: List[str]) -> bool:
+        text = str(sentence or "").strip()
+        if not text:
+            return False
+        for alias in aliases:
+            escaped = re.escape(alias)
+            if re.search(rf"^\s*[\"'“‘（(]*{escaped}", text):
+                return True
+            if re.search(rf"{escaped}(?:心想|想着|觉得|暗道|心里|说道|说|问道|问|笑道|笑|看着|盯着|望着|朝着|对着|走向|伸手|抬手|开口)", text):
+                return True
+        return False
 
     def _score_values(self, sentence: str, dims: List[str]) -> Dict[str, int]:
         score = {dim: 5 for dim in dims}
@@ -520,6 +724,7 @@ class NovelDistiller:
         bucket: Dict[str, List[str]],
         arc_values: List[Tuple[int, Dict[str, int]]],
     ) -> Dict[str, Any]:
+        character_hint = self._resolve_character_hint(name)
         descriptions = self._dedupe_texts(bucket["descriptions"], 24)
         dialogues = self._dedupe_texts(bucket["dialogues"], 8)
         thoughts = self._dedupe_texts(bucket["thoughts"], 12)
@@ -533,10 +738,12 @@ class NovelDistiller:
         identity_anchor = self._infer_identity_anchor(core_traits, values, decision_rules, archetype)
         soul_goal = self._infer_soul_goal(values, core_traits, archetype)
         life_experience = self._infer_life_experience(descriptions, dialogues, thoughts, decision_rules, values, archetype)
+        trauma_scar = self._infer_trauma_scar(life_experience, thoughts, descriptions, archetype)
         worldview = self._infer_worldview(values, core_traits, archetype)
         thinking_style = self._infer_thinking_style(values, core_traits, speech_style, archetype)
         speech_habits = self._infer_speech_habits(dialogues, speech_style)
         emotion_profile = self._infer_emotion_profile(dialogues, thoughts, speech_style, core_traits)
+        temperament_type = self._infer_temperament_type(core_traits, speech_style, values, archetype)
         taboo_topics = self._infer_taboo_topics(values, core_traits, decision_rules)
         forbidden_behaviors = self._infer_forbidden_behaviors(values, core_traits, speech_style)
         core_identity = self._infer_core_identity(identity_anchor, core_traits, descriptions, dialogues)
@@ -557,8 +764,19 @@ class NovelDistiller:
         story_role = self._infer_story_role(descriptions, dialogues, thoughts, decision_rules)
         belief_anchor = self._infer_belief_anchor(values, worldview)
         stance_stability = self._infer_stance_stability(values, decision_rules)
+        moral_bottom_line = self._infer_moral_bottom_line(values, forbidden_behaviors, belief_anchor, archetype)
+        self_cognition = self._infer_self_cognition(identity_anchor, core_traits, private_self, archetype)
+        stress_response = self._infer_stress_response(
+            emotion_profile,
+            decision_rules,
+            speech_style,
+            forbidden_behaviors,
+            archetype,
+        )
+        others_impression = self._infer_others_impression(core_identity, core_traits, speech_style, social_mode, archetype)
+        restraint_threshold = self._infer_restraint_threshold(values, speech_style, hidden_desire, forbidden_behaviors, archetype)
 
-        return {
+        profile = {
             "name": name,
             "core_traits": core_traits[: int(self.config.get("distillation.traits_max_count", 10))],
             "values": values,
@@ -568,8 +786,10 @@ class NovelDistiller:
             "identity_anchor": identity_anchor,
             "soul_goal": soul_goal,
             "life_experience": life_experience[:4],
+            "trauma_scar": trauma_scar,
             "worldview": worldview,
             "thinking_style": thinking_style,
+            "temperament_type": temperament_type,
             "speech_habits": speech_habits,
             "emotion_profile": emotion_profile,
             "taboo_topics": taboo_topics[:6],
@@ -591,12 +811,18 @@ class NovelDistiller:
             "private_self": private_self,
             "story_role": story_role,
             "belief_anchor": belief_anchor,
+            "moral_bottom_line": moral_bottom_line,
+            "self_cognition": self_cognition,
+            "stress_response": stress_response,
+            "others_impression": others_impression,
+            "restraint_threshold": restraint_threshold,
             "stance_stability": stance_stability,
             "arc": arc,
             "arc_summary": self._infer_arc_summary(arc),
             "arc_confidence": self._infer_arc_confidence(arc, timeline),
             "archetype": archetype,
         }
+        return self._apply_character_hint(profile, character_hint)
 
     def _refine_profile_with_llm(
         self,
@@ -604,12 +830,40 @@ class NovelDistiller:
         *,
         bucket: Dict[str, List[str]],
         arc_values: List[Tuple[int, Dict[str, int]]],
+        peer_profiles: Optional[Dict[str, Dict[str, Any]]] = None,
+        overlap_report: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         if not self._should_use_llm_second_pass():
             return profile
 
         try:
-            messages = self._build_second_pass_messages(profile, bucket, arc_values)
+            character_hint = self._resolve_character_hint(str(profile.get("name", "")))
+            messages = self._build_second_pass_messages(
+                profile,
+                bucket,
+                arc_values,
+                peer_profiles=peer_profiles or {},
+                overlap_report=overlap_report or [],
+                character_hint=character_hint,
+            )
+            messages[0]["content"] = (
+                f"{messages[0]['content']}\n\n"
+                "差分修订要求:\n"
+                "- 必须利用同组其他角色的对比摘要，拉开当前角色与他们的区别。\n"
+                "- 如果当前草稿与其他角色存在高度重合字段，优先改写这些字段。\n"
+                "- 输出时保留证据支持，禁止为了差异而硬编设定。"
+            )
+            messages[1]["content"] = "\n\n".join(
+                [
+                    messages[1]["content"],
+                    "## Character Hint",
+                    self._render_character_hint(str(profile.get("name", "")), character_hint),
+                    "## Peer Contrast",
+                    self._render_peer_profile_contrasts(profile["name"], peer_profiles or {}),
+                    "## Overlap Alerts",
+                    self._render_overlap_report(overlap_report or []),
+                ]
+            )
             response = self.llm_client.chat_completion(
                 messages,
                 temperature=0.2,
@@ -641,6 +895,10 @@ class NovelDistiller:
         profile: Dict[str, Any],
         bucket: Dict[str, List[str]],
         arc_values: List[Tuple[int, Dict[str, int]]],
+        *,
+        peer_profiles: Optional[Dict[str, Dict[str, Any]]] = None,
+        overlap_report: Optional[List[str]] = None,
+        character_hint: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, str]]:
         prompt_text = self._load_auxiliary_markdown(
             "prompt_file",
@@ -655,6 +913,9 @@ class NovelDistiller:
         logic_text = self._load_auxiliary_markdown("reference_file", "logic_constraint.md", fallback="# 逻辑约束")
         draft_markdown = self._render_profile_md(profile)
         evidence_markdown = self._render_second_pass_evidence(profile["name"], bucket, arc_values)
+        peer_markdown = self._render_peer_profile_contrasts(profile["name"], peer_profiles or {})
+        overlap_markdown = self._render_overlap_report(overlap_report or [])
+        hint_markdown = self._render_character_hint(str(profile.get("name", "")), character_hint or {})
 
         system_prompt = "\n\n".join(
             [
@@ -676,6 +937,8 @@ class NovelDistiller:
             [
                 "以下是规则草稿：",
                 draft_markdown,
+                "以下是角色专属约束：",
+                hint_markdown,
                 "以下是证据摘要：",
                 evidence_markdown,
             ]
@@ -713,6 +976,45 @@ class NovelDistiller:
         for idx, values in arc_values[:12]:
             lines.append(f"- chunk_{idx}: {self._join_metric_map(values)}")
         return "\n".join(lines).rstrip() + "\n"
+
+    def _render_peer_profile_contrasts(
+        self,
+        name: str,
+        peer_profiles: Dict[str, Dict[str, Any]],
+    ) -> str:
+        if not peer_profiles:
+            return "- no peer profiles"
+        focus_fields = (
+            "identity_anchor",
+            "soul_goal",
+            "temperament_type",
+            "speech_style",
+            "background_imprint",
+            "social_mode",
+            "reward_logic",
+            "belief_anchor",
+            "stress_response",
+        )
+        lines: List[str] = [f"# PEERS FOR {name}"]
+        for peer_name, peer in sorted(peer_profiles.items()):
+            lines.extend(["", f"## {peer_name}"])
+            for field in focus_fields:
+                value = str(peer.get(field, "")).strip()
+                if value:
+                    lines.append(f"- {field}: {value}")
+            decision_rules = self._split_persona_scalar(str(peer.get("decision_rules", ""))) if isinstance(peer.get("decision_rules"), str) else list(peer.get("decision_rules", []))
+            key_bonds = self._split_persona_scalar(str(peer.get("key_bonds", ""))) if isinstance(peer.get("key_bonds"), str) else list(peer.get("key_bonds", []))
+            if decision_rules:
+                lines.append(f"- decision_rules: {'；'.join(decision_rules[:3])}")
+            if key_bonds:
+                lines.append(f"- key_bonds: {'；'.join(key_bonds[:3])}")
+        return "\n".join(lines).rstrip() + "\n"
+
+    @staticmethod
+    def _render_overlap_report(overlap_report: List[str]) -> str:
+        if not overlap_report:
+            return "- no major overlap alerts"
+        return "\n".join(f"- {item}" for item in overlap_report)
 
     def _load_auxiliary_markdown(self, method_name: str, filename: str, fallback: str) -> str:
         resolver = getattr(self.path_provider, method_name, None)
@@ -776,8 +1078,10 @@ class NovelDistiller:
             "speech_style",
             "identity_anchor",
             "soul_goal",
+            "trauma_scar",
             "worldview",
             "thinking_style",
+            "temperament_type",
             "core_identity",
             "faction_position",
             "background_imprint",
@@ -787,6 +1091,11 @@ class NovelDistiller:
             "inner_conflict",
             "story_role",
             "belief_anchor",
+            "moral_bottom_line",
+            "self_cognition",
+            "stress_response",
+            "others_impression",
+            "restraint_threshold",
             "private_self",
             "stance_stability",
             "reward_logic",
@@ -825,6 +1134,56 @@ class NovelDistiller:
     @staticmethod
     def _split_persona_scalar(value: str) -> List[str]:
         return [item.strip() for item in re.split(r"[；;]\s*", str(value or "").strip()) if item.strip()]
+
+    def _collect_profile_overlap(
+        self,
+        profile: Dict[str, Any],
+        all_profiles: Dict[str, Dict[str, Any]],
+    ) -> List[str]:
+        current_name = str(profile.get("name", "")).strip()
+        alerts: List[str] = []
+        scalar_fields = (
+            "identity_anchor",
+            "soul_goal",
+            "temperament_type",
+            "background_imprint",
+            "social_mode",
+            "reward_logic",
+            "belief_anchor",
+            "moral_bottom_line",
+            "stress_response",
+            "story_role",
+        )
+        list_fields = ("decision_rules", "key_bonds", "core_traits")
+        for peer_name, peer in all_profiles.items():
+            if peer_name == current_name:
+                continue
+            for field in scalar_fields:
+                current_value = self._normalize_overlap_text(profile.get(field, ""))
+                peer_value = self._normalize_overlap_text(peer.get(field, ""))
+                if current_value and current_value == peer_value:
+                    alerts.append(f"{field} is identical to {peer_name}")
+            for field in list_fields:
+                current_items = self._normalize_overlap_items(profile.get(field, []))
+                peer_items = self._normalize_overlap_items(peer.get(field, []))
+                if current_items and current_items == peer_items:
+                    alerts.append(f"{field} fully overlaps with {peer_name}")
+                elif current_items and peer_items:
+                    overlap = len(set(current_items) & set(peer_items)) / max(1, min(len(current_items), len(peer_items)))
+                    if overlap >= 0.75:
+                        alerts.append(f"{field} heavily overlaps with {peer_name}")
+        return self._dedupe_texts(alerts, 12)
+
+    @staticmethod
+    def _normalize_overlap_text(value: Any) -> str:
+        return re.sub(r"\s+", "", str(value or "").strip())
+
+    def _normalize_overlap_items(self, value: Any) -> List[str]:
+        if isinstance(value, list):
+            items = value
+        else:
+            items = self._split_persona_scalar(str(value or ""))
+        return [self._normalize_overlap_text(item) for item in items if self._normalize_overlap_text(item)]
 
     @staticmethod
     def _split_metric_map(value: str) -> Dict[str, Any]:
@@ -1159,6 +1518,25 @@ class NovelDistiller:
             lines.append("经历过人情与局势的反覆，因此很少只看眼前这一层。")
         return self._dedupe_texts(lines, 4)
 
+    def _infer_trauma_scar(
+        self,
+        life_experience: List[str],
+        thoughts: List[str],
+        descriptions: List[str],
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("trauma_scar", "")).strip()
+        if configured:
+            return configured
+        corpus = " ".join(thoughts[:6] + descriptions[:6])
+        if any(token in corpus for token in ("不敢", "心里一沉", "发冷", "后怕", "旧事", "刺痛", "噎住")):
+            return "旧伤在高压时会被重新扯开，因此一旦触到痛点，反应会比表面更深。"
+        if any("失去" in item or "来不及" in item for item in life_experience[:4]):
+            return "经历里留下过“没能接住”或“终究失去”的痕迹，所以面对类似局面会明显绷紧。"
+        if life_experience:
+            return "过往经历留下的精神擦痕仍在，平时压着不说，遇到相似处境就会浮上来。"
+        return "旧伤更多以边界感和防御姿态存在，未必常说，但会在关键时刻显形。"
+
     def _infer_worldview(self, values: Dict[str, int], core_traits: List[str], archetype: str) -> str:
         configured = str(self.archetypes.get(archetype, {}).get("worldview", "")).strip()
         if configured:
@@ -1198,6 +1576,28 @@ class NovelDistiller:
         if "直白" in speech_style:
             return "先抓最要紧的一点，直接给态度。"
         return "先稳住分寸，再把轻重说清。"
+
+    def _infer_temperament_type(
+        self,
+        core_traits: List[str],
+        speech_style: str,
+        values: Dict[str, int],
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("temperament_type", "")).strip()
+        if configured:
+            return configured
+        if "敏感" in core_traits and "克制" in speech_style:
+            return "高敏感、外冷内热型"
+        if "傲气" in core_traits:
+            return "清冷带锋芒型"
+        if "勇敢" in core_traits and values.get("勇气", 5) >= 7:
+            return "直接顶压型"
+        if "沉稳" in core_traits or values.get("责任", 5) >= 7:
+            return "沉稳托底型"
+        if "诙谐" in core_traits:
+            return "松弛外放型"
+        return "克制观察型" if "克制" in speech_style else "外显行动型"
 
     def _infer_speech_habits(self, dialogues: List[str], speech_style: str) -> Dict[str, Any]:
         cadence = "medium"
@@ -1541,6 +1941,101 @@ class NovelDistiller:
             return "再大的局，也不能把自己活成别人手里的棋。"
         return worldview or "真正撑住他的，是一套不会轻易改口的内在秩序。"
 
+    def _infer_moral_bottom_line(
+        self,
+        values: Dict[str, int],
+        forbidden_behaviors: List[str],
+        belief_anchor: str,
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("moral_bottom_line", "")).strip()
+        if configured:
+            return configured
+        if values.get("正义", 5) >= 7:
+            return "可以周旋，但不能把黑白彻底倒过来，更不能拿无辜者垫底。"
+        if values.get("忠诚", 5) >= 7:
+            return "可以吃亏、可以承压，但不能主动卖掉自己认下的人。"
+        if values.get("责任", 5) >= 7:
+            return "再难也不能把该接的责任甩给更弱的人。"
+        if forbidden_behaviors:
+            return forbidden_behaviors[0].replace("不会", "底线是不肯").replace("无缘无故", "平白")
+        return belief_anchor or "底线通常落在不肯自毁原则、也不肯轻易伤及无辜。"
+
+    def _infer_self_cognition(
+        self,
+        identity_anchor: str,
+        core_traits: List[str],
+        private_self: str,
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("self_cognition", "")).strip()
+        if configured:
+            return configured
+        if identity_anchor:
+            return f"自我认知偏向：{identity_anchor}"
+        if "敏感" in core_traits:
+            return "知道自己不是迟钝的人，所以更容易先一步察觉气氛与裂痕。"
+        if "勇敢" in core_traits:
+            return "默认关键时刻该由自己先顶上，但也清楚这种习惯会把自己推得过前。"
+        return private_self or "对自己并非毫无自觉，只是不愿把最真实的一层轻易交代给旁人。"
+
+    def _infer_stress_response(
+        self,
+        emotion_profile: Dict[str, Any],
+        decision_rules: List[str],
+        speech_style: str,
+        forbidden_behaviors: List[str],
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("stress_response", "")).strip()
+        if configured:
+            return configured
+        if any("先辨清" in rule or "虚实" in rule for rule in decision_rules):
+            return "高压下会更快进入拆局和控场状态，先找破口，再决定是否翻脸。"
+        if "克制" in speech_style:
+            return "越到绝境越会把情绪压得更深，表面更冷，动作反而更干净。"
+        if forbidden_behaviors:
+            return f"被逼急时会明显收紧边界，但仍会死守“{forbidden_behaviors[0]}”这条线。"
+        return str(emotion_profile.get("anger_style", "")).strip() or "压力上来时会先绷紧，再用最熟悉的方式自保或顶回去。"
+
+    def _infer_others_impression(
+        self,
+        core_identity: str,
+        core_traits: List[str],
+        speech_style: str,
+        social_mode: str,
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("others_impression", "")).strip()
+        if configured:
+            return configured
+        if core_identity:
+            return f"旁人第一印象多半是：{core_identity}"
+        if "克制" in speech_style:
+            return "外人多半先觉得不好接近、分寸很重，熟了之后才看见其真实温度。"
+        if "勇敢" in core_traits:
+            return "外界容易先记住其顶事和硬气的一面。"
+        return social_mode or "他人通常先从其态度与边界感来判断能否靠近。"
+
+    def _infer_restraint_threshold(
+        self,
+        values: Dict[str, int],
+        speech_style: str,
+        hidden_desire: str,
+        forbidden_behaviors: List[str],
+        archetype: str,
+    ) -> str:
+        configured = str(self.archetypes.get(archetype, {}).get("restraint_threshold", "")).strip()
+        if configured:
+            return configured
+        if values.get("责任", 5) >= 7 or "克制" in speech_style:
+            return "欲望和情绪平时压得住，只有在底线、人情旧账或最在意的人被逼到眼前时才会失控。"
+        if values.get("自由", 5) >= 7:
+            return "一旦感觉被彻底钳死、连转圜余地都没有，克制力会明显下降。"
+        if forbidden_behaviors:
+            return f"多数时候会克制自己不越过“{forbidden_behaviors[0]}”这条线。"
+        return hidden_desire or "并非没有欲望，只是通常会先压住，除非被逼到再退一步就会失去最在意之物。"
+
     @staticmethod
     def _infer_stance_stability(values: Dict[str, int], decision_rules: List[str]) -> str:
         ordered = sorted((int(score), key) for key, score in values.items())
@@ -1723,48 +2218,61 @@ class NovelDistiller:
             f"- name: {profile.get('name', '')}\n"
             f"- novel_id: {profile.get('novel_id', '')}\n"
             f"- source_path: {profile.get('source_path', '')}\n\n"
-            "## Core\n"
-            f"- core_traits: {self._join_items(profile.get('core_traits', []))}\n"
-            f"- values: {self._join_metric_map(profile.get('values', {}))}\n"
-            f"- speech_style: {profile.get('speech_style', '')}\n"
-            f"- identity_anchor: {profile.get('identity_anchor', '')}\n"
-            f"- soul_goal: {profile.get('soul_goal', '')}\n"
-            f"- worldview: {profile.get('worldview', '')}\n"
-            f"- thinking_style: {profile.get('thinking_style', '')}\n\n"
-            "## Deep Persona\n"
+            "## Basic Positioning\n"
             f"- core_identity: {profile.get('core_identity', '')}\n"
             f"- faction_position: {profile.get('faction_position', '')}\n"
-            f"- background_imprint: {profile.get('background_imprint', '')}\n"
-            f"- world_rule_fit: {profile.get('world_rule_fit', '')}\n"
-            f"- social_mode: {profile.get('social_mode', '')}\n"
-            f"- hidden_desire: {profile.get('hidden_desire', '')}\n"
-            f"- inner_conflict: {profile.get('inner_conflict', '')}\n"
             f"- story_role: {profile.get('story_role', '')}\n"
-            f"- belief_anchor: {profile.get('belief_anchor', '')}\n"
-            f"- private_self: {profile.get('private_self', '')}\n"
             f"- stance_stability: {profile.get('stance_stability', '')}\n"
-            f"- reward_logic: {profile.get('reward_logic', '')}\n"
-            f"- strengths: {self._join_items(profile.get('strengths', []))}\n"
-            f"- weaknesses: {self._join_items(profile.get('weaknesses', []))}\n"
-            f"- cognitive_limits: {self._join_items(profile.get('cognitive_limits', []))}\n"
-            f"- fear_triggers: {self._join_items(profile.get('fear_triggers', []))}\n"
-            f"- key_bonds: {self._join_items(profile.get('key_bonds', []))}\n"
-            f"- action_style: {profile.get('action_style', '')}\n\n"
-            "## Voice\n"
-            f"- typical_lines: {self._join_items(profile.get('typical_lines', []))}\n"
-            f"- decision_rules: {self._join_items(profile.get('decision_rules', []))}\n"
+            f"- identity_anchor: {profile.get('identity_anchor', '')}\n"
+            f"- world_rule_fit: {profile.get('world_rule_fit', '')}\n\n"
+            "## Root Layer\n"
+            f"- background_imprint: {profile.get('background_imprint', '')}\n"
             f"- life_experience: {self._join_items(profile.get('life_experience', []))}\n"
+            f"- trauma_scar: {profile.get('trauma_scar', '')}\n"
             f"- taboo_topics: {self._join_items(profile.get('taboo_topics', []))}\n"
-            f"- forbidden_behaviors: {self._join_items(profile.get('forbidden_behaviors', []))}\n"
+            f"- forbidden_behaviors: {self._join_items(profile.get('forbidden_behaviors', []))}\n\n"
+            "## Inner Core\n"
+            f"- soul_goal: {profile.get('soul_goal', '')}\n"
+            f"- hidden_desire: {profile.get('hidden_desire', '')}\n"
+            f"- core_traits: {self._join_items(profile.get('core_traits', []))}\n"
+            f"- temperament_type: {profile.get('temperament_type', '')}\n"
+            f"- values: {self._join_metric_map(profile.get('values', {}))}\n"
+            f"- worldview: {profile.get('worldview', '')}\n"
+            f"- belief_anchor: {profile.get('belief_anchor', '')}\n"
+            f"- moral_bottom_line: {profile.get('moral_bottom_line', '')}\n"
+            f"- restraint_threshold: {profile.get('restraint_threshold', '')}\n\n"
+            "## Value And Conflict\n"
+            f"- inner_conflict: {profile.get('inner_conflict', '')}\n"
+            f"- self_cognition: {profile.get('self_cognition', '')}\n"
+            f"- private_self: {profile.get('private_self', '')}\n"
+            f"- thinking_style: {profile.get('thinking_style', '')}\n"
+            f"- cognitive_limits: {self._join_items(profile.get('cognitive_limits', []))}\n\n"
+            "## Decision Logic\n"
+            f"- decision_rules: {self._join_items(profile.get('decision_rules', []))}\n"
+            f"- reward_logic: {profile.get('reward_logic', '')}\n"
+            f"- action_style: {profile.get('action_style', '')}\n\n"
+            "## Emotion And Stress\n"
+            f"- fear_triggers: {self._join_items(profile.get('fear_triggers', []))}\n"
+            f"- stress_response: {profile.get('stress_response', '')}\n"
+            f"- anger_style: {emotion.get('anger_style', '')}\n"
+            f"- joy_style: {emotion.get('joy_style', '')}\n"
+            f"- grievance_style: {emotion.get('grievance_style', '')}\n\n"
+            "## Social Pattern\n"
+            f"- social_mode: {profile.get('social_mode', '')}\n"
+            f"- others_impression: {profile.get('others_impression', '')}\n"
+            f"- key_bonds: {self._join_items(profile.get('key_bonds', []))}\n\n"
+            "## Voice\n"
+            f"- speech_style: {profile.get('speech_style', '')}\n"
+            f"- typical_lines: {self._join_items(profile.get('typical_lines', []))}\n"
             f"- cadence: {speech_habits.get('cadence', '')}\n"
             f"- signature_phrases: {self._join_items(speech_habits.get('signature_phrases', []))}\n"
             f"- sentence_openers: {self._join_items(speech_habits.get('sentence_openers', []))}\n"
             f"- connective_tokens: {self._join_items(speech_habits.get('connective_tokens', []))}\n"
             f"- sentence_endings: {self._join_items(speech_habits.get('sentence_endings', []))}\n"
-            f"- forbidden_fillers: {self._join_items(speech_habits.get('forbidden_fillers', []))}\n"
-            f"- anger_style: {emotion.get('anger_style', '')}\n"
-            f"- joy_style: {emotion.get('joy_style', '')}\n"
-            f"- grievance_style: {emotion.get('grievance_style', '')}\n\n"
+            f"- forbidden_fillers: {self._join_items(speech_habits.get('forbidden_fillers', []))}\n\n"
+            "## Capability\n"
+            f"- strengths: {self._join_items(profile.get('strengths', []))}\n"
+            f"- weaknesses: {self._join_items(profile.get('weaknesses', []))}\n\n"
             "## Arc\n"
             f"- arc_start: {self._join_metric_map(arc.get('start', {}))}\n"
             f"- arc_mid: {self._join_metric_map(arc.get('mid', {}))}\n"
@@ -1784,7 +2292,11 @@ class NovelDistiller:
             "## Core\n"
             f"- identity_anchor: {profile.get('identity_anchor', '')}\n"
             f"- soul_goal: {profile.get('soul_goal', '')}\n"
+            f"- temperament_type: {profile.get('temperament_type', '')}\n"
             f"- worldview: {profile.get('worldview', '')}\n"
+            f"- belief_anchor: {profile.get('belief_anchor', '')}\n"
+            f"- moral_bottom_line: {profile.get('moral_bottom_line', '')}\n"
+            f"- restraint_threshold: {profile.get('restraint_threshold', '')}\n"
             f"- thinking_style: {profile.get('thinking_style', '')}\n"
             f"- taboo_topics: {self._join_items(profile.get('taboo_topics', []))}\n"
             f"- forbidden_behaviors: {self._join_items(profile.get('forbidden_behaviors', []))}\n"
@@ -1818,8 +2330,11 @@ class NovelDistiller:
         return (
             "# TRAUMA\n\n"
             "## Boundaries\n"
+            f"- trauma_scar: {profile.get('trauma_scar', '')}\n"
             f"- taboo_topics: {self._join_items(profile.get('taboo_topics', []))}\n"
             f"- forbidden_behaviors: {self._join_items(profile.get('forbidden_behaviors', []))}\n"
+            f"- fear_triggers: {self._join_items(profile.get('fear_triggers', []))}\n"
+            f"- stress_response: {profile.get('stress_response', '')}\n"
             f"- grievance_style: {profile.get('emotion_profile', {}).get('grievance_style', '')}\n"
         )
 
@@ -1829,9 +2344,12 @@ class NovelDistiller:
             "# IDENTITY\n\n"
             "## Self\n"
             f"- identity_anchor: {profile.get('identity_anchor', '')}\n"
-            f"- life_experience: {self._join_items(profile.get('life_experience', []))}\n"
             f"- core_traits: {self._join_items(profile.get('core_traits', []))}\n"
+            f"- temperament_type: {profile.get('temperament_type', '')}\n"
             f"- values: {self._join_metric_map(profile.get('values', {}))}\n"
+            f"- self_cognition: {profile.get('self_cognition', '')}\n"
+            f"- others_impression: {profile.get('others_impression', '')}\n"
+            f"- life_experience: {self._join_items(profile.get('life_experience', []))}\n"
             f"- anger_style: {emotion.get('anger_style', '')}\n"
             f"- joy_style: {emotion.get('joy_style', '')}\n"
             f"- grievance_style: {emotion.get('grievance_style', '')}\n"
@@ -1844,6 +2362,7 @@ class NovelDistiller:
             f"- core_identity: {profile.get('core_identity', '')}\n"
             f"- faction_position: {profile.get('faction_position', '')}\n"
             f"- background_imprint: {profile.get('background_imprint', '')}\n"
+            f"- trauma_scar: {profile.get('trauma_scar', '')}\n"
             f"- world_rule_fit: {profile.get('world_rule_fit', '')}\n"
         )
 
@@ -1862,6 +2381,7 @@ class NovelDistiller:
             "# BONDS\n\n"
             "## Relationship Habit\n"
             f"- social_mode: {profile.get('social_mode', '')}\n"
+            f"- others_impression: {profile.get('others_impression', '')}\n"
             f"- key_bonds: {self._join_items(profile.get('key_bonds', []))}\n"
             f"- reward_logic: {profile.get('reward_logic', '')}\n"
             f"- belief_anchor: {profile.get('belief_anchor', '')}\n"
@@ -1873,7 +2393,11 @@ class NovelDistiller:
             "## Inner Pull\n"
             f"- hidden_desire: {profile.get('hidden_desire', '')}\n"
             f"- inner_conflict: {profile.get('inner_conflict', '')}\n"
+            f"- self_cognition: {profile.get('self_cognition', '')}\n"
+            f"- moral_bottom_line: {profile.get('moral_bottom_line', '')}\n"
+            f"- restraint_threshold: {profile.get('restraint_threshold', '')}\n"
             f"- fear_triggers: {self._join_items(profile.get('fear_triggers', []))}\n"
+            f"- stress_response: {profile.get('stress_response', '')}\n"
             f"- private_self: {profile.get('private_self', '')}\n"
         )
 
@@ -1918,7 +2442,12 @@ class NovelDistiller:
 
     @staticmethod
     def _should_create_trauma_md(profile: Dict[str, Any]) -> bool:
-        return bool(profile.get("taboo_topics") or profile.get("forbidden_behaviors"))
+        return bool(
+            str(profile.get("trauma_scar", "")).strip()
+            or profile.get("taboo_topics")
+            or profile.get("forbidden_behaviors")
+            or str(profile.get("stress_response", "")).strip()
+        )
 
     def _extract_spoken_content(
         self,

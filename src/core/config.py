@@ -72,6 +72,7 @@ class Config:
             "min_appearances": 3,
             "traits_max_count": 10,
             "second_pass_mode": "auto",
+            "refinement_batch_size": 4,
             "stage_window_size": 6,
             "llm_evidence_lines_per_stage": 6,
             "values_dimensions": [
