@@ -295,11 +295,29 @@ class ZaomengCLI:
         output_dir = args.output or str(Path(self.config.get_path("characters")) / novel_id_from_input(args.novel))
 
         print(f"Processing novel: {args.novel}")
-        result = distiller.distill(args.novel, characters, output_dir)
+        result = distiller.distill(
+            args.novel,
+            characters,
+            output_dir,
+            progress_callback=self._print_distill_progress,
+        )
 
         print(f"\nDone. Extracted {len(result)} characters:")
         for char_name in result:
             print(f"  - {char_name}")
+
+        print("\n正在生成人物关系图谱...")
+        extractor = parts.extractor
+        relations = extractor.extract(
+            args.novel,
+            characters=characters,
+            progress_callback=self._print_relation_progress,
+        )
+        novel_id = novel_id_from_input(args.novel)
+        graph_path = self.path_provider.visualization_file(novel_id, ".html")
+        print(f"\n关系图谱已生成，共 {len(relations)} 条关系。")
+        print(f"图谱链接: {graph_path}")
+        print("你现在可以查看关系图谱，或进入 act 模式 / observe 模式继续。")
 
     def _handle_chat(self, args: argparse.Namespace) -> None:
         print("=== Chat Engine ===")
@@ -630,11 +648,68 @@ class ZaomengCLI:
 
         output_path = args.output
         characters = parse_character_argument(args.characters, args.characters_file) or None
-        result = extractor.extract(args.novel, output_path, characters=characters)
+        result = extractor.extract(
+            args.novel,
+            output_path,
+            characters=characters,
+            progress_callback=self._print_relation_progress,
+        )
 
         print(f"\nDone. Extracted {len(result)} relationships:")
         for rel_key in list(result.keys())[:5]:
             print(f"  - {rel_key}")
+        novel_id = novel_id_from_input(args.novel)
+        graph_path = self.path_provider.visualization_file(novel_id, ".html")
+        print(f"图谱链接: {graph_path}")
+        print("你现在可以查看关系图谱，或进入 act 模式 / observe 模式继续。")
+
+    @staticmethod
+    def _print_distill_progress(stage: str, payload: dict[str, Any]) -> None:
+        if stage == "text_loaded":
+            print(f"已载入文本，分为 {payload.get('chunk_count', 0)} 个片段。")
+            return
+        if stage == "characters_ready":
+            total = int(payload.get("total", 0))
+            names = ", ".join(payload.get("characters", []))
+            print(f"已锁定 {total} 个待蒸馏角色：{names}")
+            return
+        if stage == "drafting_character":
+            print(
+                f"正在整理角色素材 {payload.get('index', 0)}/{payload.get('total', 0)}："
+                f"{payload.get('character', '')}"
+            )
+            return
+        if stage == "refining_character":
+            print(
+                f"正在蒸馏角色 {payload.get('index', 0)}/{payload.get('total', 0)}："
+                f"{payload.get('character', '')}"
+            )
+            return
+        if stage == "character_done":
+            print(
+                f"已完成 {payload.get('index', 0)}/{payload.get('total', 0)}："
+                f"{payload.get('character', '')}"
+            )
+            return
+        if stage == "distill_done":
+            print(f"人物蒸馏完成，共 {payload.get('total', 0)} 个角色。")
+
+    @staticmethod
+    def _print_relation_progress(stage: str, payload: dict[str, Any]) -> None:
+        if stage == "text_loaded":
+            print(f"关系抽取已载入文本，分为 {payload.get('chunk_count', 0)} 个片段。")
+            return
+        if stage == "characters_ready":
+            print(f"关系抽取范围已确定，共 {payload.get('total', 0)} 个角色。")
+            return
+        if stage == "scanning_chunk":
+            print(f"正在分析关系片段 {payload.get('index', 0)}/{payload.get('total', 0)}...")
+            return
+        if stage == "rendering_graph":
+            print(f"正在生成人物关系图谱，共 {payload.get('relation_count', 0)} 条关系。")
+            return
+        if stage == "graph_done":
+            print(f"人物关系图谱生成完毕：{payload.get('html_path', '')}")
 
     @staticmethod
     def _require_generation_llm(target: Any, operation: str) -> None:

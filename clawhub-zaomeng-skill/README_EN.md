@@ -94,6 +94,7 @@ The skill now exposes prompt-first helper entrypoints:
 ```text
 tools/prepare_novel_excerpt.py
 tools/build_prompt_payload.py
+tools/export_relation_graph.py
 ```
 
 A common prompt-first flow is to prepare an excerpt first and then build a host-side prompt payload.
@@ -103,6 +104,7 @@ For example:
 ```bash
 py -3 tools/prepare_novel_excerpt.py --novel <path>
 py -3 tools/build_prompt_payload.py --mode distill --novel <path> --characters A,B
+py -3 tools/export_relation_graph.py --relations-file <relation-result.md>
 ```
 
 ## Recommended Usage Flow
@@ -114,7 +116,8 @@ The most common user flow is:
 
 1. provide the novel file or file path
 2. say which characters you want distilled in natural language
-3. after distillation finishes, enter `act` or `observe`
+3. let the host report staged distillation progress and relation-graph generation progress
+4. after distillation finishes, enter `act` or `observe`
 
 ## Natural-Language Examples
 

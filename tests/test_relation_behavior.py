@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.core.config import Config
@@ -209,6 +212,120 @@ class RelationBehaviorTests(unittest.TestCase):
 
         self.assertIs(cli.config, parts.config)
         self.assertEqual(seen["count"], 1)
+
+    def test_distiller_emits_progress_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            distiller = self.make_runtime_parts(config)["distiller"]
+            novel_path = root / "mini.txt"
+            novel_path.write_text("刘备看着关羽道：此事须从长计议。关羽答道：但凭兄长吩咐。", encoding="utf-8")
+
+            events: list[tuple[str, dict]] = []
+            result = distiller.distill(
+                str(novel_path),
+                characters=["刘备", "关羽"],
+                progress_callback=lambda stage, payload: events.append((stage, dict(payload))),
+            )
+
+            self.assertEqual(sorted(result.keys()), ["关羽", "刘备"])
+            stages = [stage for stage, _ in events]
+            self.assertIn("text_loaded", stages)
+            self.assertIn("characters_ready", stages)
+            self.assertIn("drafting_character", stages)
+            self.assertIn("refining_character", stages)
+            self.assertIn("character_done", stages)
+            self.assertIn("distill_done", stages)
+            completed = [payload["character"] for stage, payload in events if stage == "character_done"]
+            self.assertEqual(sorted(completed), ["关羽", "刘备"])
+
+    def test_relationship_extractor_emits_graph_progress_and_exports_html(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            extractor = self.make_runtime_parts(config)["extractor"]
+            novel_path = root / "mini.txt"
+            novel_path.write_text("刘备对关羽道：贤弟且宽心。关羽答道：大哥放心。", encoding="utf-8")
+            self.write_profile(root, "mini", "刘备", faction_position="蜀汉")
+            self.write_profile(root, "mini", "关羽", story_role="先锋")
+
+            events: list[tuple[str, dict]] = []
+            relations = extractor.extract(
+                str(novel_path),
+                characters=["刘备", "关羽"],
+                progress_callback=lambda stage, payload: events.append((stage, dict(payload))),
+            )
+
+            self.assertIn("_".join(sorted(["刘备", "关羽"])), relations)
+            stages = [stage for stage, _ in events]
+            self.assertIn("rendering_graph", stages)
+            self.assertIn("graph_done", stages)
+            graph_done = next(payload for stage, payload in events if stage == "graph_done")
+            self.assertTrue(Path(graph_done["html_path"]).exists())
+            self.assertTrue(Path(graph_done["mermaid_path"]).exists())
+
+    def test_cli_distill_reports_progress_and_relation_graph_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            base_parts = build_runtime_parts(config)
+            llm = Mock()
+            llm.is_generation_enabled.return_value = True
+            distiller = Mock()
+            extractor = Mock()
+            fake_parts = SimpleNamespace(
+                config=base_parts.config,
+                path_provider=base_parts.path_provider,
+                rulebook=base_parts.rulebook,
+                llm=llm,
+                distiller=distiller,
+                extractor=extractor,
+            )
+
+            novel_path = root / "mini.txt"
+            novel_path.write_text("刘备与关羽同行。", encoding="utf-8")
+            graph_path = base_parts.path_provider.visualization_file("mini", ".html")
+
+            def fake_distill(novel, characters=None, output_dir=None, progress_callback=None):
+                if progress_callback:
+                    progress_callback("text_loaded", {"chunk_count": 3})
+                    progress_callback("characters_ready", {"characters": ["刘备", "关羽"], "total": 2})
+                    progress_callback("refining_character", {"character": "刘备", "index": 1, "total": 2})
+                    progress_callback("character_done", {"character": "刘备", "index": 1, "total": 2})
+                    progress_callback("refining_character", {"character": "关羽", "index": 2, "total": 2})
+                    progress_callback("character_done", {"character": "关羽", "index": 2, "total": 2})
+                    progress_callback("distill_done", {"total": 2})
+                return {"刘备": {}, "关羽": {}}
+
+            def fake_extract(novel, output_path=None, characters=None, progress_callback=None):
+                graph_path.write_text("<html>graph</html>", encoding="utf-8")
+                if progress_callback:
+                    progress_callback("rendering_graph", {"relation_count": 1})
+                    progress_callback("graph_done", {"html_path": str(graph_path)})
+                return {"刘备_关羽": {"trust": 9}}
+
+            distiller.distill.side_effect = fake_distill
+            extractor.extract.side_effect = fake_extract
+
+            cli = ZaomengCLI(runtime_parts_builder=lambda _: fake_parts)
+            args = argparse.Namespace(
+                force=True,
+                novel=str(novel_path),
+                characters="刘备,关羽",
+                characters_file=None,
+                output=None,
+            )
+
+            with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                cli._handle_distill(args)
+
+            rendered = stdout.getvalue()
+            self.assertIn("正在蒸馏角色 1/2：刘备", rendered)
+            self.assertIn("已完成 2/2：关羽", rendered)
+            self.assertIn("正在生成人物关系图谱", rendered)
+            self.assertIn("图谱链接:", rendered)
+            self.assertIn(str(graph_path), rendered)
+            self.assertIn("act 模式 / observe 模式", rendered)
 
     def test_runtime_parts_chat_engine_factory_reuses_shared_dependencies(self):
         parts = build_runtime_parts(Config())

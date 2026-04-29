@@ -22,6 +22,7 @@
 - `requirements.txt`
 - `tools/prepare_novel_excerpt.py`
 - `tools/build_prompt_payload.py`
+- `tools/export_relation_graph.py`
 - `references/output_schema.md`
 - `references/style_differ.md`
 - `references/logic_constraint.md`
@@ -48,5 +49,6 @@
 
 1. `SKILL.md` frontmatter 合法。
 2. `tools/prepare_novel_excerpt.py` 可以执行。
-3. 输出字段符合 `references/output_schema.md`。
-4. 安全与校验相关规则文件齐全。
+3. `tools/export_relation_graph.py` 可以生成 `.html` 与 `.mermaid.md` 图谱。
+4. 输出字段符合 `references/output_schema.md`。
+5. 安全与校验相关规则文件齐全。

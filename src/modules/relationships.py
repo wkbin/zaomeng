@@ -8,7 +8,7 @@ import itertools
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.config import Config
 from src.core.contracts import (
@@ -105,15 +105,24 @@ class RelationshipExtractor:
         novel_path: str,
         output_path: Optional[str] = None,
         characters: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         text = self.distiller.prepare_novel_text(load_novel_text(novel_path))
         chunks = self._chunk_text(text)
         self._last_chunk_count = len(chunks)
         novel_id = novel_id_from_input(novel_path)
+        self._emit_progress(progress_callback, "text_loaded", novel_id=novel_id, chunk_count=len(chunks))
 
         scoped_characters = [item.strip() for item in characters or [] if item.strip()] or self._load_existing_character_names(novel_id)
         if not scoped_characters:
             scoped_characters = self.distiller.extract_top_characters(text)
+        self._emit_progress(
+            progress_callback,
+            "characters_ready",
+            novel_id=novel_id,
+            characters=list(scoped_characters),
+            total=len(scoped_characters),
+        )
         alias_map = self.distiller.build_alias_map(text, scoped_characters, allow_sparse_alias=False)
 
         buckets: Dict[str, Dict[str, Any]] = defaultdict(
@@ -127,7 +136,14 @@ class RelationshipExtractor:
             }
         )
 
-        for chunk in chunks:
+        for idx, chunk in enumerate(chunks):
+            self._emit_progress(
+                progress_callback,
+                "scanning_chunk",
+                novel_id=novel_id,
+                index=idx + 1,
+                total=len(chunks),
+            )
             present = [
                 name
                 for name in scoped_characters
@@ -198,8 +214,32 @@ class RelationshipExtractor:
 
         self._save_relations(final_relations, novel_id, output_path)
         self._export_relation_bundle(final_relations, novel_id)
+        self._emit_progress(
+            progress_callback,
+            "rendering_graph",
+            novel_id=novel_id,
+            relation_count=len(final_relations),
+        )
         self._export_relation_visualizations(final_relations, novel_id)
+        self._emit_progress(
+            progress_callback,
+            "graph_done",
+            novel_id=novel_id,
+            relation_count=len(final_relations),
+            html_path=str(self.path_provider.visualization_file(novel_id, ".html")),
+            mermaid_path=str(self.path_provider.visualization_file(novel_id, ".mermaid.md")),
+        )
         return final_relations
+
+    @staticmethod
+    def _emit_progress(
+        callback: Optional[Callable[[str, Dict[str, Any]], None]],
+        stage: str,
+        **payload: Any,
+    ) -> None:
+        if callback is None:
+            return
+        callback(stage, payload)
 
     def _chunk_text(self, text: str) -> List[str]:
         size = int(self.config.get("text_processing.chunk_size_tokens", 8000))

@@ -94,6 +94,7 @@ skill 目前已经提供 prompt-first helper 入口：
 ```text
 tools/prepare_novel_excerpt.py
 tools/build_prompt_payload.py
+tools/export_relation_graph.py
 ```
 
 常见的 prompt-first 调用方式是先准备 excerpt，再组装 prompt payload。
@@ -103,6 +104,7 @@ tools/build_prompt_payload.py
 ```bash
 py -3 tools/prepare_novel_excerpt.py --novel <路径>
 py -3 tools/build_prompt_payload.py --mode distill --novel <路径> --characters A,B
+py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
 ```
 
 ## 推荐用法
@@ -114,7 +116,8 @@ py -3 tools/build_prompt_payload.py --mode distill --novel <路径> --characters
 
 1. 提供小说文件，或指定小说路径
 2. 用自然语言说要蒸馏谁
-3. 蒸馏完成后，再进入 `act` 或 `observe`
+3. 宿主按阶段播报蒸馏进度与关系图谱生成进度
+4. 蒸馏完成后，再进入 `act` 或 `observe`
 
 ## 自然语言示例
 

@@ -27,6 +27,7 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue((dst / "references").exists())
             self.assertTrue((dst / "tools" / "prepare_novel_excerpt.py").exists())
             self.assertTrue((dst / "tools" / "build_prompt_payload.py").exists())
+            self.assertTrue((dst / "tools" / "export_relation_graph.py").exists())
             self.assertFalse((dst / "runtime").exists())
 
 

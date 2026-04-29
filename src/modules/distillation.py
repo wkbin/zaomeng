@@ -7,7 +7,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.core.config import Config
 from src.core.contracts import CostEstimator, PathProviderLike, RuleProvider, RuntimePartsLike
@@ -284,17 +284,31 @@ class NovelDistiller:
         novel_path: str,
         characters: Optional[List[str]] = None,
         output_dir: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         text = self.prepare_novel_text(load_novel_text(novel_path))
         chunks = self._chunk_text(text)
         self._last_chunk_count = len(chunks)
         novel_id = novel_id_from_input(novel_path)
         self._active_character_hints = self._load_novel_character_hints(novel_id)
+        self._emit_progress(
+            progress_callback,
+            "text_loaded",
+            novel_id=novel_id,
+            chunk_count=len(chunks),
+        )
 
         try:
             target_characters = [item.strip() for item in characters or [] if item.strip()] or self.extract_top_characters(text)
             if not target_characters:
                 raise ValueError("No character candidates were extracted from the novel text")
+            self._emit_progress(
+                progress_callback,
+                "characters_ready",
+                novel_id=novel_id,
+                characters=list(target_characters),
+                total=len(target_characters),
+            )
 
             alias_map = self.build_alias_map(text, target_characters, allow_sparse_alias=bool(characters))
             aggregated = {name: self._empty_bucket() for name in target_characters}
@@ -323,6 +337,14 @@ class NovelDistiller:
             out_dir = ensure_dir(Path(output_dir) if output_dir else self.path_provider.characters_root(novel_id))
             draft_profiles: Dict[str, Dict[str, Any]] = {}
             for name in target_characters:
+                self._emit_progress(
+                    progress_callback,
+                    "drafting_character",
+                    novel_id=novel_id,
+                    character=name,
+                    index=len(draft_profiles) + 1,
+                    total=len(target_characters),
+                )
                 profile = self._build_profile(name, aggregated[name], arc_points.get(name, []))
                 profile["novel_id"] = novel_id
                 profile["source_path"] = novel_path
@@ -338,6 +360,14 @@ class NovelDistiller:
             for batch in self._character_batches(target_characters):
                 batch_profiles = {name: draft_profiles[name] for name in batch}
                 for name in batch:
+                    self._emit_progress(
+                        progress_callback,
+                        "refining_character",
+                        novel_id=novel_id,
+                        character=name,
+                        index=len(profiles) + 1,
+                        total=len(target_characters),
+                    )
                     profile = self._refine_profile_with_llm(
                         draft_profiles[name],
                         bucket=aggregated[name],
@@ -349,9 +379,35 @@ class NovelDistiller:
                     profile["source_path"] = novel_path
                     profiles[name] = profile
                     self._export_persona_bundle(out_dir, profile)
+                    self._emit_progress(
+                        progress_callback,
+                        "character_done",
+                        novel_id=novel_id,
+                        character=name,
+                        index=len(profiles),
+                        total=len(target_characters),
+                        output_dir=str(out_dir),
+                    )
+            self._emit_progress(
+                progress_callback,
+                "distill_done",
+                novel_id=novel_id,
+                total=len(profiles),
+                output_dir=str(out_dir),
+            )
             return profiles
         finally:
             self._active_character_hints = {}
+
+    @staticmethod
+    def _emit_progress(
+        callback: Optional[Callable[[str, Dict[str, Any]], None]],
+        stage: str,
+        **payload: Any,
+    ) -> None:
+        if callback is None:
+            return
+        callback(stage, payload)
 
     def extract_top_characters(self, text: str) -> List[str]:
         return self._extract_top_characters(self.prepare_novel_text(text))

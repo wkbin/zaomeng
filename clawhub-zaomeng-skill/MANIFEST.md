@@ -13,6 +13,7 @@
 
 - `tools/prepare_novel_excerpt.py`
 - `tools/build_prompt_payload.py`
+- `tools/export_relation_graph.py`
 
 ## Prompt 模板
 
