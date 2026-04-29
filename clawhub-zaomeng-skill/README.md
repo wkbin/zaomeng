@@ -215,6 +215,12 @@ runtime/data/characters/<novel_id>/<角色名>/
 - `references/`
 - `tools/`
 
+## Distill Post-Process
+
+- 宿主 LLM 写出 `PROFILE.generated.md` 之后，要立即执行 `tools/materialize_persona_bundle.py`
+- 这一步会把 canonical profile 物化成完整人物包，补齐 `SOUL.generated.md`、`GOALS.generated.md`、`STYLE.generated.md`、`TRAUMA.generated.md`、`IDENTITY.generated.md`、`BACKGROUND.generated.md`、`CAPABILITY.generated.md`、`BONDS.generated.md`、`CONFLICTS.generated.md`、`ROLE.generated.md`、`AGENTS.generated.md`、`MEMORY.generated.md` 和 `NAVIGATION.generated.md`
+- 示例：`py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>`
+
 ## License
 
 `MIT-0`

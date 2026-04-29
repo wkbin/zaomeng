@@ -94,6 +94,7 @@ The skill now exposes prompt-first helper entrypoints:
 ```text
 tools/prepare_novel_excerpt.py
 tools/build_prompt_payload.py
+tools/materialize_persona_bundle.py
 tools/export_relation_graph.py
 ```
 
@@ -104,8 +105,14 @@ For example:
 ```bash
 py -3 tools/prepare_novel_excerpt.py --novel <path>
 py -3 tools/build_prompt_payload.py --mode distill --novel <path> --characters A,B
+py -3 tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <relation-result.md>
 ```
+
+After the host LLM writes a character's `PROFILE.generated.md`, run
+`tools/materialize_persona_bundle.py` immediately. This post-process
+materializes the split persona bundle files and `NAVIGATION.generated.md`
+for that character instead of leaving the workflow at the single profile file.
 
 ## Recommended Usage Flow
 
