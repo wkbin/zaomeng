@@ -2,161 +2,104 @@
 
 [中文](README.md) | [English](README.en.md)
 
-`zaomeng` is a local novel-character toolkit.
+`zaomeng` is not a generic chatbot.
 
-It does three things:
+It is closer to a skill that brings fictional characters back onto the stage:
 
-- distills characters from novels
-- extracts character relationships from novels
-- lets those characters enter group chat or roleplay in character
+- distill character profiles from a novel
+- extract relationships and generate relationship graphs
+- let characters speak according to their personality, stance, and bonds
 
-It is not a generic chatbot.  
-It is better understood as a fiction character engine.
+If what you want is not "some pleasant AI chat" but "make Lin Daiyu sound like Lin Daiyu" or "let a whole cast argue in character inside one scene," that is exactly the problem this project is trying to solve.
 
-License: the main project is `AGPL-3.0-only`; the `clawhub-zaomeng-skill` subdirectory remains `MIT-0`
+## What You Can Do With It
 
-The current recommended direction is:
+### 1. Distill characters
 
-- markdown-first storage: character and relation data no longer treat legacy JSON as the source of truth
-- natural-language first: distill first, then enter `act` / `observe` through natural-language intent
-- prompt-first skill packaging: `clawhub-zaomeng-skill` now centers on prompts, references, and helper scripts, with runtime kept only for transitional compatibility
-- layered constraints: `output_schema.md` handles format, `style_differ.md` handles anti-homogenization, and `logic_constraint.md` handles persona-stability and anti-OOC rules
-- LLM-first workflow: distillation, extraction, and chat all require a generation-capable LLM; rules now mainly provide extraction signals, routing hints, and guardrails
-- host-first reuse: when OpenClaw, Hermes, or another agent host already provides an LLM through `HostContext`, reuse it directly before asking for standalone runtime config
+Give it a novel, and it will try to build reusable character profiles from the original text, including:
 
-## Dialogue Generation
+- personality tone
+- core motivation
+- speaking style
+- decision logic
+- relationship tendency
+- emotional triggers
+- character arc
 
-Chat, distillation, and relationship extraction now follow the same **LLM-first** path:
+The goal is not a one-page summary. The goal is a profile that can actually support later roleplay and dialogue.
 
-- `zaomeng` prepares persona, relation, memory, and mode constraints
-- a generation-capable LLM produces the final wording
-- in group chat, later speakers can see replies produced earlier in the same turn
+### 2. Generate relationship graphs
 
-Capability resolution order:
+It does not stop at relation fields. It also exports a visual relationship graph so you can quickly see who trusts whom, who depends on whom, and where tension lives.
 
-- skill / host path: reuse the in-process host LLM through `HostContext`
-- if no generation-capable LLM is available, the workflow stops instead of falling back to a rule-only chat path
+That becomes especially useful for ensemble fiction, fanwork, character analysis, and interactive story setups.
 
-Minimal in-process host example:
+### 3. Enter in-character dialogue
 
-```python
-from src.core.runtime_factory import HostProvidedLLM, RuntimeDependencyOverrides, build_runtime_parts
+After distillation, you can keep going in two main modes:
 
-host_llm = HostProvidedLLM.from_host_context(context, provider_name="openclaw-host")
-parts = build_runtime_parts(overrides=RuntimeDependencyOverrides(llm=host_llm))
+- `act`: you play one character, other characters reply in character
+- `observe`: you stay out of the scene and let several characters interact naturally
+
+That goes beyond "give me a reply in this character's tone" because it also uses persona files, relationship state, memory, and the active scene.
+
+## How It Works Now
+
+The current version is **LLM-first**:
+
+- the host or runtime LLM does the actual language generation
+- `zaomeng` prepares prompts, constraints, persona files, relationship context, and helper outputs
+- the skill path prefers reusing the host model that already exists
+
+So the emphasis is no longer "hardcode a large pile of rules and glue lines together." The emphasis is giving the model clearer persona and relationship constraints so the output sounds more alive and more in character.
+
+## Best Fit
+
+It is especially useful for:
+
+- novel roleplay
+- multi-character group chat
+- fanwork assistance
+- character analysis
+- long-form cast organization
+- worldview and persona consistency checks
+
+If your recurring complaint is "the AI talks, but it does not sound like this person," this project is aimed right at that gap.
+
+## Recommended First-Time Flow
+
+Most users do not need to start with commands.
+
+The right order is simple:
+
+1. provide the novel text
+2. say which characters you want distilled
+3. wait for persona files and the relationship graph
+4. enter `act` or `observe`
+
+### Natural-language requests that work well
+
+```text
+Distill Lin Daiyu, Jia Baoyu, and Xue Baochai from this novel
 ```
 
-CLI example configuration:
-
-```yaml
-llm:
-  provider: "openai"               # or openai-compatible / anthropic / ollama
-  model: "gpt-4.1-mini"
-  api_key: ""
-  api_key_env: "OPENAI_API_KEY"
-  base_url: ""
-  temperature: 0.7
-  max_tokens: 300
-
-chat_engine:
-  generation_mode: "llm-only"
-  enable_turn_interactions: true
-  allow_character_silence: true
-  min_reply_relevance: 4
+```text
+After distillation, put Lin Daiyu, Jia Baoyu, and Xue Baochai into group chat mode
 ```
 
-## Installation
-
-You can choose the installation path that matches how you want to use it.
-
-Important:
-
-- the current `clawhub-zaomeng-skill` package installs as a prompt-first skill by default
-- `openclaw skills install ...` and `clawhub ... install ...` install the skill package; prompts, references, examples, and helper scripts are the primary assets
-- if the host cannot execute local Python commands, or lacks required dependencies, the real workflow still cannot run
-- if you want to modify code, run tests, or use the main repository CLI directly, cloning the repository is still the best option
-
-### 1. Clone the repository directly
-
-If you want to run the full project locally, use the CLI directly, or modify the code, cloning the repo is the best option:
-
-```bash
-git clone https://github.com/wkbin/zaomeng.git
-cd zaomeng
+```text
+Let me play Jia Baoyu. Lin Daiyu should answer me
 ```
 
-### 2. Install into OpenClaw
-
-If you mainly want to use it as a skill inside OpenClaw:
-
-```bash
-openclaw skills install wkbin/zaomeng-skill
+```text
+Generate the relationship graph. I want the HTML version
 ```
 
-This installs the skill package, not the full `zaomeng` development repository.  
-The default package is prompt-first; add transitional runtime assets only when an older host flow still needs them.
+## High-Quality Dialogue Examples
 
-### 3. Install with ClawHub
+### Example 1: `act` mode
 
-If you use ClawHub, pick the command that matches your toolchain:
-
-```bash
-npx clawhub@latest install zaomeng-skill
-```
-
-```bash
-pnpm dlx clawhub@latest install zaomeng-skill
-```
-
-```bash
-bunx clawhub@latest install zaomeng-skill
-```
-
-Again, this installs the skill package, not the full local `zaomeng` development repository.
-The default package is prompt-first; add transitional runtime assets only when an older host flow still needs them.
-
-### 4. Install into an existing local skills directory
-
-If your own project already has a `skills/` directory, you can also install the skill there:
-
-```bash
-python scripts/install_skill.py --skills-dir <your-skills-root>
-```
-
-This installs the prompt-first skill package.
-
-## Runtime Requirement
-
-To run the real workflow, the host environment needs at least one of these:
-
-- the ability to run the main repository CLI directly
-- or the ability to run the packaged minimal runtime inside `clawhub-zaomeng-skill`
-
-If the host does not allow local command execution, or lacks required Python dependencies, the real `zaomeng` CLI workflow cannot run.
-
-## Development Checks
-
-For local guardrails, use the bundled development check entrypoint:
-
-```bash
-python scripts/dev_checks.py
-```
-
-This now includes a targeted `mypy` pass for prompt-first packaging, helper scripts, and compatibility guardrails:
-
-```bash
-python -m mypy --config-file mypy.ini
-```
-
-For a faster preflight pass that only runs the prompt-first smoke guardrails:
-
-```bash
-python scripts/dev_checks.py --smoke-only
-```
-
-## Example 1: Act Mode
-
-```
+```text
 User      ❯  Let me play Jia Baoyu and chat with Lin Daiyu.
             Set the scene at Qinfang Pavilion in the Grand View Garden,
             on a spring afternoon, with Daiyu standing by the bridge watching fish.
@@ -172,7 +115,7 @@ zaomeng   ❯  (On a spring afternoon, sunlight filters through willow branches
 
 User      ❯  Cousin Lin, in weather this warm, why are you standing here alone
             and drifting into thought?
-            If the wind keeps up, you'll grow faint if you stay too long.
+            If the wind keeps up, you will grow faint if you stay too long.
 
 zaomeng   ❯  (At the sound of his voice, she does not turn at once.
             Her eyes remain fixed on the glittering water and the fish below.
@@ -189,7 +132,7 @@ zaomeng   ❯  (At the sound of his voice, she does not turn at once.
             If anyone is likely to grow faint, it is probably you.
             On such a fine day, why are you not off keeping Baochai company over tea and chess?
             Yet here you are, coming to this quiet place to look for me.
-            Aren't you afraid someone will say you still have no proper sense of yourself?
+            Are you not afraid someone will say you still have no proper sense of yourself?
 
 User      ❯  How did such a fine afternoon turn into words so full of jealousy?
             For me, no lively place in the world is worth half the charm
@@ -217,415 +160,130 @@ zaomeng   ❯  (The flower in her hand trembles.
             You need not stand here and offend my eyes.
 ```
 
-## Example 2: Group Chat Mode (Observe)
+### Example 2: `observe` mode
 
-```
+```text
 User      ❯  Put Jia Baoyu, Lin Daiyu, and Xue Baochai into group chat mode
-            (no scene specified).
+            with no scene specified.
 
 zaomeng   ❯  All character profiles and relationship data have been loaded.
             Setting the scene...
-            🎭 Group chat mode started
-            📍 Scene: Hengwu Court, autumn afternoon.
-               Baochai is inside sorting colored thread.
-               Baoyu comes to borrow a book and finds Daiyu already there.
-               The three gather in Baochai's quarters.
-            ⏰ Timeline: after Chapter 42
-               (The Golden Orchid vow has passed.
-               Daiyu and Baochai appear reconciled on the surface,
-               but the undercurrent of the triangle remains.)
+            Group chat mode started.
+            Scene: Hengwu Court, autumn afternoon.
+            Baochai is inside sorting colored thread.
+            Baoyu comes to borrow a book and finds Daiyu already there.
+            The three gather in Baochai's quarters.
+            Timeline: after Chapter 42.
+            (The Golden Orchid vow has passed.
+            Daiyu and Baochai appear reconciled on the surface,
+            but the undercurrent of the triangle remains.)
 
-Baoyu (stepping into Hengwu Court, delighted to see Daiyu there as well):
+Baoyu: How fortunate that both my dear sisters are here.
+       I only came to borrow a book from Baochai,
+       yet Lin Daiyu is here too, and that saves me another walk.
+       The weather is so fine today. Why don't we all sit together and talk for a while?
 
-How fortunate that both my dear sisters are here!
-I only came to borrow a book from Baochai,
-yet Lin妹妹 is here too, and that saves me another walk.
-The weather is so fine today. Why don't we all sit together and talk for a while?
+Baochai: You have arrived at just the right time.
+         I do happen to have a newly acquired copy of Guangyun here.
+         If you want to borrow it, take it.
+         Only do not leave it lying in Yihong Courtyard to gather dust again.
+         As for Cousin Lin, she came to see me.
+         Sit down. I shall have Ying'er bring tea.
 
-Baochai (setting down her needlework with a faint smile):
+Daiyu: Then I came at the wrong time.
+       Had I known you were here, I would not have come,
+       lest someone say again that I have come only to disturb your private talk.
 
-You have arrived at just the right time.
-I do happen to have a newly acquired copy of Guangyun here.
-If you want to borrow it, take it.
-Only do not leave it lying in Yihong Courtyard to gather dust again,
-as you did last time. That would be a waste of the book.
-As for Cousin Lin, she came to see me.
-Sit down. I shall have Ying'er bring tea.
-
-Daiyu (leaning sideways against the couch, her eyes passing over Baoyu as she speaks lightly):
-
-Then I came at the wrong time.
-Had I known you were here, I would not have come,
-lest someone say again that I have come only to disturb your private talk.
-
-(more dialogue omitted...)
-
-zaomeng   > 🌸 Group chat paused
-
-            That was the first round of group chat, generated from the three characters'
-            distilled personalities, speech styles, and relationship dynamics.
-            You can now:
-
-            continue the conversation
-            cut into one character's line
-            change the scene
-            or end the chat
+zaomeng   ❯  That was the first round of group chat.
+            You can now continue the topic, switch the scene,
+            cue a specific character, or enter the next round directly.
 ```
 
-## How To Use It
+## Installation
 
-The correct order is not to jump straight into chat.  
-**You always start by providing the novel first, then distilling the characters. Only after distillation should you enter group chat or roleplay.**
+### If you just want to use it
 
-The most common user flow is:
+Install it as a skill first.
 
-1. attach the novel file, or provide the file path
-2. describe which characters you want distilled
-3. after distillation finishes, enter roleplay or group chat
-
-## One Complete Example
-
-### Step 1: provide the novel, then say who you want distilled
-
-For example, after providing *Dream of the Red Chamber*, you say:
-
-```text
-Distill Lin Daiyu and Jia Baoyu for me
-```
-
-The system will process the novel and generate character profiles plus relationship data for them.
-
-### Step 2: after distillation, enter chat
-
-Then you say:
-
-```text
-Let me play Jia Baoyu and chat with Lin Daiyu
-```
-
-Now the system enters the flow where you play Baoyu and Daiyu replies.
-
-Then you continue with:
-
-```text
-Sister, are you feeling well today?
-```
-
-The system treats that as Baoyu's actual line and lets Daiyu answer.
-
-### Step 3: multi-character chat also comes after distillation
-
-For example, after providing *Romance of the Three Kingdoms* and distilling Liu Bei, Zhang Fei, and Guan Yu, you can say:
-
-```text
-Enter Liu Bei, Zhang Fei, Guan Yu group chat mode
-```
-
-Then continue with:
-
-```text
-Liu Bei: Brothers, now that the fighting has briefly eased, this is a rare moment of calm.
-```
-
-Now the system lets Zhang Fei and Guan Yu respond.
-
-## Things You Can Say Directly
-
-### Distill characters
-
-```text
-Distill Lin Daiyu and Jia Baoyu for me
-```
-
-```text
-Extract character personas for Liu Bei, Zhang Fei, and Guan Yu from this novel
-```
-
-### Enter roleplay after distillation
-
-```text
-Let me play Jia Baoyu and chat with Lin Daiyu
-```
-
-### Enter group chat after distillation
-
-```text
-Enter Liu Bei, Zhang Fei, Guan Yu group chat mode
-```
-
-### Make everyone speak immediately
-
-```text
-Let everyone say one line about the alliance with Sun Quan
-```
-
-## What It Can Do
-
-### 1. Character Distillation
-
-Extract major characters from `.txt` or `.epub` novels and build markdown character profiles.
-
-The current profile aims to cover a much richer character space, including:
-
-- core identity
-- core motivation
-- personality base
-- decision logic
-- arc
-- key bonds
-- symbolic traits
-- world-rule fit
-- value tradeoffs
-- emotional reaction pattern
-- cognitive preference
-- language expression style
-- strengths and fatal weaknesses
-- background and survival condition
-- hidden desire
-- action tendency
-- trauma imprint
-- social mode
-- inner conflict
-- story role
-- fears and taboo triggers
-- belief anchor
-- cognitive limits
-- stance stability
-- reward / grievance logic
-- private self
-
-Representative fields now include:
-
-- `core_traits`
-- `values`
-- `speech_style`
-- `typical_lines`
-- `decision_rules`
-- `identity_anchor`
-- `soul_goal`
-- `core_identity`
-- `faction_position`
-- `background_imprint`
-- `world_rule_fit`
-- `social_mode`
-- `hidden_desire`
-- `inner_conflict`
-- `story_role`
-- `belief_anchor`
-- `private_self`
-- `stance_stability`
-- `reward_logic`
-- `strengths`
-- `weaknesses`
-- `cognitive_limits`
-- `fear_triggers`
-- `key_bonds`
-- `action_style`
-- `life_experience`
-- `taboo_topics`
-- `forbidden_behaviors`
-
-### 2. Relationship Extraction
-
-Build a relationship graph from the novel. Current core fields include:
-
-- `trust`
-- `affection`
-- `power_gap`
-- `conflict_point`
-- `typical_interaction`
-
-### 3. Character Chat
-
-Two chat styles are supported:
-
-- `observe`
-  You provide a scene, topic, or opening line and let characters interact naturally
-- `act`
-  You control one character directly while others reply in character
-
-### 4. Correction Memory
-
-If a line is clearly out of character, you can save a correction.  
-Later conversations will try to avoid the same kind of mistake.
-
-### 5. Markdown Persona Bundle
-
-Character storage is now markdown-first rather than legacy JSON-first.
-
-Each character directory now follows a navigation + generated layer + override layer pattern. Common files include:
-
-- `data/characters/<novel_id>/<character>/NAVIGATION.generated.md`
-- `data/characters/<novel_id>/<character>/NAVIGATION.md`
-- `data/characters/<novel_id>/<character>/PROFILE.generated.md`
-- `data/characters/<novel_id>/<character>/PROFILE.md`
-- `data/characters/<novel_id>/<character>/RELATIONS.generated.md`
-- `data/characters/<novel_id>/<character>/RELATIONS.md`
-- `data/characters/<novel_id>/<character>/MEMORY.md`
-
-Depending on evidence quality, the distillation step may also generate optional focused persona files:
-
-- `SOUL.generated.md`
-- `GOALS.generated.md`
-- `STYLE.generated.md`
-- `TRAUMA.generated.md`
-- `IDENTITY.generated.md`
-- `BACKGROUND.generated.md`
-- `CAPABILITY.generated.md`
-- `BONDS.generated.md`
-- `CONFLICTS.generated.md`
-- `ROLE.generated.md`
-
-At runtime, loading starts from:
-
-- `NAVIGATION.generated.md`
-- `NAVIGATION.md`
-
-and then follows `load_order` to assemble the final persona.
-
-### 6. Constraint Reference Files
-
-The current skill/runtime constraint stack is split into three layers:
-
-- `references/output_schema.md`
-  format and field contract
-- `references/style_differ.md`
-  anti-homogenization and style separation
-- `references/logic_constraint.md`
-  global persona floor, anti-OOC rules, and mode boundaries
-
-## Quick Start
-
-### 1. Prepare a novel file
-
-Supported formats:
-
-- `.txt`
-- `.epub`
-
-### 2. Distill first, then chat
-
-Using *Dream of the Red Chamber* as an example:
+#### OpenClaw
 
 ```bash
-python -m src.core.main distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉 --force
-python -m src.core.main extract --novel data/hongloumeng.txt --force
+openclaw skills install wkbin/zaomeng-skill
 ```
 
-This creates:
-
-- `data/characters/hongloumeng/<character>/`
-- `data/relations/hongloumeng/hongloumeng_relations.md`
-
-### 3. After distillation, start chatting
+#### ClawHub
 
 ```bash
-python -m src.core.main chat --novel data/hongloumeng.txt --mode auto --message "让我扮演贾宝玉和林黛玉聊天"
-python -m src.core.main chat --novel data/hongloumeng.txt --session <session_id> --message "妹妹今日可大安了？"
+npx clawhub@latest install zaomeng-skill
 ```
 
-If you want a multi-character group chat:
+or:
 
 ```bash
-python -m src.core.main chat --novel data/sanguo.txt --mode auto --message "进入刘备、张飞、关羽群聊模式"
-python -m src.core.main chat --novel data/sanguo.txt --session <session_id> --message "刘备：二位贤弟，近日战事稍歇。"
+pnpm dlx clawhub@latest install zaomeng-skill
 ```
-
-## Other Commands
-
-### View a character profile
 
 ```bash
-python -m src.core.main view --character 林黛玉 --novel data/hongloumeng.txt
+bunx clawhub@latest install zaomeng-skill
 ```
 
-### Save a correction
+This is now the main path: **prompt-first skill + host LLM**.
+
+### If you are developing on it
+
+Clone the repository directly:
 
 ```bash
-python -m src.core.main correct \
-  --session <session_id> \
-  --message "Baoyu plans to leave home and become a merchant" \
-  --corrected "Baoyu has long disliked worldly ambition and would rather remain among poetry, gardens, and intimate company" \
-  --character 贾宝玉
+git clone https://github.com/wkbin/zaomeng.git
+cd zaomeng
 ```
 
-## Command Overview
+The repository still keeps the source code, tests, and CLI needed for local development and debugging, but that is no longer the main entry point for ordinary users.
 
-```bash
-python -m src.cli.main distill --novel <path> [--characters A,B] [--output <dir>] [--force]
-python -m src.cli.main extract --novel <path> [--output <path>] [--force]
-python -m src.cli.main chat --novel <path-or-name> --mode auto|observe|act [--character <name>] [--session <id>] [--message <text>]
-python -m src.cli.main view --character <name> [--novel <path-or-name>]
-python -m src.cli.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>] [--target <name>] [--reason <text>]
-```
+## Typical Outputs
 
-`src.core.main` remains as a backward-compatible wrapper.
+After a run, you will usually get:
 
-## Project Structure
+- character profiles
+- relationship results
+- relationship graph HTML
+- in-character dialogue output
+- persistent correction memory
 
-The current layout separates standalone CLI code, shared core code, and the prompt-first skill package:
+Character storage is now markdown-first rather than legacy-JSON-first.
 
-- standalone CLI code now lives under `src/cli/`
-- shared core implementation lives in files such as `src/core/runtime_parts.py` and `src/core/logging_setup.py`
-- thin compatibility wrappers remain in `src/core/main.py`, `src/core/cli_app.py`, `src/core/runtime_factory.py`, and `src/core/logging_utils.py`
-- the skill package centers on `prompts/`, `references/`, `examples/`, and `tools/`, while `runtime/` remains transitional compatibility only
+## What Changed From Earlier Versions
 
-```text
-Dreamforge/
-├─ src/                          # main source code
-│  ├─ cli/                       # standalone CLI layer
-│  │  ├─ app.py
-│  │  └─ main.py
-│  ├─ core/                      # entrypoint, config, dependency wiring, rule loading
-│  │  ├─ main.py
-│  │  ├─ config.py
-│  │  ├─ contracts.py
-│  │  ├─ llm_client.py
-│  │  ├─ path_provider.py
-│  │  └─ rulebook.py
-│  ├─ modules/                   # business modules: distillation, relations, chat, correction, speaking
-│  │  ├─ distillation.py
-│  │  ├─ relationships.py
-│  │  ├─ chat_engine.py
-│  │  ├─ reflection.py
-│  │  └─ speaker.py
-│  └─ utils/                     # shared helpers for files, parsing, token counting
-│     ├─ file_utils.py
-│     ├─ text_parser.py
-│     └─ token_counter.py
-├─ src/skill_support/            # prompt-first skill helpers
-│  ├─ novel_preparation.py
-│  └─ prompt_payloads.py
-├─ rules/                        # repository-level editable rule files
-│  ├─ distillation_rules.md
-│  └─ relationship_rules.md
-├─ clawhub-zaomeng-skill/        # standalone ClawHub/OpenClaw skill package
-│  ├─ README.md
-│  ├─ README_EN.md
-│  ├─ SKILL.md
-│  ├─ INSTALL.md
-│  ├─ MANIFEST.md
-│  ├─ PUBLISH.md
-│  ├─ prompts/                   # packaged prompt templates
-│  ├─ references/                # schema, anti-homogenization, logic constraints
-│  ├─ examples/                  # sample persona and relation outputs
-│  ├─ tools/                     # helper scripts for prompt-first host flows
-│  └─ runtime/                   # transitional compatibility runtime
-│     ├─ zaomeng_cli.py
-│     ├─ requirements.txt
-│     ├─ rules/
-│     └─ src/
-├─ skills/                       # other skill directories
-│  └─ zaomeng-skill/
-├─ scripts/                      # install and helper scripts
-├─ tests/                        # regression and behavior tests
-│  └─ test_relation_behavior.py
-├─ data/                         # local runtime data: characters, relations, sessions
-├─ README.md                     # Chinese documentation
-├─ README.en.md                  # English documentation
-├─ LICENSE                       # repository license
-└─ requirements.txt              # main project dependencies
-```
+If you read an older introduction before, these points have changed:
+
+- it is now **LLM-first**, not rule-template-first
+- the skill path reuses the host model first instead of assuming separate runtime configuration
+- `clawhub-zaomeng-skill` now centers on `prompts/`, `references/`, and helper scripts
+- outputs now emphasize markdown persona files, relationship graphs, and reusable chat artifacts
+
+## Project Layout
+
+If you are only here to use it, you can skip this section.
+
+The repository is now roughly split into three layers:
+
+- `src/`: core source code
+- `clawhub-zaomeng-skill/`: publishable skill package
+- `tests/`: regression coverage
+
+The most important assets in the skill package are:
+
+- `prompts/`
+- `references/`
+- `tools/prepare_novel_excerpt.py`
+- `tools/build_prompt_payload.py`
+- `tools/export_relation_graph.py`
+
+## In One Line
+
+`zaomeng` is not trying to be "an AI that can talk."
+
+It is trying to let people from novels speak again with their own personality, relationships, and voice.
 
 ## License
 

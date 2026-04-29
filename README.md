@@ -1,108 +1,177 @@
-# 造梦.skill
+# zaomeng.skill
 
 [中文](README.md) | [English](README.en.md)
 
-`zaomeng` 是一个本地小说角色工具。
+`zaomeng` 不是普通聊天机器人。
 
-它做三件事：
+它更像一个把小说人物“请出来”的技能：
 
-- 从小说里蒸馏人物
-- 从小说里抽取人物关系
-- 让这些角色按设定进入群聊或和你对话
+- 从小说里蒸馏人物档案
+- 抽取人物关系并生成关系图谱
+- 让人物按自己的性格、立场和关系去说话
 
-它不是普通陪聊机器人。  
-它更像一个“小说角色引擎”。
+如果你想做的不是“随便聊聊”，而是让林黛玉像林黛玉、让刘备像刘备、让一群角色在同一场戏里各说各话，那它就是为这个场景做的。
 
-许可证：主项目为 `AGPL-3.0-only`；`clawhub-zaomeng-skill` 子目录继续使用 `MIT-0`
+## 你能拿它做什么
 
-当前推荐版本思路是：
+### 1. 蒸馏人物
 
-- Markdown-first：人物与关系主存储已经不再以旧版 JSON 为准
-- 自然语言优先：先蒸馏，再通过自然语言进入 `act` / `observe`
-- skill prompt-first：`clawhub-zaomeng-skill` 现在以 prompts、references 和 helper scripts 为主
-- 约束分层：`output_schema.md` 管格式，`style_differ.md` 管去同质化，`logic_constraint.md` 管防 OOC
-- LLM-first：蒸馏、关系抽取和聊天都以可生成 LLM 为前提，规则文件只负责提取信号、边界约束和路由辅助
-- 宿主优先：若 OpenClaw / Hermes / Agent 宿主已在同进程内提供模型能力，优先通过 `HostContext` 复用宿主 LLM
+给它一本小说，它会尽量从正文里整理出角色的人物档案，包括：
 
-## 对话生成
+- 性格底色
+- 核心动机
+- 说话风格
+- 行为逻辑
+- 关系偏向
+- 情绪触发点
+- 成长弧光
 
-当前聊天、蒸馏和关系抽取都走 **LLM-first** 路径：
+不是只做一页“人物简介”，而是尽量整理成可继续拿来对话和演绎的角色底稿。
 
-- `zaomeng` 先整理人物、关系、记忆和模式约束
-- 再由可生成 LLM 负责最终语言表达
-- 群聊时，后发言角色会看到本轮前面已经生成的回复
+### 2. 生成人物关系图谱
 
-运行时能力探测优先级：
+除了关系字段，它还会输出可视化关系图谱，方便你直接看谁信任谁、谁依赖谁、谁和谁在对抗。
 
-- skill / 宿主路径：优先从 `HostContext` 复用宿主 LLM
-- 如果拿不到可生成 LLM，直接中止工作流并修复宿主模型接入，而不是退回“规则模式”
+如果你在做群像小说、同人创作、角色分析或互动体验，这一步会非常直观。
 
-进程内宿主接入的最小示例：
+### 3. 进入角色对话
 
-```python
-from src.core.runtime_factory import HostProvidedLLM, RuntimeDependencyOverrides, build_runtime_parts
+蒸馏完成后，可以继续两种玩法：
 
-host_llm = HostProvidedLLM.from_host_context(context, provider_name="openclaw-host")
-parts = build_runtime_parts(overrides=RuntimeDependencyOverrides(llm=host_llm))
+- `act`：你扮演其中一个角色，其他角色按设定回应
+- `observe`：你不下场，让几个人物围绕一个场景自然互动
+
+这比“给我一段某角色语气的回复”更进一步，因为它会同时考虑人物档案、关系、记忆和当前场景。
+
+## 现在的工作方式
+
+当前版本是 **LLM-first**：
+
+- 宿主或运行环境里的 LLM 负责真正生成语言
+- `zaomeng` 负责准备 prompt、约束、人物档案、关系信息和辅助产物
+- skill 路径优先复用宿主已经提供的模型能力
+
+也就是说，它现在的重点不是“写一大堆规则硬拼回复”，而是让模型在更清晰的人设和关系约束下，生成更像人的角色表达。
+
+## 最适合谁用
+
+它比较适合这些场景：
+
+- 小说角色扮演
+- 多角色群聊互动
+- 同人创作辅助
+- 剧情分析与人物关系整理
+- 长篇小说人物档案整理
+- 角色世界观一致性检查
+
+如果你经常觉得“AI 会说话，但不像这个人”，那这个项目就是在处理这个问题。
+
+## 推荐上手方式
+
+大多数用户不用先研究命令。
+
+正确顺序很简单：
+
+1. 提供小说文本
+2. 说你要蒸馏哪些人物
+3. 等人物档案和关系图谱生成完
+4. 再进入 `act` 或 `observe`
+
+### 你可以直接这样说
+
+```text
+帮我从这本小说里蒸馏林黛玉、贾宝玉、薛宝钗
 ```
 
-CLI 直跑时的常见配置示例：
-
-```yaml
-llm:
-  provider: "openai"               # 也可用 openai-compatible / anthropic / ollama
-  model: "gpt-4.1-mini"
-  api_key: ""
-  api_key_env: "OPENAI_API_KEY"
-  base_url: ""
-  temperature: 0.7
-  max_tokens: 300
-
-chat_engine:
-  generation_mode: "llm-only"
-  enable_turn_interactions: true   # 群聊里后发言角色可接前一句
-  allow_character_silence: true    # 低相关角色可以不强行插话
-  min_reply_relevance: 4
+```text
+蒸馏完成后，进入林黛玉、贾宝玉、薛宝钗的群聊模式
 ```
 
-## 安装方式
-
-你可以按自己的使用场景选择安装方式。
-
-请注意：
-
-- 现在的 `clawhub-zaomeng-skill` 默认安装为 prompt-first skill 包
-- `openclaw skills install ...`、`clawhub ... install ...` 安装的是 skill 包；其中 prompts、references、examples 和 helper scripts 是主资产
-- 如果当前宿主不允许执行本地 Python 命令，或缺少必要依赖，那么仍然无法运行真实工作流
-- 如果你要直接改源码、跑测试、或使用仓库主 CLI，仍然推荐直接克隆本仓库
-
-### 1. 直接克隆仓库
-
-如果你想本地运行完整项目、直接执行 CLI，或者自己改代码，推荐直接克隆仓库：
-
-```bash
-git clone https://github.com/wkbin/zaomeng.git
-cd zaomeng
+```text
+让我扮演贾宝玉，林黛玉来回我
 ```
 
-### 2. 安装到 OpenClaw
+```text
+生成人物关系图谱，我要看 HTML 版
+```
 
-如果你主要是在 OpenClaw 里把它当作 skill 使用，可以直接安装：
+## 高质量对话示例
+
+### 示例一：`act` 模式
+
+```text
+用户      ❯  让我扮演贾宝玉和林黛玉聊天。
+            场景定在：大观园沁芳亭畔，春日午后，黛玉正在桥上看鱼。
+
+zaomeng   ❯  （春日午后，阳光透过柳丝洒在沁芳溪上，水光粼粼。
+            黛玉独自立在沁芳桥畔，一手扶着桥栏，俯身看着溪中锦鲤游弋。
+            风吹起她的裙角和鬓边几缕碎发，她似看得入神，
+            手中捏着一朵不知何时摘的落花，指节微微发白。）
+
+用户      ❯  林妹妹，这般暖的日头，怎一个人躲在这里发呆？
+            风吹得人倦，仔细站久了头晕。
+
+zaomeng   ❯  （闻声未回头，目光仍凝在粼粼溪水与游鱼之上，半晌才轻声道——）
+            你倒管得宽。我在这里看鱼，鱼又不嫌我碍眼——哪像你们那些热闹去处，
+            处处都是人，倒嫌我一个多余。
+            （手指无意识地捻着那朵落花，花瓣碎了几片落在水面上，被鱼啄了去。
+            这才微微侧过脸，眼尾扫了宝玉一眼，声音仍淡淡的。）
+            仔细头晕的是你自己。这般好日头，不去陪宝姐姐下棋品茶，
+            倒来这冷清地方找我——也不怕别人说你没正形。
+
+用户      ❯  好好的，怎又说出这般醋意十足的话来。
+            世上热闹去处再多，于我而言，都不及沁芳桥边，有你在的半分意趣。
+
+zaomeng   ❯  （手中的落花一颤，指尖微微收紧。耳根慢慢泛起薄红，却将脸别向另一边，不肯让他瞧见。）
+            ……哼。
+            （沉默了一瞬，声音比方才软了几分，像是被春风化了一角棱角。）
+            这样的话，你说过几遍了。再好听的话，说多了也就不稀奇了。
+            （溪中锦鲤甩尾溅起一小朵水花，正落在她手背上。她低头看了看，忽然轻声念了一句——）
+            “桃花帘外东风软，桃花帘内晨妆懒。帘外桃花帘内人，人与桃花隔不远。”
+            （念完才意识到自己失言，耳根更红了，连忙用手中残花遮了遮嘴角，眼神飘忽地看向远处。）
+            ……看鱼便是看鱼，谁与你念什么诗。你若嫌无聊，自去别处逛，不必杵在这里碍我的眼。
+```
+
+### 示例二：`observe` 模式
+
+```text
+用户      ❯  让贾宝玉、林黛玉、薛宝钗进入群聊模式（未指定场景）
+
+zaomeng   ❯  好，角色档案和关系图谱已全部加载。设定场景——
+            群聊模式启动
+            场景：蘅芜苑，秋日午后。宝钗正在房中理线。
+            宝玉来找宝钗借书，撞见黛玉也在。三人聚于蘅芜苑中。
+            时间线：第四十二回之后
+            （金兰契已过，黛玉宝钗表面和解，但三角关系的暗流仍在）
+
+宝玉：好妹妹们都在这里！我原是来寻宝姐姐借书的，不想林妹妹也来了，倒省了我一趟腿。今日天好，不如咱们一处坐坐，说说话儿。
+
+宝钗：你倒来得巧。我这里正有一部新得的《广韵》，你若要借，拿去便是。只是别再像上回那般，借去了搁在怡红院积灰，没的糟蹋了书。——颦儿是来看我的，你坐下罢，我叫莺儿沏茶来。
+
+黛玉：倒是我来得不巧了。早知你在，我便不来了——免得有人说我又来搅扰你们说悄悄话。
+
+zaomeng   ❯  以上是第一轮群聊。你现在可以继续话题、切换场景、点名某个角色接话，或者直接进入下一轮。
+```
+
+## 安装与使用
+
+### 如果你是普通使用者
+
+优先使用 skill 方式安装。
+
+#### OpenClaw
 
 ```bash
 openclaw skills install wkbin/zaomeng-skill
 ```
 
-这一步安装的是 skill 包，不等于完整的 `zaomeng` 仓库源码。  
-默认拿到的是 prompt-first skill 包；只有兼容旧宿主流程时才需要额外带上过渡期 runtime。
-
-### 3. 用 ClawHub 安装
-
-如果你使用 ClawHub，可以选你习惯的命令：
+#### ClawHub
 
 ```bash
 npx clawhub@latest install zaomeng-skill
 ```
+
+或：
 
 ```bash
 pnpm dlx clawhub@latest install zaomeng-skill
@@ -112,462 +181,63 @@ pnpm dlx clawhub@latest install zaomeng-skill
 bunx clawhub@latest install zaomeng-skill
 ```
 
-同样，这一步安装的是 skill 包，不等于你本地已经有完整的 `zaomeng` 开发仓库。
-默认拿到的是 prompt-first skill 包；只有兼容旧宿主流程时才需要额外带上过渡期 runtime。
+这条路径现在是主路径：**prompt-first skill + 宿主 LLM**。
 
-### 4. 已有本地 skill 目录时安装
+### 如果你是开发者
 
-如果你自己的项目里已经有 `skills/` 目录，也可以把仓库里的 skill 安装进去：
+可以直接克隆仓库：
 
 ```bash
-python scripts/install_skill.py --skills-dir <your-skills-root>
+git clone https://github.com/wkbin/zaomeng.git
+cd zaomeng
 ```
 
-默认安装为 prompt-first skill 包。
+仓库里保留了本地开发、测试和调试所需的源码与 CLI，但这已经不是面向普通用户的第一入口。
 
-## 运行前提
+## 典型产物
 
-要运行真实工作流，宿主环境至少要允许其中一种能力：
+运行后你通常会得到几类结果：
 
-- 直接运行本仓库主 CLI
-- 或由宿主直接调用 `clawhub-zaomeng-skill` 提供的 helper scripts
+- 人物档案
+- 人物关系结果
+- 人物关系图谱 HTML
+- 角色对话结果
+- 可持续写回的角色记忆
 
-如果当前宿主环境不允许执行本地命令，或缺少必要的 Python 依赖，那么就不能运行真实的 `zaomeng` CLI 工作流。
+其中人物档案当前以 Markdown 为主，不再把旧版 JSON 当作主存储格式。
 
-## 效果示例一：行动模式
+## 这版和早期版本有什么不同
 
-```
-用户      ❯  让我扮演贾宝玉和林黛玉聊天。
-            场景定在：大观园沁芳亭畔，春日午后，黛玉正在桥上看鱼。
+如果你之前看过旧版介绍，这几个点现在已经变了：
 
-zaomeng   ❯ （春日午后，阳光透过柳丝洒在沁芳溪上，水光粼粼。
-            黛玉独自立在沁芳桥畔，一手扶着桥栏，俯身看着溪中锦鲤游弋。
-            风吹起她的裙角和鬓边几缕碎发，她似看得入神，
-            手中捏着一朵不知何时摘的落花，指节微微发白。）
-
-用户      ❯  林妹妹，这般暖的日头，怎一个人躲在这里发呆？   
-            风吹得人倦，仔细站久了头晕。     
-
-zaomeng   ❯ （闻声未回头，目光仍凝在粼粼溪水与游鱼之上，半晌才轻声道——）
-             你倒管得宽。我在这里看鱼，鱼又不嫌我碍眼——哪像你们那些热闹去处，
-             处处都是人，倒嫌我一个多余。
-             （手指无意识地捻着那朵落花，花瓣碎了几片落在水面上，被鱼啄了去。
-             这才微微侧过脸，眼尾扫了宝玉一眼，声音仍淡淡的。）
-             仔细头晕的是你自己。这般好日头，不去陪宝姐姐下棋品茶，
-             倒来这冷清地方找我——也不怕别人说你没正形。   
-
-用户      ❯  好好的，怎又说出这般醋意十足的话来。
-            世上热闹去处再多，于我而言，都不及沁芳桥边，有你在的半分意趣。        
-
-zaomeng   ❯ （手中的落花一颤，指尖微微收紧。耳根慢慢泛起薄红，却将脸别向另一边，不肯让他瞧见。）
-            ……哼。
-            （沉默了一瞬，声音比方才软了几分，像是被春风化了一角棱角。）
-            这样的话，你说过几遍了。再好听的话，说多了也就不稀奇了。
-            （溪中锦鲤甩尾溅起一小朵水花，正落在她手背上。她低头看了看，忽然轻声念了一句——）
-            "桃花帘外东风软，桃花帘内晨妆懒。帘外桃花帘内人，人与桃花隔不远。"
-            （念完才意识到自己失言，耳根更红了，连忙用手中残花遮了遮嘴角，眼神飘忽地看向远处。）
-            ……看鱼便是看鱼，谁与你念什么诗。你若嫌无聊，自去别处逛，不必杵在这里碍我的眼。
-```
-
-## 效果示例二：群里模式（观察）
-```
-用户      ❯  让贾宝玉，林黛玉，薛宝钗进入群聊模式（未指定场景）
-            
-zaomeng   ❯  好，角色档案和关系图谱已全部加载。设定场景——
-             🎭 群聊模式启动
-             📍 场景：蘅芜苑，秋日午后。宝钗正在房中理线。
-              宝玉来找宝钗借书，撞见黛玉也在。三人聚于蘅芜苑中。
-              ⏰ 时间线：第四十二回之后
-              （金兰契已过，黛玉宝钗表面和解，但三角关系的暗流仍在）
-
-宝玉（踏进蘅芜苑，见黛玉也在，喜上眉梢）：
-
-好妹妹们都在这里！我原是来寻宝姐姐借书的，不想林妹妹也来了，倒省了我一趟腿。今日天好，不如咱们一处坐坐，说说话儿。
-
-宝钗（放下手中针线，微微笑道）：
-
-你倒来得巧。我这里正有一部新得的《广韵》，你若要借，拿去便是。只是别再像上回那般，借去了搁在怡红院积灰，没的糟蹋了书。——颦儿是来看我的，你坐下罢，我叫莺儿沏茶来。
-
-黛玉（斜倚在榻上，目光扫过宝玉，淡淡道）：
-
-倒是我来得不巧了。早知你在，我便不来了——免得有人说我又来搅扰你们说悄悄话。
-
-(此处省略过多对话......)
-
-zaomeng > 🌸 群聊暂停
-
-          以上是第一轮群聊，基于三人蒸馏档案中的性格特征、语言风格和关系动态。你可以：
-          
-          继续聊 — 指定话题或让剧情自然发展
-          切入某个角色 — 如"让黛玉说……"
-          切换场景 — 比如搬到大观园诗社、宝玉挨打后、或者更紧张的对手戏
-          结束群聊 — 回到正常对话
-          怎么说？
-```            
-
-
-
-## 先看怎么用
-
-正确顺序不是上来就群聊。  
-**第一步永远是先给小说，再蒸馏人物。蒸馏完成后，才能进入群聊或扮演模式。**
-
-用户最常见的使用路径是：
-
-1. 把小说文件附上，或者指定小说文件路径
-2. 用自然语言说你要蒸馏谁
-3. 蒸馏完成后，再进入群聊或扮演
-
-## 一个完整例子
-
-### 第一步：先附上小说，再说要蒸馏谁
-
-比如你先提供《红楼梦》的小说文本，然后说：
-
-```text
-帮我蒸馏林黛玉和贾宝玉
-```
-
-系统会先处理小说，生成这两个人物的档案和关系信息。
-
-### 第二步：蒸馏完成后，再进入聊天
-
-这时你再说：
-
-```text
-让我扮演贾宝玉和林黛玉聊天
-```
-
-系统才会进入“你扮演贾宝玉，林黛玉回应你”的玩法。
-
-接着你可以继续说：
-
-```text
-妹妹今日可大安了？
-```
-
-系统会把这句当成贾宝玉真正说出口的话，再让林黛玉回话。
-
-### 第三步：如果你想看多人互动，也要在蒸馏之后
-
-比如你先提供《三国演义》，蒸馏刘备、张飞、关羽之后，再说：
-
-```text
-进入刘备、张飞、关羽群聊模式
-```
-
-然后你再说：
-
-```text
-刘备：二位贤弟，近日战事稍歇，倒是难得清闲。
-```
-
-系统才会让张飞、关羽接话。
-
-## 你可以直接这样说
-
-### 蒸馏人物
-
-```text
-帮我蒸馏林黛玉和贾宝玉
-```
-
-```text
-请从这本小说里提取刘备、张飞、关羽的人设
-```
-
-### 蒸馏完成后进入扮演
-
-```text
-让我扮演贾宝玉和林黛玉聊天
-```
-
-### 蒸馏完成后进入群聊
-
-```text
-进入刘备、张飞、关羽群聊模式
-```
-
-### 直接让大家开口
-
-```text
-请让大家围绕联合孙权这件事各说一句
-```
-
-## 它能做什么
-
-### 1. 人物蒸馏
-
-从 `.txt` 或 `.epub` 小说中提取主要角色，输出 Markdown 人物档案。
-
-当前档案会尽量覆盖更完整的人物维度，包括：
-
-- 核心身份
-- 核心动机
-- 性格基底
-- 行为逻辑
-- 人物弧光
-- 关键羁绊
-- 符号化特征
-- 世界观适配性
-- 价值取舍体系
-- 情绪反应模式
-- 思维认知偏好
-- 语言表达特质
-- 专属能力与致命短板
-- 出身背景与生存处境
-- 深层执念与隐秘欲望
-- 行事风格倾向
-- 过往创伤与人生烙印
-- 社交相处模式
-- 内在自我矛盾
-- 剧情职能定位
-- 恐惧与避讳事物
-- 信仰与精神支柱
-- 认知局限与成长短板
-- 立场摇摆特性
-- 恩怨奖惩逻辑
-- 私下真实面貌
-
-核心字段示例包括：
-
-- `core_traits`
-- `values`
-- `speech_style`
-- `typical_lines`
-- `decision_rules`
-- `identity_anchor`
-- `soul_goal`
-- `core_identity`
-- `faction_position`
-- `background_imprint`
-- `world_rule_fit`
-- `social_mode`
-- `hidden_desire`
-- `inner_conflict`
-- `story_role`
-- `belief_anchor`
-- `private_self`
-- `stance_stability`
-- `reward_logic`
-- `strengths`
-- `weaknesses`
-- `cognitive_limits`
-- `fear_triggers`
-- `key_bonds`
-- `action_style`
-- `life_experience`
-- `taboo_topics`
-- `forbidden_behaviors`
-
-### 2. 关系抽取
-
-从小说中生成关系图谱，当前核心字段包括：
-
-- `trust`
-- `affection`
-- `power_gap`
-- `conflict_point`
-- `typical_interaction`
-
-### 3. 角色群聊
-
-支持两种聊天方式：
-
-- `observe`
-  你给出一个场景、话题或开场白，让角色自然互动
-- `act`
-  你控制一个角色发言，其余角色按设定回话
-
-### 4. 纠错记忆
-
-如果某句明显不符合人物设定，可以把修正写入记忆。  
-后续对话会尽量避开同类偏差。
-
-### 5. Markdown 人格包
-
-当前人物主存储已经是 Markdown，不再以旧版 JSON 为准。
-
-每个角色目录现在以导航 + 生成层 + 可覆写层为主，常见文件包括：
-
-- `data/characters/<novel_id>/<角色名>/NAVIGATION.generated.md`
-- `data/characters/<novel_id>/<角色名>/NAVIGATION.md`
-- `data/characters/<novel_id>/<角色名>/PROFILE.generated.md`
-- `data/characters/<novel_id>/<角色名>/PROFILE.md`
-- `data/characters/<novel_id>/<角色名>/RELATIONS.generated.md`
-- `data/characters/<novel_id>/<角色名>/RELATIONS.md`
-- `data/characters/<novel_id>/<角色名>/MEMORY.md`
-
-按人物证据情况，还可能生成可选的人格拆分文件：
-
-- `SOUL.generated.md`
-- `GOALS.generated.md`
-- `STYLE.generated.md`
-- `TRAUMA.generated.md`
-- `IDENTITY.generated.md`
-- `BACKGROUND.generated.md`
-- `CAPABILITY.generated.md`
-- `BONDS.generated.md`
-- `CONFLICTS.generated.md`
-- `ROLE.generated.md`
-
-运行时会优先读取：
-
-- `NAVIGATION.generated.md`
-- `NAVIGATION.md`
-
-并按 `load_order` 决定后续人格文件的加载顺序。
-
-### 6. 约束参考文档
-
-当前 skill 和运行时会把约束拆成三层：
-
-- `references/output_schema.md`
-  负责输出格式与字段规范
-- `references/style_differ.md`
-  负责防同质化与风格差异化
-- `references/logic_constraint.md`
-  负责全局人设底线、防 OOC 与模式边界
-
-## 快速开始
-
-### 1. 先准备小说文件
-
-支持：
-
-- `.txt`
-- `.epub`
-
-### 2. 先蒸馏，再聊天
-
-以《红楼梦》为例：
-
-```bash
-python -m src.core.main distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉 --force
-python -m src.core.main extract --novel data/hongloumeng.txt --force
-```
-
-这一步会生成：
-
-- `data/characters/hongloumeng/<角色名>/`
-- `data/relations/hongloumeng/hongloumeng_relations.md`
-
-### 3. 蒸馏完成后，开始聊天
-
-推荐直接用自然语言：
-
-```bash
-python -m src.core.main chat --novel data/hongloumeng.txt --mode auto --message "让我扮演贾宝玉和林黛玉聊天"
-```
-
-然后继续：
-
-```bash
-python -m src.core.main chat --novel data/hongloumeng.txt --session <session_id> --message "妹妹今日可大安了？"
-```
-
-如果你想进入多人群聊：
-
-```bash
-python -m src.core.main chat --novel data/sanguo.txt --mode auto --message "进入刘备、张飞、关羽群聊模式"
-python -m src.core.main chat --novel data/sanguo.txt --session <session_id> --message "刘备：二位贤弟，近日战事稍歇。"
-```
-
-## 其他命令
-
-### 查看角色档案
-
-```bash
-python -m src.core.main view --character 林黛玉 --novel data/hongloumeng.txt
-```
-
-### 保存一次纠错
-
-```bash
-python -m src.core.main correct \
-  --session <session_id> \
-  --message "宝玉打算离家经商" \
-  --corrected "宝玉一向厌弃仕途经济，更愿留在诗酒园林之间" \
-  --character 贾宝玉
-```
-
-## 命令总览
-
-```bash
-python -m src.cli.main distill --novel <path> [--characters A,B] [--output <dir>] [--force]
-python -m src.cli.main extract --novel <path> [--output <path>] [--force]
-python -m src.cli.main chat --novel <path-or-name> --mode auto|observe|act [--character <name>] [--session <id>] [--message <text>]
-python -m src.cli.main view --character <name> [--novel <path-or-name>]
-python -m src.cli.main correct --session <id> --message <raw> --corrected <fixed> [--character <name>] [--target <name>] [--reason <text>]
-```
-
-`src.core.main` 仍保留为兼容层包装入口。
+- 现在是 **LLM-first**，不是规则模板优先
+- skill 主路径优先复用宿主模型，不再把单独配置 runtime 当成默认前提
+- `clawhub-zaomeng-skill` 现在以 `prompts/`、`references/` 和 helper scripts 为主
+- 人物与关系结果更强调 Markdown 档案、关系图谱和可继续对话的产物
 
 ## 项目结构
 
-当前结构已经开始分离独立 CLI、共享 core 和 prompt-first skill 包：
+如果你只是使用它，这一节可以跳过。
 
-- 独立 CLI 位于 `src/cli/`
-- 共享 core 继续放在 `src/core/`、`src/modules/`、`src/utils/`
-- `src/core/main.py`、`src/core/cli_app.py` 等保留为兼容层
-- skill 包的主资产现在是 `prompts/`、`references/`、`examples/`、`tools/`，`runtime/` 只保留过渡期兼容能力
+仓库目前大致分成三层：
 
-```text
-Dreamforge/
-├─ src/                          # 主源码
-│  ├─ cli/                       # 独立 CLI 层
-│  │  ├─ app.py
-│  │  └─ main.py
-│  ├─ core/                      # 入口、配置、依赖注入、规则加载
-│  │  ├─ main.py
-│  │  ├─ config.py
-│  │  ├─ contracts.py
-│  │  ├─ llm_client.py
-│  │  ├─ path_provider.py
-│  │  └─ rulebook.py
-│  ├─ modules/                   # 核心业务模块：蒸馏、关系、聊天、纠错、发言
-│  │  ├─ distillation.py
-│  │  ├─ relationships.py
-│  │  ├─ chat_engine.py
-│  │  ├─ reflection.py
-│  │  └─ speaker.py
-│  └─ utils/                     # 文本解析、文件读写、token 统计等通用工具
-│     ├─ file_utils.py
-│     ├─ text_parser.py
-│     └─ token_counter.py
-├─ src/skill_support/            # prompt-first skill helpers
-│  ├─ novel_preparation.py
-│  └─ prompt_payloads.py
-├─ rules/                        # 仓库主规则文件
-│  ├─ distillation_rules.md
-│  └─ relationship_rules.md
-├─ clawhub-zaomeng-skill/        # 可独立发布的 ClawHub/OpenClaw skill 包
-│  ├─ README.md
-│  ├─ README_EN.md
-│  ├─ SKILL.md
-│  ├─ INSTALL.md
-│  ├─ MANIFEST.md
-│  ├─ PUBLISH.md
-│  ├─ prompts/                   # skill 内置 prompt 模板
-│  ├─ references/                # schema、去同质化、逻辑约束等参考文档
-│  ├─ examples/                  # 示例档案与关系图谱
-│  ├─ tools/                     # prompt-first helper scripts
-│  └─ runtime/                   # 过渡期兼容运行时
-│     ├─ zaomeng_cli.py
-│     ├─ requirements.txt
-│     ├─ rules/
-│     └─ src/
-├─ skills/                       # 其它宿主技能目录
-│  └─ zaomeng-skill/
-├─ scripts/                      # 安装与辅助脚本
-├─ tests/                        # 回归与行为测试
-│  └─ test_relation_behavior.py
-├─ data/                         # 本地运行数据（人物、关系、会话等）
-├─ README.md                     # 中文说明
-├─ README.en.md                  # 英文说明
-├─ LICENSE                       # 仓库许可证
-└─ requirements.txt              # 主项目依赖
-```
+- `src/`：核心源码
+- `clawhub-zaomeng-skill/`：可发布的 skill 包
+- `tests/`：回归测试
+
+其中 skill 包的重点资产是：
+
+- `prompts/`
+- `references/`
+- `tools/prepare_novel_excerpt.py`
+- `tools/build_prompt_payload.py`
+- `tools/export_relation_graph.py`
+
+## 一句话总结
+
+`zaomeng` 想做的，不是“会说话的 AI”。
+
+而是让小说里的人，带着自己的性格、关系和语气，重新开口。
 
 ## License
 
