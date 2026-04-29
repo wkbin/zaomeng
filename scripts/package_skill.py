@@ -7,7 +7,10 @@ import re
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from install_skill import iter_skill_entries
+try:
+    from .install_skill import iter_skill_entries
+except ImportError:
+    from install_skill import iter_skill_entries
 
 
 VERSION_PATTERN = re.compile(r"^- Version:\s*(?P<version>[^\s]+)\s*$", re.MULTILINE)

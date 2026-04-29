@@ -8,11 +8,10 @@ import json
 from pathlib import Path
 import sys
 
+TOOLS_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS_ROOT))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from src.skill_support.novel_preparation import build_excerpt_payload
+from _skill_support.novel_preparation import build_excerpt_payload
 
 
 def main() -> int:

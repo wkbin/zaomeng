@@ -8,11 +8,10 @@ import json
 from pathlib import Path
 import sys
 
+TOOLS_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS_ROOT))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from src.skill_support.relation_graph_export import export_relation_graph
+from _skill_support.relation_graph_export import export_relation_graph
 
 
 def main() -> int:

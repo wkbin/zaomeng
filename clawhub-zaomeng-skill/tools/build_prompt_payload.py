@@ -8,11 +8,10 @@ import json
 from pathlib import Path
 import sys
 
+TOOLS_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS_ROOT))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from src.skill_support.prompt_payloads import build_distill_prompt_payload, build_relation_prompt_payload
+from _skill_support.prompt_payloads import build_distill_prompt_payload, build_relation_prompt_payload
 
 
 def main() -> int:

@@ -5,7 +5,7 @@
 - Type: OpenClaw Skill
 - Name: zaomeng-skill
 - Display Name: 造梦技能
-- Version: 4.1.0
+- Version: 4.1.1
 - License: MIT-0
 - Category: Writing / Roleplay / Character Simulation
 
@@ -26,6 +26,7 @@
 
 ## 版本说明
 
+- `4.1.1`：让 skill 包内 helper 脚本摆脱对仓库级 `src` 模块的依赖，补入包内最小 support 层，并收紧进度播报规则，避免向用户暴露大段内部思考与排障过程。
 - `4.1.0`：对齐 `references/output_schema.md` 的最新字段定义，补全人物档案与关系图谱示例，并同步收紧关系抽取与人设纠错提示词。
 - `4.0.1`：补充 skill 包内 `requirements.txt`，明确 Python 依赖版本边界，并将安装、清单与发布文档同步到依赖文件。
 - `4.0.0`：移除 skill 包内置 runtime 与 CLI 入口，skill 资产收敛为宿主驱动的 prompts、references、examples 和 helper scripts，并统一产物为人物档案、关系结果、人物关系图谱与角色对话。
