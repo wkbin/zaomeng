@@ -102,6 +102,111 @@ def _infer_characters_root(relation_path: Path, novel_id: str) -> Path | None:
     return candidate if candidate.exists() else None
 
 
+def _build_relation_entries(relations: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for pair_key, payload in sorted(relations.items()):
+        names = pair_key.split("_")
+        if len(names) != 2:
+            continue
+        trust = int(payload.get("trust", 5))
+        affection = int(payload.get("affection", 5))
+        hostility = int(payload.get("hostility", max(0, 5 - affection)))
+        hidden_attitude = str(payload.get("hidden_attitude", "")).strip()
+        conflict_point = str(payload.get("conflict_point", "")).strip()
+        interaction = str(payload.get("typical_interaction", "")).strip()
+        evolution = str(payload.get("relation_change", "")).strip() or _infer_evolution(trust, affection, hostility)
+        relation_type = str(payload.get("relationship_type", "")).strip() or _infer_relationship_type(
+            trust,
+            affection,
+            hostility,
+            conflict_point,
+            hidden_attitude,
+        )
+        intensity = _intensity_score(trust, affection, hostility)
+        stability_score = _stability_score(evolution, int(payload.get("confidence", 6)), hidden_attitude)
+        entries.append(
+            {
+                "key": pair_key,
+                "trust": trust,
+                "affection": affection,
+                "hostility": hostility,
+                "power_gap": int(payload.get("power_gap", 0)),
+                "confidence": int(payload.get("confidence", 6)),
+                "relationship_type": relation_type,
+                "intensity": intensity,
+                "stability_label": _stability_label(stability_score),
+                "evolution": evolution,
+                "conflict_point": conflict_point,
+                "typical_interaction": interaction,
+                "hidden_attitude": hidden_attitude,
+                "evidence_summary": _evidence_summary(interaction, conflict_point, hidden_attitude),
+            }
+        )
+    return entries
+
+
+def _infer_relationship_type(
+    trust: int,
+    affection: int,
+    hostility: int,
+    conflict_point: str,
+    hidden_attitude: str,
+) -> str:
+    if hostility >= 7:
+        return "对立"
+    if affection >= 8 and trust >= 8:
+        return "深厚"
+    if affection >= 7 and trust >= 6:
+        return "亲近"
+    if hostility >= 5 and affection >= 5:
+        return "拉扯"
+    if hostility >= 4 and conflict_point:
+        return "竞争"
+    if trust >= 7:
+        return "协作"
+    if hidden_attitude:
+        return "复杂"
+    return "中性"
+
+
+def _infer_evolution(trust: int, affection: int, hostility: int) -> str:
+    if hostility >= 7:
+        return "恶化"
+    if affection >= 7 and trust >= 7:
+        return "升温"
+    if hostility >= 5 and affection >= 5:
+        return "反复波动"
+    return "稳定"
+
+
+def _intensity_score(trust: int, affection: int, hostility: int) -> int:
+    return max(0, min(10, int(round((trust + affection + hostility) / 3))))
+
+
+def _stability_score(evolution: str, confidence: int, hidden_attitude: str) -> int:
+    score = confidence
+    if evolution in {"反复波动", "恶化"}:
+        score -= 3
+    elif evolution == "升温":
+        score -= 1
+    if hidden_attitude:
+        score -= 1
+    return max(1, min(10, score))
+
+
+def _stability_label(score: int) -> str:
+    if score >= 8:
+        return "稳定"
+    if score >= 5:
+        return "可变"
+    return "脆弱"
+
+
+def _evidence_summary(interaction: str, conflict_point: str, hidden_attitude: str) -> str:
+    values = [value for value in (interaction, conflict_point, hidden_attitude) if value]
+    return "；".join(values) or "证据摘要未提供"
+
+
 def _build_visual_node_styles(
     characters_root: Path | None,
     relations: dict[str, dict[str, Any]],
@@ -121,6 +226,7 @@ def _build_visual_node_styles(
             "legend": legend,
             "faction_position": str(profile.get("faction_position", "")).strip(),
             "story_role": str(profile.get("story_role", "")).strip(),
+            "world_belong": str(profile.get("world_belong", "")).strip(),
         }
 
     palette_map: dict[str, dict[str, str]] = {}
@@ -165,7 +271,7 @@ def _parse_profile_visual_metadata(path: Path) -> dict[str, str]:
         key, value = line[2:].split(":", 1)
         key = key.strip()
         value = value.strip()
-        if key in {"faction_position", "story_role"} and value:
+        if key in {"faction_position", "story_role", "world_belong"} and value:
             parsed[key] = value
     return parsed
 
@@ -182,21 +288,24 @@ def _relation_node_names(relations: dict[str, dict[str, Any]]) -> list[str]:
 def _node_category(profile: dict[str, str]) -> tuple[str, str]:
     faction = str(profile.get("faction_position", "")).strip()
     if faction:
-        return f"faction::{faction}", f"阵营: {faction}"
+        return f"faction::{faction}", f"阵营：{faction}"
+    world_belong = str(profile.get("world_belong", "")).strip()
+    if world_belong:
+        return f"world::{world_belong}", f"归属：{world_belong}"
     role = str(profile.get("story_role", "")).strip()
     if role:
-        return f"role::{role}", f"角色: {role}"
+        return f"role::{role}", f"角色：{role}"
     return "unknown", "未标注阵营/角色"
 
 
 def _category_palette(index: int) -> dict[str, str]:
     palette = [
-        {"fill": "#dbeafe", "stroke": "#1d4ed8", "text": "#172554"},
-        {"fill": "#dcfce7", "stroke": "#15803d", "text": "#14532d"},
-        {"fill": "#fef3c7", "stroke": "#b45309", "text": "#78350f"},
-        {"fill": "#fee2e2", "stroke": "#dc2626", "text": "#7f1d1d"},
-        {"fill": "#e0f2fe", "stroke": "#0891b2", "text": "#164e63"},
-        {"fill": "#ede9fe", "stroke": "#6d28d9", "text": "#4c1d95"},
+        {"fill": "#fde2e2", "stroke": "#c43d3d", "text": "#6d1616"},
+        {"fill": "#ece6ff", "stroke": "#7a56d1", "text": "#46237f"},
+        {"fill": "#e4f5e7", "stroke": "#2d8a4d", "text": "#18532c"},
+        {"fill": "#ffe9cf", "stroke": "#c77719", "text": "#7b4312"},
+        {"fill": "#e0f2fe", "stroke": "#0d8bb1", "text": "#164e63"},
+        {"fill": "#fce7f3", "stroke": "#c0267c", "text": "#831843"},
     ]
     return palette[index % len(palette)]
 
@@ -210,6 +319,7 @@ def _default_node_style() -> dict[str, str]:
         "text": "#111827",
         "faction_position": "",
         "story_role": "",
+        "world_belong": "",
     }
 
 
@@ -232,11 +342,32 @@ def _render_mermaid_graph(
         affection = int(payload.get("affection", 5))
         hostility = int(payload.get("hostility", max(0, 5 - affection)))
         closeness = _closeness_score(trust, affection)
-        label = f"T{trust} A{affection} H{hostility}"
+        hidden_attitude = str(payload.get("hidden_attitude", "")).strip()
+        relation_type = str(payload.get("relationship_type", "")).strip() or _infer_relationship_type(
+            trust,
+            affection,
+            hostility,
+            str(payload.get("conflict_point", "")).strip(),
+            hidden_attitude,
+        )
+        evolution = str(payload.get("relation_change", "")).strip() or _infer_evolution(trust, affection, hostility)
+        intensity = _intensity_score(trust, affection, hostility)
+        stability_score = _stability_score(evolution, int(payload.get("confidence", 6)), hidden_attitude)
+        label = f"信{trust} 情{affection} 冲{hostility}"
         lines.append(f"    {_graph_id(left)}[{left}] ---|{label}| {_graph_id(right)}[{right}]")
         node_classes[left] = node_styles.get(left, _default_node_style())
         node_classes[right] = node_styles.get(right, _default_node_style())
-        link_styles.append(_edge_style(trust, hostility, closeness))
+        link_styles.append(
+            _edge_style(
+                trust,
+                hostility,
+                closeness,
+                relation_type=relation_type,
+                intensity=intensity,
+                stability_score=stability_score,
+                hidden_attitude=hidden_attitude,
+            )
+        )
 
     if len(lines) == 1:
         placeholder = _default_node_style()
@@ -270,32 +401,71 @@ def _render_relation_html(
     node_styles: dict[str, dict[str, str]],
     mermaid_graph: str,
 ) -> str:
-    rows: list[str] = []
-    for pair_key, payload in sorted(relations.items()):
-        trust = int(payload.get("trust", 5))
-        affection = int(payload.get("affection", 5))
-        hostility = int(payload.get("hostility", max(0, 5 - affection)))
-        closeness = _closeness_score(trust, affection)
-        power_gap = int(payload.get("power_gap", 0))
-        conflict = html.escape(str(payload.get("conflict_point", "")).strip())
-        interaction = html.escape(str(payload.get("typical_interaction", "")).strip())
-        rows.append(
-            "<tr>"
-            f"<td><span class=\"pair-key\">{html.escape(pair_key)}</span></td>"
-            f"<td>{_metric_badge(trust, 'trust')}</td>"
-            f"<td>{_metric_badge(affection, 'affection')}</td>"
-            f"<td>{_metric_badge(hostility, 'hostility')}</td>"
-            f"<td>{_metric_badge(closeness, 'closeness')}</td>"
-            f"<td>{power_gap}</td>"
-            f"<td>{conflict or '<span class=\"muted\">-</span>'}</td>"
-            f"<td>{interaction or '<span class=\"muted\">-</span>'}</td>"
+    relation_entries = _build_relation_entries(relations)
+    relation_types = sorted({entry["relationship_type"] for entry in relation_entries})
+    table_rows: list[str] = []
+    for entry in relation_entries:
+        tooltip = html.escape(entry["evidence_summary"])
+        tone = _type_tone(entry["relationship_type"])
+        table_rows.append(
+            "<tr "
+            f"data-type=\"{html.escape(entry['relationship_type'])}\" "
+            f"data-trust=\"{entry['trust']}\" "
+            f"data-intensity=\"{entry['intensity']}\" "
+            f"title=\"{tooltip}\">"
+            f"<td><span class=\"pair-key\">{html.escape(entry['key'])}</span></td>"
+            f"<td><span class=\"badge {tone}\">{html.escape(entry['relationship_type'])}</span></td>"
+            f"<td>{_metric_badge(entry['trust'], 'trust')}</td>"
+            f"<td>{_metric_badge(entry['affection'], 'affection')}</td>"
+            f"<td>{_metric_badge(entry['hostility'], 'hostility')}</td>"
+            f"<td>{entry['intensity']}</td>"
+            f"<td>{html.escape(entry['stability_label'])}</td>"
+            f"<td>{html.escape(entry['evolution'])}</td>"
+            f"<td>{html.escape(entry['conflict_point']) or '<span class=\"muted\">-</span>'}</td>"
+            f"<td>{html.escape(entry['typical_interaction']) or '<span class=\"muted\">-</span>'}</td>"
             "</tr>"
         )
-    if not rows:
-        rows.append("<tr><td colspan=\"8\"><span class=\"muted\">暂无关系数据，生成后这里会显示图谱和明细。</span></td></tr>")
+    if not table_rows:
+        table_rows.append("<tr><td colspan=\"10\"><span class=\"muted\">暂无关系数据，生成后这里会显示图谱和明细。</span></td></tr>")
+
+    relation_cards: list[str] = []
+    for entry in relation_entries:
+        tooltip = html.escape(entry["evidence_summary"])
+        tone = _type_tone(entry["relationship_type"])
+        relation_cards.append(
+            "<li class=\"relation-item\" "
+            f"data-type=\"{html.escape(entry['relationship_type'])}\" "
+            f"data-trust=\"{entry['trust']}\" "
+            f"data-intensity=\"{entry['intensity']}\" "
+            f"title=\"{tooltip}\">"
+            "<div>"
+            "<div class=\"relation-head\">"
+            f"<strong>{html.escape(entry['key'])}</strong>"
+            f"<span class=\"badge {tone}\">{html.escape(entry['relationship_type'])}</span>"
+            f"<span class=\"badge neutral\">{html.escape(entry['evolution'])}</span>"
+            "</div>"
+            "<div class=\"metric-row\">"
+            f"{_metric_badge(entry['trust'], 'trust')}"
+            f"{_metric_badge(entry['affection'], 'affection')}"
+            f"{_metric_badge(entry['hostility'], 'hostility')}"
+            f"{_metric_badge(entry['intensity'], 'intensity')}"
+            "</div>"
+            f"<div class=\"relation-meta\">稳定性：{html.escape(entry['stability_label'])} / 置信度：{entry['confidence']}</div>"
+            f"<div class=\"relation-meta\">证据摘要：{html.escape(entry['evidence_summary'])}</div>"
+            f"<div class=\"relation-meta\">典型互动：{html.escape(entry['typical_interaction']) or '未提供'}</div>"
+            f"<div class=\"relation-meta\">冲突焦点：{html.escape(entry['conflict_point']) or '未提供'}</div>"
+            f"<div class=\"relation-meta\">隐藏态度：{html.escape(entry['hidden_attitude']) or '未提供'}</div>"
+            "</div>"
+            "</li>"
+        )
+    if not relation_cards:
+        relation_cards.append("<li class=\"empty\">暂无关系卡片。</li>")
 
     escaped_mermaid = html.escape(mermaid_graph)
-    relation_count = len(relations)
+    relation_count = len(relation_entries)
+    relation_entries_json = html.escape(json.dumps(relation_entries, ensure_ascii=False))
+    node_styles_json = html.escape(json.dumps(node_styles, ensure_ascii=False))
+    default_style_json = html.escape(json.dumps(_default_node_style(), ensure_ascii=False))
     unique_categories: list[tuple[str, dict[str, str]]] = []
     seen_categories = set()
     for style in node_styles.values():
@@ -308,15 +478,19 @@ def _render_relation_html(
     for name, style in sorted(node_styles.items()):
         details = []
         faction = str(style.get("faction_position", "")).strip()
+        world_belong = str(style.get("world_belong", "")).strip()
         role = str(style.get("story_role", "")).strip()
         if faction:
             details.append(f"阵营：{html.escape(faction)}")
+        if world_belong:
+            details.append(f"归属：{html.escape(world_belong)}")
         if role:
             details.append(f"角色：{html.escape(role)}")
         if not details:
             details.append("未标注阵营/角色")
         node_cards.append(
-            "<li class=\"node-item\">"
+            "<li class=\"node-item\" "
+            f"title=\"{html.escape(' / '.join(details))}\">"
             f"<span class=\"swatch\" style=\"background:{style.get('fill', '#f3f4f6')}; border-color:{style.get('stroke', '#6b7280')};\"></span>"
             "<div>"
             f"<strong>{html.escape(name)}</strong>"
@@ -335,14 +509,16 @@ def _render_relation_html(
         )
         for _, style in unique_categories
     )
-    conflict_count = sum(1 for payload in relations.values() if int(payload.get("hostility", max(0, 5 - int(payload.get("affection", 5))))) >= 6)
+    conflict_count = sum(1 for entry in relation_entries if entry["hostility"] >= 6)
+    high_trust_count = sum(1 for entry in relation_entries if entry["trust"] >= 7)
+    visible_nodes = len(_relation_node_names(relations))
     return (
         "<!DOCTYPE html>\n"
         "<html lang=\"zh-CN\">\n"
         "<head>\n"
         "  <meta charset=\"utf-8\" />\n"
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
-        f"  <title>{html.escape(novel_id)} relation graph</title>\n"
+        f"  <title>{html.escape(novel_id)} 人物关系图谱</title>\n"
         "  <style>\n"
         "    :root { --bg:#f6efe2; --ink:#1f2937; --muted:#6b7280; --line:#d6c7a7; --card:#fffaf0; --warm:#8a5a2b; --trust:#156f55; --affection:#b4583a; --hostility:#b42318; }\n"
         "    * { box-sizing:border-box; }\n"
@@ -351,8 +527,12 @@ def _render_relation_html(
         "    h1 { margin: 0 0 8px; font-size: 32px; }\n"
         "    .subtitle { color: var(--muted); margin-bottom: 20px; }\n"
         "    .summary { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }\n"
+        "    .filters { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }\n"
         "    .stat { background: linear-gradient(180deg, #fffdf8, #f7edd8); border:1px solid var(--line); border-radius: 14px; padding: 14px 16px; }\n"
-        "    .stat-label { display:block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }\n"
+        "    .filter { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }\n"
+        "    .filter label { display:block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }\n"
+        "    .filter input, .filter select { width: 100%; padding: 8px 10px; border-radius: 10px; border:1px solid #d8c6a1; background:#fffdf8; color: var(--ink); }\n"
+        "    .stat-label { display:block; color: var(--muted); font-size: 12px; letter-spacing: .08em; margin-bottom: 8px; }\n"
         "    .stat-value { font-size: 26px; color: var(--warm); }\n"
         "    .grid { display:grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .95fr); gap: 18px; align-items:start; }\n"
         "    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 10px 35px rgba(90, 60, 20, .06); }\n"
@@ -367,10 +547,19 @@ def _render_relation_html(
         "    pre { white-space: pre-wrap; overflow-x: auto; background: #fffdf8; padding: 16px; border-radius: 12px; border:1px solid var(--line); }\n"
         "    details { margin-top: 16px; }\n"
         "    details summary { cursor: pointer; color: var(--warm); font-weight: 600; }\n"
-        "    .node-list { list-style:none; margin:0; padding:0; display:grid; gap:10px; }\n"
+        "    .node-list, .relation-list { list-style:none; margin:0; padding:0; display:grid; gap:10px; }\n"
         "    .node-item { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:#fffdf8; border:1px solid var(--line); }\n"
+        "    .relation-item { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:#fffdf8; border:1px solid var(--line); }\n"
         "    .node-item strong { display:block; margin-bottom:4px; }\n"
         "    .node-item span { color: var(--muted); font-size: 13px; }\n"
+        "    .relation-head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }\n"
+        "    .relation-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }\n"
+        "    .badge { display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px; font-size:12px; border:1px solid transparent; }\n"
+        "    .badge.warm { background:#e6f6ef; color:#166b49; border-color:#b7e2cf; }\n"
+        "    .badge.mixed { background:#fff1dc; color:#9a5c0d; border-color:#f3d29d; }\n"
+        "    .badge.danger { background:#fde8e7; color:#9f271f; border-color:#f3b6b1; }\n"
+        "    .badge.neutral { background:#eef2f7; color:#475467; border-color:#cdd5df; }\n"
+        "    .metric-row { display:flex; gap:8px; flex-wrap:wrap; margin: 6px 0; }\n"
         "    table { width: 100%; border-collapse: collapse; background: white; }\n"
         "    th, td { border: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }\n"
         "    th { background: #efe3c5; }\n"
@@ -379,40 +568,116 @@ def _render_relation_html(
         "    .metric.trust { background: var(--trust); }\n"
         "    .metric.affection { background: var(--affection); }\n"
         "    .metric.hostility { background: var(--hostility); }\n"
-        "    .metric.closeness { background: #6b7280; }\n"
+        "    .metric.intensity { background: #6b7280; }\n"
         "    .muted { color: var(--muted); }\n"
+        "    .empty { padding: 16px; border-radius: 12px; background:#fffdf8; border:1px dashed var(--line); color: var(--muted); }\n"
         "    .note { color: var(--muted); font-size: 13px; margin-top: 10px; }\n"
         "    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .page { padding: 20px 14px 28px; } h1 { font-size: 26px; } }\n"
         "  </style>\n"
+        "  <script type=\"application/json\" id=\"relation-data\">"
+        + relation_entries_json
+        + "</script>\n"
+        "  <script type=\"application/json\" id=\"node-style-data\">"
+        + node_styles_json
+        + "</script>\n"
+        "  <script type=\"application/json\" id=\"default-style-data\">"
+        + default_style_json
+        + "</script>\n"
         "  <script type=\"module\">\n"
         "    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
-        "    mermaid.initialize({ startOnLoad: true, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
+        "    mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
+        "    const relationEntries = JSON.parse(document.getElementById('relation-data').textContent);\n"
+        "    const nodeStyles = JSON.parse(document.getElementById('node-style-data').textContent);\n"
+        "    const defaultStyle = JSON.parse(document.getElementById('default-style-data').textContent);\n"
+        "    const graphId = (name) => String(name).replace(/[^A-Za-z0-9_\\u4e00-\\u9fff]/g, '_');\n"
+        "    const edgeStyle = (entry) => {\n"
+        "      const parts = [`stroke:${entry.hostility >= Math.max(6, entry.trust) ? '#c53b30' : (entry.relationship_type === '拉扯' || entry.relationship_type === '竞争') ? '#d18a1d' : entry.trust >= 8 ? '#1f8f63' : '#8a5a2b'}`, `stroke-width:${Math.max(2, Math.min(7, 1 + Math.round(entry.intensity / 2)))}px`];\n"
+        "      if (entry.hidden_attitude || entry.stability_label === '脆弱') parts.push('stroke-dasharray:8 4');\n"
+        "      return parts.join(',');\n"
+        "    };\n"
+        "    const buildMermaid = (entries) => {\n"
+        "      const lines = ['graph LR'];\n"
+        "      const nodeClasses = new Map();\n"
+        "      const classDefs = new Map();\n"
+        "      if (!entries.length) {\n"
+        "        lines.push('    empty[暂无符合筛选条件的关系]');\n"
+        "        nodeClasses.set('empty', { ...defaultStyle, class_name: 'group_empty' });\n"
+        "        classDefs.set('group_empty', { ...defaultStyle, class_name: 'group_empty' });\n"
+        "      }\n"
+        "      entries.forEach((entry) => {\n"
+        "        const [left, right] = entry.key.split('_');\n"
+        "        lines.push(`    ${graphId(left)}[${left}] ---|信${entry.trust} 情${entry.affection} 冲${entry.hostility}| ${graphId(right)}[${right}]`);\n"
+        "        [left, right].forEach((name) => {\n"
+        "          const style = nodeStyles[name] || defaultStyle;\n"
+        "          nodeClasses.set(name, style);\n"
+        "          classDefs.set(style.class_name, style);\n"
+        "        });\n"
+        "      });\n"
+        "      Array.from(nodeClasses.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-CN')).forEach(([name, style]) => {\n"
+        "        const nodeId = name === 'empty' ? name : graphId(name);\n"
+        "        lines.push(`    class ${nodeId} ${style.class_name}`);\n"
+        "      });\n"
+        "      Array.from(classDefs.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-CN')).forEach(([className, style]) => {\n"
+        "        lines.push(`    classDef ${className} fill:${style.fill},stroke:${style.stroke},color:${style.text},stroke-width:2px`);\n"
+        "      });\n"
+        "      entries.forEach((entry, index) => lines.push(`    linkStyle ${index} ${edgeStyle(entry)}`));\n"
+        "      return lines.join('\\n');\n"
+        "    };\n"
+        "    const renderGraph = async (entries) => {\n"
+        "      const definition = buildMermaid(entries);\n"
+        "      document.getElementById('graph-source').textContent = definition;\n"
+        "      const target = document.getElementById('graph-view');\n"
+        "      const rendered = await mermaid.render(`graph-${Date.now()}`, definition);\n"
+        "      target.innerHTML = rendered.svg;\n"
+        "    };\n"
+        "    const applyFilters = async () => {\n"
+        "      const type = document.getElementById('filter-type').value;\n"
+        "      const minTrust = Number(document.getElementById('filter-trust').value || 0);\n"
+        "      const minIntensity = Number(document.getElementById('filter-intensity').value || 0);\n"
+        "      const filtered = relationEntries.filter((entry) => (!type || entry.relationship_type === type) && entry.trust >= minTrust && entry.intensity >= minIntensity);\n"
+        "      document.querySelectorAll('[data-type][data-trust][data-intensity]').forEach((element) => {\n"
+        "        const visible = (!type || element.dataset.type === type) && Number(element.dataset.trust) >= minTrust && Number(element.dataset.intensity) >= minIntensity;\n"
+        "        element.style.display = visible ? '' : 'none';\n"
+        "      });\n"
+        "      await renderGraph(filtered);\n"
+        "    };\n"
+        "    window.addEventListener('DOMContentLoaded', async () => {\n"
+        "      ['filter-type', 'filter-trust', 'filter-intensity'].forEach((id) => document.getElementById(id).addEventListener('input', () => { void applyFilters(); }));\n"
+        "      await applyFilters();\n"
+        "    });\n"
         "  </script>\n"
         "</head>\n"
         "<body>\n"
         "  <div class=\"page\">\n"
         f"    <h1>{html.escape(novel_id)} 人物关系图谱</h1>\n"
-        f"    <div class=\"subtitle\">共 {relation_count} 条关系。节点颜色优先按阵营，其次按角色类型；绿色边偏信任，红色边偏冲突，线越粗表示关系越亲密。</div>\n"
+        f"    <div class=\"subtitle\">共 {relation_count} 条关系。节点颜色优先按阵营，其次按归属与角色类型；绿色边偏信任，红色边偏冲突，橙色边偏拉扯，线越粗表示关系越强，虚线表示关系更不稳定或存在更强的隐藏态度。</div>\n"
         "    <div class=\"summary\">\n"
-        f"      <div class=\"stat\"><span class=\"stat-label\">Relations</span><span class=\"stat-value\">{relation_count}</span></div>\n"
-        f"      <div class=\"stat\"><span class=\"stat-label\">High Trust</span><span class=\"stat-value\">{sum(1 for payload in relations.values() if int(payload.get('trust', 5)) >= 7)}</span></div>\n"
-        f"      <div class=\"stat\"><span class=\"stat-label\">High Conflict</span><span class=\"stat-value\">{conflict_count}</span></div>\n"
-        f"      <div class=\"stat\"><span class=\"stat-label\">Node Groups</span><span class=\"stat-value\">{max(1, len(unique_categories))}</span></div>\n"
+        f"      <div class=\"stat\"><span class=\"stat-label\">关系总数</span><span class=\"stat-value\">{relation_count}</span></div>\n"
+        f"      <div class=\"stat\"><span class=\"stat-label\">高信任关系</span><span class=\"stat-value\">{high_trust_count}</span></div>\n"
+        f"      <div class=\"stat\"><span class=\"stat-label\">高冲突关系</span><span class=\"stat-value\">{conflict_count}</span></div>\n"
+        f"      <div class=\"stat\"><span class=\"stat-label\">可见角色</span><span class=\"stat-value\">{visible_nodes}</span></div>\n"
+        "    </div>\n"
+        "    <div class=\"filters\">\n"
+        "      <div class=\"filter\"><label for=\"filter-type\">关系类型</label><select id=\"filter-type\"><option value=\"\">全部</option>"
+        + "".join(f"<option value=\"{html.escape(item)}\">{html.escape(item)}</option>" for item in relation_types)
+        + "</select></div>\n"
+        "      <div class=\"filter\"><label for=\"filter-trust\">最低信任值</label><input id=\"filter-trust\" type=\"range\" min=\"0\" max=\"10\" value=\"0\" /></div>\n"
+        "      <div class=\"filter\"><label for=\"filter-intensity\">最低关系强度</label><input id=\"filter-intensity\" type=\"range\" min=\"0\" max=\"10\" value=\"0\" /></div>\n"
         "    </div>\n"
         "    <div class=\"grid\">\n"
         "      <div class=\"card\">\n"
         "        <h2>关系网络</h2>\n"
         f"        <div class=\"legend\">{category_legend or '<span class=\"legend-item\">暂无阵营/角色元数据</span>'}</div>\n"
         "        <div class=\"graph-shell\">\n"
-        f"          <div class=\"mermaid\">{html.escape(mermaid_graph)}</div>\n"
+        "          <div id=\"graph-view\" class=\"mermaid\"></div>\n"
         "        </div>\n"
         "        <div class=\"edge-rule\">\n"
-        "          <div><strong>边的含义</strong><span class=\"muted\">绿色表示信任占优，红色表示冲突占优，棕色表示关系仍在拉扯或偏中性。</span></div>\n"
-        "          <div><strong>线宽映射</strong><span class=\"muted\">线宽按亲密度计算，亲密度由 trust 与 affection 的均值近似映射到 1 到 5 级。</span></div>\n"
+        "          <div><strong>边的颜色</strong><span class=\"muted\">绿色表示信任占优，橙色表示拉扯或竞争，红色表示冲突占优，棕色表示关系偏中性。</span></div>\n"
+        "          <div><strong>边的样式</strong><span class=\"muted\">线越粗表示关系越强；虚线表示关系更脆弱，或表面关系与真实态度存在落差。</span></div>\n"
         "        </div>\n"
         "        <details>\n"
         "          <summary>查看 Mermaid 源码</summary>\n"
-        f"          <pre>{escaped_mermaid}</pre>\n"
+        f"          <pre id=\"graph-source\">{escaped_mermaid}</pre>\n"
         "        </details>\n"
         "      </div>\n"
         "      <div class=\"card\">\n"
@@ -420,15 +685,23 @@ def _render_relation_html(
         "        <ul class=\"node-list\">\n"
         f"          {''.join(node_cards)}\n"
         "        </ul>\n"
-        "        <div class=\"note\">颜色来自人物画像中的 `faction_position` 或 `story_role`。如果两者都缺失，会回退为中性色。</div>\n"
+        "        <div class=\"note\">颜色来自人物画像中的 `faction_position`、`world_belong` 或 `story_role`。悬停节点说明项可查看更完整信息。</div>\n"
         "      </div>\n"
         "    </div>\n"
-        "    <div class=\"card\" style=\"margin-top:18px;\">\n"
-        "      <h2>关系明细</h2>\n"
+        "    <div class=\"grid\" style=\"margin-top:18px;\">\n"
+        "      <div class=\"card\">\n"
+        "        <h2>关系卡片</h2>\n"
+        "        <ul class=\"relation-list\">\n"
+        f"          {''.join(relation_cards)}\n"
+        "        </ul>\n"
+        "      </div>\n"
+        "      <div class=\"card\">\n"
+        "      <h2>关系明细表</h2>\n"
         "      <table>\n"
-        "        <thead><tr><th>关系对</th><th>Trust</th><th>Affection</th><th>Hostility</th><th>Closeness</th><th>Power Gap</th><th>Conflict</th><th>Interaction</th></tr></thead>\n"
-        f"        <tbody>{''.join(rows)}</tbody>\n"
+        "        <thead><tr><th>关系对</th><th>关系类型</th><th>信任</th><th>好感</th><th>冲突</th><th>强度</th><th>稳定性</th><th>演变</th><th>冲突焦点</th><th>典型互动</th></tr></thead>\n"
+        f"        <tbody>{''.join(table_rows)}</tbody>\n"
         "      </table>\n"
+        "      </div>\n"
         "    </div>\n"
         "  </div>\n"
         "</body>\n"
@@ -440,15 +713,39 @@ def _closeness_score(trust: int, affection: int) -> int:
     return max(1, min(5, int(round((trust + affection) / 4))))
 
 
-def _edge_style(trust: int, hostility: int, closeness: int) -> str:
+def _edge_style(
+    trust: int,
+    hostility: int,
+    closeness: int,
+    *,
+    relation_type: str,
+    intensity: int,
+    stability_score: int,
+    hidden_attitude: str,
+) -> str:
     if hostility >= max(6, trust):
-        color = "#b42318"
-    elif trust >= 7:
-        color = "#15803d"
+        color = "#c53b30"
+    elif trust >= 8:
+        color = "#1f8f63"
+    elif relation_type in {"拉扯", "竞争"}:
+        color = "#d18a1d"
     else:
         color = "#8a5a2b"
-    width = 1 + closeness
-    return f"stroke:{color},stroke-width:{width}px"
+    width = max(2, min(7, max(closeness + 1, 1 + round(intensity / 2))))
+    parts = [f"stroke:{color}", f"stroke-width:{width}px"]
+    if hidden_attitude or stability_score <= 4:
+        parts.append("stroke-dasharray:8 4")
+    return ",".join(parts)
+
+
+def _type_tone(relation_type: str) -> str:
+    if relation_type in {"深厚", "亲近", "协作"}:
+        return "warm"
+    if relation_type in {"对立", "竞争"}:
+        return "danger"
+    if relation_type == "拉扯":
+        return "mixed"
+    return "neutral"
 
 
 def _metric_badge(value: int, kind: str) -> str:

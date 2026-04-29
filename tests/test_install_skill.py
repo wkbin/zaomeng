@@ -118,8 +118,13 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue(mermaid_path.exists())
             self.assertIn("mini_relations.html", payload["html_path"])
             self.assertIn("mini_relations.mermaid.md", payload["mermaid_path"])
-            self.assertIn("linkStyle 0", mermaid_path.read_text(encoding="utf-8"))
-            self.assertNotIn(";;", mermaid_path.read_text(encoding="utf-8"))
+            mermaid_text = mermaid_path.read_text(encoding="utf-8")
+            html_text = html_path.read_text(encoding="utf-8")
+            self.assertIn("linkStyle 0", mermaid_text)
+            self.assertNotIn(";;", mermaid_text)
+            self.assertIn("关系类型", html_text)
+            self.assertIn("最低信任值", html_text)
+            self.assertIn("关系卡片", html_text)
 
 
 if __name__ == "__main__":
