@@ -6,6 +6,8 @@ from __future__ import annotations
 import html
 import json
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -29,19 +31,33 @@ def export_relation_graph(
     base_name = relation_path.stem
     mermaid_path = output_dir / f"{base_name}.mermaid.md"
     html_path = output_dir / f"{base_name}.html"
+    svg_path = output_dir / f"{base_name}.svg"
 
     characters_root = _infer_characters_root(relation_path, resolved_novel_id)
     node_styles = _build_visual_node_styles(characters_root, relations)
     mermaid_graph = _render_mermaid_graph(relations, node_styles=node_styles)
-    html_text = _render_relation_html(resolved_novel_id, relations, node_styles=node_styles, mermaid_graph=mermaid_graph)
+    rendered_svg = _render_mermaid_svg(mermaid_graph)
+    html_text = _render_relation_html(
+        resolved_novel_id,
+        relations,
+        node_styles=node_styles,
+        mermaid_graph=mermaid_graph,
+        rendered_svg=rendered_svg,
+        svg_filename=svg_path.name if rendered_svg else "",
+    )
 
     mermaid_path.write_text(mermaid_graph + "\n", encoding="utf-8")
     html_path.write_text(html_text, encoding="utf-8")
+    if rendered_svg:
+        svg_path.write_text(rendered_svg, encoding="utf-8")
+    elif svg_path.exists():
+        svg_path.unlink()
 
     return {
         "novel_id": resolved_novel_id,
         "html_path": str(html_path),
         "mermaid_path": str(mermaid_path),
+        "svg_path": str(svg_path) if rendered_svg else "",
     }
 
 
@@ -332,6 +348,7 @@ def _render_mermaid_graph(
     node_styles = node_styles or {}
     node_classes: dict[str, dict[str, str]] = {}
     link_styles: list[str] = []
+    node_ids = {name: _graph_id(name, index) for index, name in enumerate(_relation_node_names(relations))}
 
     for pair_key, payload in sorted(relations.items()):
         names = pair_key.split("_")
@@ -354,7 +371,11 @@ def _render_mermaid_graph(
         intensity = _intensity_score(trust, affection, hostility)
         stability_score = _stability_score(evolution, int(payload.get("confidence", 6)), hidden_attitude)
         label = f"信{trust} 情{affection} 冲{hostility}"
-        lines.append(f"    {_graph_id(left)}[{left}] ---|{label}| {_graph_id(right)}[{right}]")
+        left_id = node_ids.setdefault(left, _graph_id(left, len(node_ids)))
+        right_id = node_ids.setdefault(right, _graph_id(right, len(node_ids)))
+        lines.append(
+            f"    {left_id}[\"{_mermaid_escape(left)}\"] ---|{_mermaid_escape(label)}| {right_id}[\"{_mermaid_escape(right)}\"]"
+        )
         node_classes[left] = node_styles.get(left, _default_node_style())
         node_classes[right] = node_styles.get(right, _default_node_style())
         link_styles.append(
@@ -371,13 +392,13 @@ def _render_mermaid_graph(
 
     if len(lines) == 1:
         placeholder = _default_node_style()
-        lines.append("    empty[暂无关系数据]")
+        lines.append("    node_empty[\"暂无关系数据\"]")
         node_classes["empty"] = {**placeholder, "class_name": "group_empty"}
 
     class_definitions: dict[str, dict[str, str]] = {}
     for name, style in sorted(node_classes.items()):
         class_name = style.get("class_name", "group_unknown")
-        node_id = name if name == "empty" else _graph_id(name)
+        node_id = "node_empty" if name == "empty" else node_ids.get(name, _graph_id(name, len(node_ids)))
         lines.append(f"    class {node_id} {class_name}")
         class_definitions[class_name] = style
     for class_name, style in sorted(class_definitions.items()):
@@ -400,6 +421,8 @@ def _render_relation_html(
     *,
     node_styles: dict[str, dict[str, str]],
     mermaid_graph: str,
+    rendered_svg: str = "",
+    svg_filename: str = "",
 ) -> str:
     relation_entries = _build_relation_entries(relations)
     relation_types = sorted({entry["relationship_type"] for entry in relation_entries})
@@ -462,6 +485,11 @@ def _render_relation_html(
         relation_cards.append("<li class=\"empty\">暂无关系卡片。</li>")
 
     escaped_mermaid = html.escape(mermaid_graph)
+    embedded_graph_html = (
+        f'<img class="graph-image" src="{html.escape(svg_filename)}" alt="{html.escape(novel_id)} 人物关系图谱" />'
+        if svg_filename
+        else rendered_svg
+    )
     relation_count = len(relation_entries)
     relation_entries_json = html.escape(json.dumps(relation_entries, ensure_ascii=False))
     node_styles_json = html.escape(json.dumps(node_styles, ensure_ascii=False))
@@ -535,6 +563,7 @@ def _render_relation_html(
         "    .stat-label { display:block; color: var(--muted); font-size: 12px; letter-spacing: .08em; margin-bottom: 8px; }\n"
         "    .stat-value { font-size: 26px; color: var(--warm); }\n"
         "    .grid { display:grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .95fr); gap: 18px; align-items:start; }\n"
+        "    .stack { display:grid; grid-template-columns: 1fr; gap: 18px; align-items:start; }\n"
         "    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 10px 35px rgba(90, 60, 20, .06); }\n"
         "    .card h2 { margin: 0 0 12px; font-size: 19px; }\n"
         "    .legend { display:flex; flex-wrap:wrap; gap:10px; margin: 4px 0 12px; }\n"
@@ -543,6 +572,7 @@ def _render_relation_html(
         "    .edge-rule { display:grid; gap:10px; margin-top: 14px; }\n"
         "    .edge-rule strong { display:block; margin-bottom: 4px; }\n"
         "    .graph-shell { min-height: 480px; background: linear-gradient(180deg, #fffef9, #fcf5e8); border:1px dashed #dbc8a4; border-radius: 14px; padding: 12px; }\n"
+        "    .graph-image { display:block; width:100%; height:auto; }\n"
         "    .mermaid { text-align:center; }\n"
         "    pre { white-space: pre-wrap; overflow-x: auto; background: #fffdf8; padding: 16px; border-radius: 12px; border:1px solid var(--line); }\n"
         "    details { margin-top: 16px; }\n"
@@ -560,7 +590,8 @@ def _render_relation_html(
         "    .badge.danger { background:#fde8e7; color:#9f271f; border-color:#f3b6b1; }\n"
         "    .badge.neutral { background:#eef2f7; color:#475467; border-color:#cdd5df; }\n"
         "    .metric-row { display:flex; gap:8px; flex-wrap:wrap; margin: 6px 0; }\n"
-        "    table { width: 100%; border-collapse: collapse; background: white; }\n"
+        "    .table-shell { width: 100%; overflow-x: auto; border-radius: 12px; }\n"
+        "    table { width: 100%; min-width: 980px; border-collapse: collapse; background: white; }\n"
         "    th, td { border: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }\n"
         "    th { background: #efe3c5; }\n"
         "    .pair-key { font-weight: 600; color: #4b3a28; }\n"
@@ -583,13 +614,16 @@ def _render_relation_html(
         "  <script type=\"application/json\" id=\"default-style-data\">"
         + default_style_json
         + "</script>\n"
-        "  <script type=\"module\">\n"
-        "    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
-        "    mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
+        "  <script src=\"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js\"></script>\n"
+        "  <script>\n"
         "    const relationEntries = JSON.parse(document.getElementById('relation-data').textContent);\n"
         "    const nodeStyles = JSON.parse(document.getElementById('node-style-data').textContent);\n"
         "    const defaultStyle = JSON.parse(document.getElementById('default-style-data').textContent);\n"
-        "    const graphId = (name) => String(name).replace(/[^A-Za-z0-9_\\u4e00-\\u9fff]/g, '_');\n"
+        "    const escapeLabel = (value) => String(value).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n"
+        "    const buildNodeIds = (entries) => {\n"
+        "      const names = Array.from(new Set(entries.flatMap((entry) => entry.key.split('_')))).sort((a, b) => a.localeCompare(b, 'zh-CN'));\n"
+        "      return new Map(names.map((name, index) => [name, `n${index}`]));\n"
+        "    };\n"
         "    const edgeStyle = (entry) => {\n"
         "      const parts = [`stroke:${entry.hostility >= Math.max(6, entry.trust) ? '#c53b30' : (entry.relationship_type === '拉扯' || entry.relationship_type === '竞争') ? '#d18a1d' : entry.trust >= 8 ? '#1f8f63' : '#8a5a2b'}`, `stroke-width:${Math.max(2, Math.min(7, 1 + Math.round(entry.intensity / 2)))}px`];\n"
         "      if (entry.hidden_attitude || entry.stability_label === '脆弱') parts.push('stroke-dasharray:8 4');\n"
@@ -597,16 +631,19 @@ def _render_relation_html(
         "    };\n"
         "    const buildMermaid = (entries) => {\n"
         "      const lines = ['graph LR'];\n"
+        "      const nodeIds = buildNodeIds(entries);\n"
         "      const nodeClasses = new Map();\n"
         "      const classDefs = new Map();\n"
         "      if (!entries.length) {\n"
-        "        lines.push('    empty[暂无符合筛选条件的关系]');\n"
+        "        lines.push('    node_empty[\"暂无符合筛选条件的关系\"]');\n"
         "        nodeClasses.set('empty', { ...defaultStyle, class_name: 'group_empty' });\n"
         "        classDefs.set('group_empty', { ...defaultStyle, class_name: 'group_empty' });\n"
         "      }\n"
         "      entries.forEach((entry) => {\n"
         "        const [left, right] = entry.key.split('_');\n"
-        "        lines.push(`    ${graphId(left)}[${left}] ---|信${entry.trust} 情${entry.affection} 冲${entry.hostility}| ${graphId(right)}[${right}]`);\n"
+        "        const leftId = nodeIds.get(left);\n"
+        "        const rightId = nodeIds.get(right);\n"
+        "        lines.push(`    ${leftId}[\"${escapeLabel(left)}\"] ---|${escapeLabel(`信${entry.trust} 情${entry.affection} 冲${entry.hostility}`)}| ${rightId}[\"${escapeLabel(right)}\"]`);\n"
         "        [left, right].forEach((name) => {\n"
         "          const style = nodeStyles[name] || defaultStyle;\n"
         "          nodeClasses.set(name, style);\n"
@@ -614,7 +651,7 @@ def _render_relation_html(
         "        });\n"
         "      });\n"
         "      Array.from(nodeClasses.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-CN')).forEach(([name, style]) => {\n"
-        "        const nodeId = name === 'empty' ? name : graphId(name);\n"
+        "        const nodeId = name === 'empty' ? 'node_empty' : nodeIds.get(name);\n"
         "        lines.push(`    class ${nodeId} ${style.class_name}`);\n"
         "      });\n"
         "      Array.from(classDefs.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-CN')).forEach(([className, style]) => {\n"
@@ -627,8 +664,24 @@ def _render_relation_html(
         "      const definition = buildMermaid(entries);\n"
         "      document.getElementById('graph-source').textContent = definition;\n"
         "      const target = document.getElementById('graph-view');\n"
-        "      const rendered = await mermaid.render(`graph-${Date.now()}`, definition);\n"
-        "      target.innerHTML = rendered.svg;\n"
+        "      const hasEmbeddedGraphic = Boolean(target.querySelector('svg, img, object'));\n"
+        "      if (hasEmbeddedGraphic) {\n"
+        "        return;\n"
+        "      }\n"
+        "      if (!window.mermaid) {\n"
+        "        if (!target.querySelector('svg')) {\n"
+        "          target.innerHTML = '<div class=\"empty\">Mermaid 脚本未加载成功。本地 file 页面可能被浏览器限制了外链脚本，请改用本地静态服务打开，或直接查看下方 Mermaid 源码。</div>';\n"
+        "        }\n"
+        "        return;\n"
+        "      }\n"
+        "      try {\n"
+        "        window.mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
+        "        const rendered = await window.mermaid.render(`graph-${Date.now()}`, definition);\n"
+        "        target.innerHTML = rendered.svg;\n"
+        "      } catch (error) {\n"
+        "        console.error('Mermaid render failed:', error);\n"
+        "        target.innerHTML = '<div class=\"empty\">关系网络图渲染失败，请展开下方 Mermaid 源码检查语法。</div>';\n"
+        "      }\n"
         "    };\n"
         "    const applyFilters = async () => {\n"
         "      const type = document.getElementById('filter-type').value;\n"
@@ -669,7 +722,7 @@ def _render_relation_html(
         "        <h2>关系网络</h2>\n"
         f"        <div class=\"legend\">{category_legend or '<span class=\"legend-item\">暂无阵营/角色元数据</span>'}</div>\n"
         "        <div class=\"graph-shell\">\n"
-        "          <div id=\"graph-view\" class=\"mermaid\"></div>\n"
+        f"          <div id=\"graph-view\" class=\"mermaid\">{embedded_graph_html}</div>\n"
         "        </div>\n"
         "        <div class=\"edge-rule\">\n"
         "          <div><strong>边的颜色</strong><span class=\"muted\">绿色表示信任占优，橙色表示拉扯或竞争，红色表示冲突占优，棕色表示关系偏中性。</span></div>\n"
@@ -688,7 +741,7 @@ def _render_relation_html(
         "        <div class=\"note\">颜色来自人物画像中的 `faction_position`、`world_belong` 或 `story_role`。悬停节点说明项可查看更完整信息。</div>\n"
         "      </div>\n"
         "    </div>\n"
-        "    <div class=\"grid\" style=\"margin-top:18px;\">\n"
+        "    <div class=\"stack\" style=\"margin-top:18px;\">\n"
         "      <div class=\"card\">\n"
         "        <h2>关系卡片</h2>\n"
         "        <ul class=\"relation-list\">\n"
@@ -697,10 +750,12 @@ def _render_relation_html(
         "      </div>\n"
         "      <div class=\"card\">\n"
         "      <h2>关系明细表</h2>\n"
+        "      <div class=\"table-shell\">\n"
         "      <table>\n"
         "        <thead><tr><th>关系对</th><th>关系类型</th><th>信任</th><th>好感</th><th>冲突</th><th>强度</th><th>稳定性</th><th>演变</th><th>冲突焦点</th><th>典型互动</th></tr></thead>\n"
         f"        <tbody>{''.join(table_rows)}</tbody>\n"
         "      </table>\n"
+        "      </div>\n"
         "      </div>\n"
         "    </div>\n"
         "  </div>\n"
@@ -738,6 +793,88 @@ def _edge_style(
     return ",".join(parts)
 
 
+def _render_mermaid_svg(mermaid_graph: str) -> str:
+    browser = _find_headless_browser()
+    if browser is None:
+        return ""
+
+    template = (
+        "<!DOCTYPE html>\n"
+        "<html lang=\"zh-CN\">\n"
+        "<head>\n"
+        "  <meta charset=\"utf-8\" />\n"
+        "  <script src=\"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js\"></script>\n"
+        "</head>\n"
+        "<body>\n"
+        "  <div id=\"graph-svg\"></div>\n"
+        "  <script>\n"
+        "    (async () => {\n"
+        "      const root = document.getElementById('graph-svg');\n"
+        "      try {\n"
+        "        if (!window.mermaid) {\n"
+        "          document.body.setAttribute('data-render-status', 'missing-mermaid');\n"
+        "          return;\n"
+        "        }\n"
+        "        window.mermaid.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose' });\n"
+        f"        const definition = {json.dumps(mermaid_graph, ensure_ascii=False)};\n"
+        "        const rendered = await window.mermaid.render('exported-graph', definition);\n"
+        "        root.innerHTML = rendered.svg;\n"
+        "        document.body.setAttribute('data-render-status', 'ok');\n"
+        "      } catch (error) {\n"
+        "        document.body.setAttribute('data-render-status', 'error');\n"
+        "        root.textContent = String(error && error.message ? error.message : error);\n"
+        "      }\n"
+        "    })();\n"
+        "  </script>\n"
+        "</body>\n"
+        "</html>\n"
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        html_path = Path(tmpdir) / "graph.html"
+        html_path.write_text(template, encoding="utf-8")
+        command = [
+            str(browser),
+            "--headless",
+            "--disable-gpu",
+            "--allow-file-access-from-files",
+            "--virtual-time-budget=8000",
+            "--dump-dom",
+            html_path.as_uri(),
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        except Exception:
+            return ""
+    return _extract_svg_from_dom(result.stdout)
+
+
+def _find_headless_browser() -> Path | None:
+    candidates = [
+        Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+        Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _extract_svg_from_dom(dom: str) -> str:
+    match = re.search(r"<div id=\"graph-svg\">(.*?</svg>)</div>", dom, flags=re.DOTALL)
+    if not match:
+        return ""
+    return html.unescape(match.group(1)).strip()
+
+
 def _type_tone(relation_type: str) -> str:
     if relation_type in {"深厚", "亲近", "协作"}:
         return "warm"
@@ -752,5 +889,9 @@ def _metric_badge(value: int, kind: str) -> str:
     return f"<span class=\"metric {kind}\">{value}</span>"
 
 
-def _graph_id(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_\u4e00-\u9fff]", "_", str(name))
+def _graph_id(name: str, index: int) -> str:
+    return f"n{index}"
+
+
+def _mermaid_escape(value: Any) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')

@@ -5,7 +5,7 @@
 - Type: OpenClaw Skill
 - Name: zaomeng-skill
 - Display Name: 造梦技能
-- Version: 4.1.2
+- Version: 4.1.3
 - License: MIT-0
 - Category: Writing / Roleplay / Character Simulation
 
@@ -26,6 +26,7 @@
 
 ## 版本说明
 
+- `4.1.3`：增强关系图谱导出，优先生成静态 SVG 并在 HTML 中直接内嵌，降低本地 `file://` 打开时 Mermaid 脚本受限导致图谱空白的概率，同时修正明细表布局挤压问题。
 - `4.1.2`：补入 persona bundle materializer，支持在宿主只落盘 `PROFILE.generated.md` 后继续生成拆分人格文件与 `NAVIGATION.generated.md`，并同步补齐 skill 文档与安装回归测试。
 - `4.1.1`：让 skill 包内 helper 脚本摆脱对仓库级 `src` 模块的依赖，补入包内最小 support 层，并收紧进度播报规则，避免向用户暴露大段内部思考与排障过程。
 - `4.1.0`：对齐 `references/output_schema.md` 的最新字段定义，补全人物档案与关系图谱示例，并同步收紧关系抽取与人设纠错提示词。

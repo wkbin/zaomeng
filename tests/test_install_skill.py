@@ -120,6 +120,9 @@ class InstallSkillTests(unittest.TestCase):
             mermaid_path = Path(payload["mermaid_path"])
             self.assertTrue(html_path.exists())
             self.assertTrue(mermaid_path.exists())
+            self.assertIn("svg_path", payload)
+            if payload["svg_path"]:
+                self.assertTrue(Path(payload["svg_path"]).exists())
             self.assertIn("mini_relations.html", payload["html_path"])
             self.assertIn("mini_relations.mermaid.md", payload["mermaid_path"])
             mermaid_text = mermaid_path.read_text(encoding="utf-8")
@@ -129,6 +132,8 @@ class InstallSkillTests(unittest.TestCase):
             self.assertIn("关系类型", html_text)
             self.assertIn("最低信任值", html_text)
             self.assertIn("关系卡片", html_text)
+            if payload["svg_path"]:
+                self.assertIn(".svg", html_text)
 
     def test_installed_persona_bundle_tool_materializes_split_files_from_profile_markdown(self):
         repo_root = Path(__file__).resolve().parents[1]

@@ -1,30 +1,30 @@
 # zaomeng-skill
 
-`zaomeng-skill` 是一个面向中文小说人物蒸馏、关系抽取、角色单聊与群聊的技能包。
+`zaomeng-skill` 是一个面向中文小说人物蒸馏、关系抽取、关系图谱和角色对话的 skill。
 
 它的工作方式很直接：
 
 - 读取小说内容
 - 准备 excerpt、prompt 和 references
 - 交给宿主 LLM 生成蒸馏结果、关系结果和角色回复
+- 将 canonical profile 继续物化为完整人物包
 
-许可证：`MIT-0`（MIT No Attribution）
+## 概览
 
-## 对话生成
-
-当前聊天、蒸馏和关系抽取都走 **LLM-first** 路径：
-
-- `zaomeng` 先整理人物约束、关系约束、记忆约束与模式约束
-- 再由可生成 LLM 负责最终表达
-- 群聊里后发言角色可以看到本轮已生成的前文
-
-这个 skill 默认运行在宿主环境中，宿主负责实际调用模型。
+| 项目 | 内容 |
+| --- | --- |
+| 名称 | `zaomeng-skill` |
+| 版本 | `4.1.3` |
+| 模式 | LLM-first |
+| 适用宿主 | OpenClaw、ClawHub、Hermes、其他 host-managed agent |
+| 核心能力 | 人物蒸馏、关系抽取、关系图谱、角色单聊、角色群聊 |
+| 许可证 | `MIT-0` |
 
 ## 它能做什么
 
 ### 1. 蒸馏人物
 
-从小说原文中提取人物档案，尽量覆盖更完整的人物维度，例如：
+从小说原文中提取人物档案，并尽量覆盖完整的人设层次，例如：
 
 - 核心身份
 - 核心动机
@@ -39,7 +39,11 @@
 
 ### 2. 抽取关系
 
-从同框互动中提取两两关系，输出关系图谱和角色侧关系层。
+从同框互动中提取两两关系，并输出：
+
+- 关系结果 markdown
+- Mermaid 源码
+- HTML 可视化图谱
 
 ### 3. 进入角色聊天
 
@@ -54,6 +58,37 @@
 
 如果某句明显 OOC，可以把纠错写回记忆，后续对话继续沿用。
 
+## 工作流
+
+### 标准流程
+
+1. 提供小说文件或正文
+2. 生成 excerpt
+3. 生成 distill 或 relation prompt payload
+4. 交给宿主 LLM 完成生成
+5. 若宿主落盘了 `PROFILE.generated.md`，继续物化完整人物包
+6. 导出关系图谱
+7. 再进入 `act` 或 `observe`
+
+### Distill Post-Process
+
+宿主 LLM 写出 `PROFILE.generated.md` 后，不要停在单文件状态。  
+应立即执行 `tools/materialize_persona_bundle.py`，把 canonical profile 物化成完整人物包，补齐：
+
+- `SOUL.generated.md`
+- `GOALS.generated.md`
+- `STYLE.generated.md`
+- `TRAUMA.generated.md`
+- `IDENTITY.generated.md`
+- `BACKGROUND.generated.md`
+- `CAPABILITY.generated.md`
+- `BONDS.generated.md`
+- `CONFLICTS.generated.md`
+- `ROLE.generated.md`
+- `AGENTS.generated.md`
+- `MEMORY.generated.md`
+- `NAVIGATION.generated.md`
+
 ## 安装方式
 
 ### OpenClaw
@@ -66,13 +101,7 @@ openclaw skills install wkbin/zaomeng-skill
 
 ```bash
 npx clawhub@latest install zaomeng-skill
-```
-
-```bash
 pnpm dlx clawhub@latest install zaomeng-skill
-```
-
-```bash
 bunx clawhub@latest install zaomeng-skill
 ```
 
@@ -82,44 +111,29 @@ bunx clawhub@latest install zaomeng-skill
 python scripts/install_skill.py --skills-dir <your-skills-root>
 ```
 
-## 运行前提
-
-要跑真实工作流，宿主环境至少需要满足这些条件：
-
-- 能执行本地 Python 命令
-- 已安装 [requirements.txt](requirements.txt) 中声明的依赖
-
-skill 目前已经提供 prompt-first helper 入口：
-
-```text
-tools/prepare_novel_excerpt.py
-tools/build_prompt_payload.py
-tools/export_relation_graph.py
-```
-
-常见的 prompt-first 调用方式是先准备 excerpt，再组装 prompt payload。
-
-例如：
+## Helper Commands
 
 ```bash
-py -3 tools/prepare_novel_excerpt.py --novel <路径>
-py -3 tools/build_prompt_payload.py --mode distill --novel <路径> --characters A,B
+py -3 tools/prepare_novel_excerpt.py --novel <路径> [--max-sentences 80] [--max-chars 12000]
+py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B]
+py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
 ```
 
-## 推荐用法
+## 推荐使用方式
 
 正确顺序不是一上来就群聊。  
 **先给小说，再蒸馏人物，蒸馏完成后再进入聊天。**
 
-最常见的使用路径是：
+最常见的路径是：
 
-1. 提供小说文件，或指定小说路径
-2. 用自然语言说要蒸馏谁
-3. 宿主按阶段播报蒸馏进度与关系图谱生成进度
-4. 蒸馏完成后，再进入 `act` 或 `observe`
+1. 提供小说文件或路径
+2. 指定要蒸馏的角色
+3. 宿主分阶段播报蒸馏进度和图谱生成进度
+4. 查看人物档案或关系图谱
+5. 进入 `act` 或 `observe`
 
-## 自然语言示例
+## 示例
 
 ### 蒸馏
 
@@ -151,7 +165,7 @@ py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
 请让大家围绕联合孙权这件事各说一句
 ```
 
-## 人格包结构
+## 人物包结构
 
 人物档案目录通常如下：
 
@@ -161,15 +175,14 @@ runtime/data/characters/<novel_id>/<角色名>/
 
 常见文件：
 
-- `NAVIGATION.generated.md`
-- `NAVIGATION.md`
 - `PROFILE.generated.md`
 - `PROFILE.md`
-- `RELATIONS.generated.md`
-- `RELATIONS.md`
+- `NAVIGATION.generated.md`
+- `NAVIGATION.md`
+- `MEMORY.generated.md`
 - `MEMORY.md`
 
-按人物证据情况，还可能生成可选拆分文件：
+按证据充分程度，还可能生成拆分人格文件：
 
 - `SOUL.generated.md`
 - `GOALS.generated.md`
@@ -184,29 +197,21 @@ runtime/data/characters/<novel_id>/<角色名>/
 
 ## 约束文件
 
-约束分为三层：
-
 - `references/output_schema.md`
-  负责输出格式与字段规范
+  负责输出格式与字段定义
 - `references/style_differ.md`
-  负责防同质化与风格差异化
+  负责反同质化与风格差异化
 - `references/logic_constraint.md`
-  负责全局人设底线、防 OOC 与模式边界
+  负责全局人设底线与防 OOC
+- `references/validation_policy.md`
+  负责输出自检和校验规则
 
-如果你在检查输出质量，这三份文件应该一起看，而不是只看 schema。
+## 发布内容
 
-## 产物
-
-- 人物档案
-- 人物关系结果
-- 人物关系图谱
-- 角色对话回复
-
-## 发布提示
-
-如果你要把这个 skill 单独发布，建议至少一起带上这些文件：
+建议一并发布这些文件：
 
 - `README.md`
+- `README_EN.md`
 - `SKILL.md`
 - `INSTALL.md`
 - `MANIFEST.md`
@@ -214,12 +219,6 @@ runtime/data/characters/<novel_id>/<角色名>/
 - `prompts/`
 - `references/`
 - `tools/`
-
-## Distill Post-Process
-
-- 宿主 LLM 写出 `PROFILE.generated.md` 之后，要立即执行 `tools/materialize_persona_bundle.py`
-- 这一步会把 canonical profile 物化成完整人物包，补齐 `SOUL.generated.md`、`GOALS.generated.md`、`STYLE.generated.md`、`TRAUMA.generated.md`、`IDENTITY.generated.md`、`BACKGROUND.generated.md`、`CAPABILITY.generated.md`、`BONDS.generated.md`、`CONFLICTS.generated.md`、`ROLE.generated.md`、`AGENTS.generated.md`、`MEMORY.generated.md` 和 `NAVIGATION.generated.md`
-- 示例：`py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>`
 
 ## License
 

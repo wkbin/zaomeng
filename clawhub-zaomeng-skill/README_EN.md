@@ -1,30 +1,30 @@
 # zaomeng-skill
 
-`zaomeng-skill` is a skill package for Chinese novel character distillation, relationship extraction, one-on-one roleplay, and group character chat.
+`zaomeng-skill` is a host-driven skill for Chinese novel character distillation, relationship extraction, relationship graph export, and in-character dialogue.
 
-Its operating model is straightforward:
+Its operating model is simple:
 
 - read the novel content
 - prepare excerpts, prompts, and references
-- hand them to the host LLM for distillation, relation extraction, and dialogue generation
+- hand them to the host LLM for generation
+- materialize the canonical profile into a complete persona bundle
 
-License: `MIT-0` (MIT No Attribution)
+## Overview
 
-## Dialogue Generation
-
-Chat, distillation, and relationship extraction now follow the same **LLM-first** path:
-
-- `zaomeng` prepares persona, relation, memory, and mode constraints
-- a generation-capable LLM produces the final reply
-- in group chat, later speakers can see replies already produced earlier in the same turn
-
-This skill assumes a host-managed LLM execution environment.
+| Item | Value |
+| --- | --- |
+| Name | `zaomeng-skill` |
+| Version | `4.1.3` |
+| Mode | LLM-first |
+| Host Targets | OpenClaw, ClawHub, Hermes, other host-managed agents |
+| Core Capabilities | character distillation, relation extraction, graph export, one-on-one roleplay, group chat |
+| License | `MIT-0` |
 
 ## What It Does
 
 ### 1. Distill Characters
 
-Extract character profiles from raw novel text and cover a richer set of dimensions, such as:
+Extract structured character profiles from novel text, covering richer dimensions such as:
 
 - core identity
 - core motivation
@@ -32,27 +32,62 @@ Extract character profiles from raw novel text and cover a richer set of dimensi
 - decision logic
 - character arc
 - key bonds
-- language expression style
-- value tradeoff system
+- speech and expression style
+- value tradeoffs
 - hidden desire
 - private self
 
 ### 2. Extract Relationships
 
-Extract pairwise relationship graphs from same-scene interactions and generate both graph-level and character-side relation layers.
+Extract pairwise relationships from same-scene interactions and output:
+
+- relationship markdown
+- Mermaid source
+- HTML visualization
 
 ### 3. Enter Character Chat
 
-Two main interaction modes are supported:
+Two main modes are supported:
 
 - `act`
-  You control one character's line, and the other characters respond in character
+  you play one character, and the others respond in character
 - `observe`
-  Multiple characters interact around a scene, topic, or opening line
+  multiple characters talk around a scene, topic, or opening line
 
 ### 4. Save Corrections
 
-If a line is clearly out of character, you can write the correction back into memory and keep using that correction in later dialogue.
+If a line is clearly out of character, the correction can be written back into memory and reused in later turns.
+
+## Workflow
+
+### Standard Flow
+
+1. provide the novel file or text
+2. generate an excerpt
+3. build a distill or relation prompt payload
+4. hand the payload to the host LLM
+5. if the host writes `PROFILE.generated.md`, materialize the persona bundle
+6. export the relationship graph
+7. then enter `act` or `observe`
+
+### Distill Post-Process
+
+Once the host LLM writes `PROFILE.generated.md`, do not stop at that single file.  
+Run `tools/materialize_persona_bundle.py` immediately to materialize the canonical profile into a complete persona bundle, including:
+
+- `SOUL.generated.md`
+- `GOALS.generated.md`
+- `STYLE.generated.md`
+- `TRAUMA.generated.md`
+- `IDENTITY.generated.md`
+- `BACKGROUND.generated.md`
+- `CAPABILITY.generated.md`
+- `BONDS.generated.md`
+- `CONFLICTS.generated.md`
+- `ROLE.generated.md`
+- `AGENTS.generated.md`
+- `MEMORY.generated.md`
+- `NAVIGATION.generated.md`
 
 ## Installation
 
@@ -66,13 +101,7 @@ openclaw skills install wkbin/zaomeng-skill
 
 ```bash
 npx clawhub@latest install zaomeng-skill
-```
-
-```bash
 pnpm dlx clawhub@latest install zaomeng-skill
-```
-
-```bash
 bunx clawhub@latest install zaomeng-skill
 ```
 
@@ -82,85 +111,63 @@ bunx clawhub@latest install zaomeng-skill
 python scripts/install_skill.py --skills-dir <your-skills-root>
 ```
 
-## Runtime Requirements
-
-To run the real workflow, the host environment should support:
-
-- local Python command execution
-- the dependencies declared in [requirements.txt](requirements.txt)
-
-The skill now exposes prompt-first helper entrypoints:
-
-```text
-tools/prepare_novel_excerpt.py
-tools/build_prompt_payload.py
-tools/materialize_persona_bundle.py
-tools/export_relation_graph.py
-```
-
-A common prompt-first flow is to prepare an excerpt first and then build a host-side prompt payload.
-
-For example:
+## Helper Commands
 
 ```bash
-py -3 tools/prepare_novel_excerpt.py --novel <path>
-py -3 tools/build_prompt_payload.py --mode distill --novel <path> --characters A,B
+py -3 tools/prepare_novel_excerpt.py --novel <path> [--max-sentences 80] [--max-chars 12000]
+py -3 tools/build_prompt_payload.py --mode distill|relation --novel <path> [--characters A,B]
 py -3 tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <relation-result.md>
 ```
 
-After the host LLM writes a character's `PROFILE.generated.md`, run
-`tools/materialize_persona_bundle.py` immediately. This post-process
-materializes the split persona bundle files and `NAVIGATION.generated.md`
-for that character instead of leaving the workflow at the single profile file.
+## Recommended Usage
 
-## Recommended Usage Flow
-
-The correct order is not to jump into chat immediately.  
-**Provide the novel first, distill the characters, and only then enter chat.**
+Do not jump into chat first.  
+**Provide the novel, distill the characters, then enter dialogue.**
 
 The most common user flow is:
 
-1. provide the novel file or file path
-2. say which characters you want distilled in natural language
-3. let the host report staged distillation progress and relation-graph generation progress
-4. after distillation finishes, enter `act` or `observe`
+1. provide the novel file or path
+2. specify which characters to distill
+3. let the host report stage-by-stage progress
+4. inspect persona files or relationship graphs
+5. enter `act` or `observe`
 
-## Natural-Language Examples
+## Examples
 
 ### Distill
 
 ```text
-Distill Lin Daiyu and Jia Baoyu for me
+Distill Lin Daiyu and Jia Baoyu from this novel
 ```
 
 ```text
-Extract personas for Liu Bei, Zhang Fei, and Guan Yu from this novel
+Extract character profiles for Liu Bei, Zhang Fei, and Guan Yu
 ```
 
-### Enter Act Mode
+### Enter act
 
 ```text
-Let me play Jia Baoyu and chat with Lin Daiyu
-```
-
-```text
-I will play Baoyu. Let Daiyu reply to me
-```
-
-### Enter Observe Mode
-
-```text
-Enter Liu Bei, Zhang Fei, Guan Yu group chat mode
+Let me play Jia Baoyu and have Lin Daiyu reply
 ```
 
 ```text
-Let everyone say one line about the alliance with Sun Quan
+I will speak as Baoyu, and you let Daiyu answer me
 ```
 
-## Persona Bundle Structure
+### Enter observe
 
-Character profile directories typically follow this shape:
+```text
+Start a Liu Bei, Zhang Fei, and Guan Yu group chat
+```
+
+```text
+Let everyone say one line about whether to ally with Sun Quan
+```
+
+## Persona Bundle Layout
+
+The character directory usually looks like this:
 
 ```text
 runtime/data/characters/<novel_id>/<character_name>/
@@ -168,15 +175,14 @@ runtime/data/characters/<novel_id>/<character_name>/
 
 Common files:
 
-- `NAVIGATION.generated.md`
-- `NAVIGATION.md`
 - `PROFILE.generated.md`
 - `PROFILE.md`
-- `RELATIONS.generated.md`
-- `RELATIONS.md`
+- `NAVIGATION.generated.md`
+- `NAVIGATION.md`
+- `MEMORY.generated.md`
 - `MEMORY.md`
 
-Depending on available evidence, optional focused persona files may also be generated:
+Depending on available evidence, split persona files may also exist:
 
 - `SOUL.generated.md`
 - `GOALS.generated.md`
@@ -191,27 +197,18 @@ Depending on available evidence, optional focused persona files may also be gene
 
 ## Constraint Files
 
-Constraints are split into three layers:
-
 - `references/output_schema.md`
-  format and field contract
+  output format and field definition
 - `references/style_differ.md`
   anti-homogenization and style differentiation
 - `references/logic_constraint.md`
-  global persona floor, anti-OOC rules, and mode boundaries
+  persona boundaries and anti-OOC rules
+- `references/validation_policy.md`
+  output validation and self-check policy
 
-If you are checking output quality, these three files should be read together rather than reading only the schema.
+## Release Payload
 
-## Outputs
-
-- character profiles
-- relationship extraction results
-- relationship graphs
-- in-character dialogue replies
-
-## Publishing Notes
-
-If you publish this skill on its own, it is best to include at least:
+Recommended release contents:
 
 - `README.md`
 - `README_EN.md`
