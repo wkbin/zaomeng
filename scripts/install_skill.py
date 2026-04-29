@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 PROMPT_FIRST_FILES = (
+    ".metadata.json",
     "SKILL.md",
     "README.md",
     "README_EN.md",

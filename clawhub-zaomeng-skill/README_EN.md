@@ -9,6 +9,8 @@ Its operating model is simple:
 - hand them to the host LLM for generation
 - materialize the canonical profile into a complete persona bundle
 
+This skill runs inside a host-managed environment; the host performs the actual model call, and the packaged Python helper dependencies are declared in `requirements.txt`.
+
 ## Overview
 
 | Item | Value |
@@ -212,6 +214,7 @@ Recommended release contents:
 
 - `README.md`
 - `README_EN.md`
+- `.metadata.json`
 - `SKILL.md`
 - `INSTALL.md`
 - `MANIFEST.md`

@@ -4,6 +4,7 @@
 
 - `README.md`
 - `README_EN.md`
+- `.metadata.json`
 - `SKILL.md`
 - `INSTALL.md`
 - `PUBLISH.md`

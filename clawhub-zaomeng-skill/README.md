@@ -9,6 +9,8 @@
 - 交给宿主 LLM 生成蒸馏结果、关系结果和角色回复
 - 将 canonical profile 继续物化为完整人物包
 
+这个 skill 默认运行在宿主环境中，宿主负责实际调用模型；包内 Python helper 依赖写在 `requirements.txt`。
+
 ## 概览
 
 | 项目 | 内容 |
@@ -39,7 +41,7 @@
 
 ### 2. 抽取关系
 
-从同框互动中提取两两关系，并输出：
+从同框互动中提取两两关系，并输出人物关系图谱，包括：
 
 - 关系结果 markdown
 - Mermaid 源码
@@ -212,6 +214,7 @@ runtime/data/characters/<novel_id>/<角色名>/
 
 - `README.md`
 - `README_EN.md`
+- `.metadata.json`
 - `SKILL.md`
 - `INSTALL.md`
 - `MANIFEST.md`

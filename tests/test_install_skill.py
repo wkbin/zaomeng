@@ -13,6 +13,7 @@ from scripts.install_skill import copy_skill_bundle, iter_skill_entries
 class InstallSkillTests(unittest.TestCase):
     def test_iter_skill_entries_only_lists_prompt_first_assets(self):
         entries = iter_skill_entries()
+        self.assertIn(".metadata.json", entries)
         self.assertIn("SKILL.md", entries)
         self.assertIn("requirements.txt", entries)
         self.assertIn("tools", entries)
@@ -24,6 +25,7 @@ class InstallSkillTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dst = copy_skill_bundle(packaged_src, Path(tmpdir), "zaomeng-skill")
+            self.assertTrue((dst / ".metadata.json").exists())
             self.assertTrue((dst / "SKILL.md").exists())
             self.assertTrue((dst / "requirements.txt").exists())
             self.assertTrue((dst / "prompts").exists())

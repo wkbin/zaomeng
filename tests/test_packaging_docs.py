@@ -7,6 +7,7 @@ from pathlib import Path
 class PackagingDocsTests(unittest.TestCase):
     def test_manifest_describes_prompt_first_bundle(self):
         manifest_text = Path("clawhub-zaomeng-skill/MANIFEST.md").read_text(encoding="utf-8")
+        metadata_text = Path("clawhub-zaomeng-skill/.metadata.json").read_text(encoding="utf-8")
         self.assertIn("requirements.txt", manifest_text)
         self.assertIn("tools/prepare_novel_excerpt.py", manifest_text)
         self.assertIn("tools/build_prompt_payload.py", manifest_text)
@@ -14,6 +15,8 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertIn("人物关系图谱", manifest_text)
         self.assertNotIn("runtime/zaomeng_cli.py", manifest_text)
         self.assertNotIn("runtime/src", manifest_text)
+        self.assertIn('"name": "zaomeng-skill"', metadata_text)
+        self.assertIn('"version": "4.1.3"', metadata_text)
 
     def test_install_docs_describe_prompt_first_install(self):
         install_text = Path("clawhub-zaomeng-skill/INSTALL.md").read_text(encoding="utf-8")
