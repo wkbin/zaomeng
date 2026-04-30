@@ -10,11 +10,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 _PACKAGE_PREFIX = f"{__package__}." if __package__ else ""
 _install_skill = importlib.import_module(f"{_PACKAGE_PREFIX}install_skill")
 _skill_metadata = importlib.import_module(f"{_PACKAGE_PREFIX}skill_metadata")
+_IGNORED_DIR_NAMES = {"__pycache__", ".pytest_cache", ".mypy_cache"}
 
 
 def iter_files(root: Path):
     for path in sorted(root.rglob("*")):
-        if path.is_file() and "__pycache__" not in path.parts:
+        if path.is_file() and not any(part in _IGNORED_DIR_NAMES for part in path.parts):
             yield path
 
 
@@ -24,7 +25,7 @@ def build_archive(
     *,
     version: str,
     package_name: str = "zaomeng",
-    archive_root: str = "zaomeng-skill",
+    archive_root: str = "",
 ) -> Path:
     archive_name = f"{package_name}-{version}.skill.zip"
     archive_path = output_dir / archive_name
@@ -39,9 +40,11 @@ def build_archive(
             if source.is_dir():
                 for file_path in iter_files(source):
                     relative = file_path.relative_to(skill_dir)
-                    zf.write(file_path, Path(archive_root) / relative)
+                    archive_relative = relative if not archive_root else Path(archive_root) / relative
+                    zf.write(file_path, archive_relative)
             else:
-                zf.write(source, Path(archive_root) / entry_name)
+                archive_relative = Path(entry_name) if not archive_root else Path(archive_root) / entry_name
+                zf.write(source, archive_relative)
 
     return archive_path
 
@@ -71,8 +74,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--archive-root",
-        default="zaomeng-skill",
-        help="Top-level folder name inside the zip archive. Default: zaomeng-skill",
+        default="",
+        help="Optional top-level folder name inside the zip archive. Default: pack skill files at archive root",
     )
     args = parser.parse_args()
 
