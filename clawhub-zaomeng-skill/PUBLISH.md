@@ -5,7 +5,7 @@
 - Type: OpenClaw Skill
 - Name: zaomeng-skill
 - Display Name: 造梦技能
-- Version: 4.1.3
+- Version: 4.1.4
 - License: MIT-0
 - Category: Writing / Roleplay / Character Simulation
 

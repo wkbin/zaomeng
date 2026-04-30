@@ -28,7 +28,7 @@ This skill runs inside a host-managed environment; the host performs the actual 
 | Item | Value |
 | --- | --- |
 | Name | `zaomeng-skill` |
-| Version | `4.1.3` |
+| Version | `4.1.4` |
 | Mode | LLM-first |
 | Host Targets | OpenClaw, ClawHub, Hermes, other host-managed agents |
 | Core Capabilities | character distillation with incremental updates, relation extraction, graph export, one-on-one roleplay, group chat |
