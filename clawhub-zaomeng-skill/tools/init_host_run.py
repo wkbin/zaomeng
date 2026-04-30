@@ -34,7 +34,7 @@ def main() -> int:
         characters=_split_characters(args.characters),
         novel_id=str(args.novel_id or "").strip(),
     )
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(json.dumps(payload, ensure_ascii=True, indent=2))
     return 0
 
 

@@ -42,7 +42,7 @@ def main() -> int:
         config_path=args.config,
         manifest_path=args.run_manifest,
     )
-    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")
     else:

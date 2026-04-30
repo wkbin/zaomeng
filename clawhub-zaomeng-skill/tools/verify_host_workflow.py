@@ -82,7 +82,7 @@ def main() -> int:
         status_path = Path(args.status_output)
     write_json(status_path, status_payload)
     payload["status_path"] = str(status_path.resolve())
-    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")
     else:

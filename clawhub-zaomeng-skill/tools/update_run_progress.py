@@ -36,7 +36,7 @@ def main() -> int:
         total_characters=args.total,
         graph_status=args.graph_status,
     )
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(json.dumps(payload, ensure_ascii=True, indent=2))
     return 0
 
 

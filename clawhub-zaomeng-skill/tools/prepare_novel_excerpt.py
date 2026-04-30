@@ -34,7 +34,7 @@ def main() -> int:
         max_sentences=max(1, int(args.max_sentences)),
         max_chars=max(200, int(args.max_chars)),
     )
-    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
     output_path = Path(args.output) if args.output else None
     if output_path:
         output_path.write_text(rendered + "\n", encoding="utf-8")

@@ -99,7 +99,7 @@ def main() -> int:
             status_file=capability_status_path,
         )
 
-    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    rendered = json.dumps(payload, ensure_ascii=True, indent=2)
     if output_path:
         output_path.write_text(rendered + "\n", encoding="utf-8")
 
