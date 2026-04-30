@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -37,6 +38,7 @@ class ChatIntent:
     controlled_character: str = ""
     target_characters: list[str] = field(default_factory=list)
     participants: list[str] = field(default_factory=list)
+    self_profile: dict[str, str] = field(default_factory=dict)
     message: str = ""
     setup_only: bool = False
 
@@ -47,6 +49,10 @@ class ZaomengCLI:
         r"我来扮演",
         r"我要扮演",
         r"我扮演",
+        r"我想代入",
+        r"让我代入",
+        r"代入.+群聊",
+        r"作为.+参与",
         r"你扮演",
         r"你来扮演",
         r"进入.+act",
@@ -70,10 +76,21 @@ class ZaomengCLI:
         r"让.+群聊",
         r"多人聊天",
     )
+    INSERT_SETUP_PATTERNS = (
+        r"让我以我自己进入",
+        r"让我以自己进入",
+        r"我想以我自己进入",
+        r"我想进入.+和.+聊天",
+        r"把我放进",
+        r"让我进入.+场景",
+        r"我本人进入",
+        r"我自己进入",
+    )
     ACT_MODE_HINTS = (
         "act",
         "行动模式",
         "扮演",
+        "代入",
         "我说一句",
         "回一句",
         "回我",
@@ -83,6 +100,7 @@ class ZaomengCLI:
         "对聊",
     )
     OBSERVE_MODE_HINTS = ("群聊模式", "observe", "围绕", "各说一句", "大家聊", "让大家", "多人聊", "群聊")
+    INSERT_MODE_HINTS = ("我自己", "我本人", "外来者", "进入场景", "进入小说", "把我放进", "和他们聊天")
 
     def __init__(
         self,
@@ -172,14 +190,14 @@ class ZaomengCLI:
             description=(
                 "Run constrained roleplay chat.\n\n"
                 "Important:\n"
-                "  - This is a local rule-based character engine.\n"
-                "  - It is not a general-purpose LLM chatbot.\n"
+                "  - This is an LLM-first character chat workflow.\n"
+                "  - The runtime prepares persona, relation, and scene constraints for generation.\n"
                 "  - For agent use, default to `--message`.\n"
                 "  - Do not rebuild chat manually from source files.\n\n"
                 "Prerequisites:\n"
                 "  1. Run `distill` first so character profiles exist.\n"
                 "  2. Run `extract` first if you want relation-aware replies.\n"
-                "  3. `--mode auto` can infer act/observe from natural language setup requests.\n\n"
+                "  3. `--mode auto` can infer act/observe/insert from natural language setup requests.\n\n"
                 "Usage modes:\n"
                 "  - Interactive: omit `--message` and chat in the terminal.\n"
                 "  - Single-turn: pass `--message` to run one turn and exit.\n"
@@ -198,14 +216,38 @@ class ZaomengCLI:
         chat_parser.add_argument(
             "--mode",
             "-m",
-            choices=["auto", "observe", "act"],
+            choices=["auto", "observe", "act", "insert"],
             default="auto",
-            help="`auto` infers act/observe from natural language setup requests",
+            help="`auto` infers act/observe/insert from natural language setup requests",
         )
         chat_parser.add_argument("--character", "-c", help="Controlled character in act mode")
         chat_parser.add_argument("--session", "-s", help="Restore an existing session ID")
         chat_parser.add_argument("--message", help="Run a single non-interactive turn and exit")
         chat_parser.add_argument("--message-file", help="UTF-8 text file containing one chat request/message")
+        chat_parser.add_argument(
+            "--session-summary-out",
+            help="Optional JSON file path for a host-facing session summary snapshot",
+        )
+        chat_parser.add_argument(
+            "--chat-result-out",
+            help="Optional JSON file path for a host-facing chat result payload",
+        )
+        chat_parser.add_argument(
+            "--chat-status-out",
+            help="Optional JSON file path for a host-facing chat status payload",
+        )
+        chat_parser.add_argument("--self-name", help="Display name when using insert mode")
+        chat_parser.add_argument("--self-identity", help="Scene identity when using insert mode")
+        chat_parser.add_argument(
+            "--self-style",
+            choices=["natural", "immersive", "probing"],
+            help="Interaction style for insert mode",
+        )
+        chat_parser.add_argument(
+            "--self-impact",
+            choices=["light", "scene", "relationship"],
+            help="How much the self-insert participant may influence the scene",
+        )
 
         view_parser = subparsers.add_parser("view", help="View a distilled character profile")
         view_parser.add_argument("--character", "-c", required=True, help="Character name")
@@ -328,6 +370,15 @@ class ZaomengCLI:
         if args.session:
             session = engine.restore_session(args.session)
             print(f"Restored session: {session['title']}")
+            if session.get("mode") == "insert":
+                profile = session.get("state", {}).get("self_insert", {})
+                print(
+                    "Reusing self insert card: "
+                    f"{profile.get('display_name', '你')} | "
+                    f"{profile.get('scene_identity', '外来访客')} | "
+                    f"{profile.get('interaction_style', 'immersive')} | "
+                    f"{profile.get('plot_agency', 'light')}"
+                )
         elif args.novel:
             print(f"Loading scoped profiles for: {args.novel}")
 
@@ -344,6 +395,15 @@ class ZaomengCLI:
             if intent.setup_only:
                 engine._save_session(session)
                 self._print_setup_confirmation(session, intent)
+                summary = self._write_session_summary(engine, session, args.session_summary_out)
+                self._write_chat_outputs(
+                    session,
+                    args,
+                    action="setup",
+                    summary=summary,
+                    responses=[],
+                    success=True,
+                )
                 return
 
             responses = self._run_single_chat_turn(
@@ -357,9 +417,27 @@ class ZaomengCLI:
                 print(f"{speaker}: {message}")
             engine.print_turn_cost()
             engine.print_correction_hint(session)
+            summary = self._write_session_summary(engine, session, args.session_summary_out, latest_responses=responses)
+            self._write_chat_outputs(
+                session,
+                args,
+                action="single_turn",
+                summary=summary,
+                responses=responses,
+                success=True,
+            )
             return
 
         print("This is an interactive command. Prepare your first user turn before entering the session.")
+        summary = self._write_session_summary(engine, session, args.session_summary_out)
+        self._write_chat_outputs(
+            session,
+            args,
+            action="interactive_ready",
+            summary=summary,
+            responses=[],
+            success=True,
+        )
         if intent.mode == "act":
             role = intent.controlled_character or "<character>"
             print(f"Mode: act | Controlled role: {role}")
@@ -367,6 +445,13 @@ class ZaomengCLI:
             if not intent.controlled_character:
                 raise ValueError("--character is required in act mode unless the request names the role.")
             engine.act_mode(session, intent.controlled_character)
+            return
+
+        if intent.mode == "insert":
+            card = session.get("state", {}).get("self_insert", {})
+            print(f"Mode: insert | Self name: {card.get('display_name', '你')}")
+            print("Starter input example: 初来乍到，我能否先在这里坐一会儿？")
+            engine.insert_mode(session)
             return
 
         print("Mode: observe")
@@ -386,6 +471,8 @@ class ZaomengCLI:
             if not controlled_character:
                 raise ValueError("--character is required in act mode")
             return engine.act_once(session, controlled_character, message)
+        if mode == "insert":
+            return engine.insert_once(session, message)
         return engine.observe_once(session, message)
 
     def _resolve_chat_intent(
@@ -408,6 +495,7 @@ class ZaomengCLI:
         ordered_mentions = engine._mentioned_characters(text, candidates) if text and candidates else []
         controlled = self._resolve_character_reference(engine, args.character, candidates)
         controlled = controlled or self._infer_controlled_character(mode, text, ordered_mentions, candidates, session)
+        self_profile = self._build_self_insert_profile(args, text, session) if mode == "insert" else {}
 
         if mode == "observe" and not explicit_mode and inferred_mode == "act":
             mode = "act"
@@ -422,6 +510,7 @@ class ZaomengCLI:
             controlled_character=controlled,
             target_characters=targets,
             participants=participants,
+            self_profile=self_profile,
             message="" if setup_only else text,
             setup_only=setup_only,
         )
@@ -444,6 +533,12 @@ class ZaomengCLI:
         if intent.controlled_character and len(intent.target_characters) == 1:
             state["focus_targets"][intent.controlled_character] = intent.target_characters[0]
 
+        if intent.mode == "insert":
+            state["self_insert"] = self._merge_self_insert_profile(
+                state.get("self_insert", {}),
+                intent.self_profile,
+            )
+
     @staticmethod
     def _print_setup_confirmation(session: dict, intent: ChatIntent) -> None:
         print(f"Session ready: {session['id']}")
@@ -454,6 +549,18 @@ class ZaomengCLI:
             print(f"Primary target: {', '.join(intent.target_characters)}")
         if intent.participants:
             print(f"Participants: {', '.join(intent.participants)}")
+        if intent.mode == "insert":
+            profile = session.get("state", {}).get("self_insert", {})
+            print(
+                "Self insert card: "
+                f"{profile.get('display_name', '你')} | "
+                f"{profile.get('scene_identity', '外来访客')} | "
+                f"{profile.get('interaction_style', 'immersive')} | "
+                f"{profile.get('plot_agency', 'light')}"
+            )
+            print("Next step: send one line as yourself, and the cast will reply from inside the scene.")
+            for line in ZaomengCLI._self_insert_onboarding_lines(profile):
+                print(line)
 
     @staticmethod
     def _load_candidate_names(engine: ChatEngine, novel: str) -> list[str]:
@@ -464,6 +571,8 @@ class ZaomengCLI:
         if not text:
             return ""
         lowered = text.lower()
+        if any(token in text for token in self.INSERT_MODE_HINTS):
+            return "insert"
         if any(token in lowered for token in ("act模式", "进入act", "切换到act", " act ")):
             return "act"
         if any(token in text for token in self.ACT_MODE_HINTS):
@@ -483,10 +592,10 @@ class ZaomengCLI:
         if mode != "act":
             return ""
         if len(ordered_mentions) >= 2 and any(
-            token in text for token in ("让我扮演", "我来扮演", "我要扮演", "我扮演", "聊天", "对话", "对聊", "act")
+            token in text for token in ("让我扮演", "我来扮演", "我要扮演", "我扮演", "我想代入", "让我代入", "聊天", "对话", "对聊", "群聊", "act")
         ):
             return ordered_mentions[0]
-        if len(ordered_mentions) == 1 and any(token in text for token in ("扮演", "饰演", "由我", "我来")):
+        if len(ordered_mentions) == 1 and any(token in text for token in ("扮演", "饰演", "由我", "我来", "代入", "作为")):
             return ordered_mentions[0]
         if len(ordered_mentions) == 1 and any(token in text for token in ("我说一句", "回一句", "回我")) and len(candidates) == 2:
             target = ordered_mentions[0]
@@ -533,6 +642,8 @@ class ZaomengCLI:
                 if name not in participants:
                     participants.append(name)
             return participants
+        if mode == "insert":
+            return ordered_mentions
         return ordered_mentions
 
     def _is_setup_only_request(
@@ -549,12 +660,159 @@ class ZaomengCLI:
                 return True
             if "模式" in text and controlled:
                 return True
-            if controlled and targets and any(token in text for token in ("聊天", "对话", "互动")):
+            if controlled and targets and any(token in text for token in ("聊天", "对话", "互动", "群聊")):
                 return True
         if mode == "observe":
             if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in self.OBSERVE_SETUP_PATTERNS):
                 return True
+        if mode == "insert":
+            if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in self.INSERT_SETUP_PATTERNS):
+                return True
+            if targets and any(token in text for token in ("进入", "场景", "小说", "群聊", "聊天")):
+                return True
         return False
+
+    def _build_self_insert_profile(
+        self,
+        args: argparse.Namespace,
+        text: str,
+        session: Optional[dict],
+    ) -> dict[str, str]:
+        existing = dict(session.get("state", {}).get("self_insert", {})) if session else {}
+        inferred_name = ChatEngine._extract_self_insert_name(text)
+        inferred_identity = ChatEngine._extract_self_insert_identity(text)
+        display_name = (
+            load_text_argument(getattr(args, "self_name", ""))
+            or inferred_name
+            or existing.get("display_name", "")
+            or ChatEngine.SELF_INSERT_DEFAULT_NAME
+        )
+        scene_identity = (
+            load_text_argument(getattr(args, "self_identity", ""))
+            or inferred_identity
+            or existing.get("scene_identity", "")
+            or ChatEngine.SELF_INSERT_DEFAULT_IDENTITY
+        )
+        interaction_style = load_text_argument(getattr(args, "self_style", "")) or existing.get("interaction_style", "")
+        plot_agency = load_text_argument(getattr(args, "self_impact", "")) or existing.get("plot_agency", "")
+
+        if not interaction_style:
+            interaction_style = "probing" if "试探" in text else "immersive"
+        if not plot_agency:
+            plot_agency = "scene" if "推进" in text or "剧情" in text else "light"
+
+        return {
+            "display_name": display_name,
+            "scene_identity": scene_identity,
+            "interaction_style": interaction_style,
+            "plot_agency": plot_agency,
+        }
+
+    @staticmethod
+    def _merge_self_insert_profile(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, str]:
+        merged = {
+            "display_name": ChatEngine.SELF_INSERT_DEFAULT_NAME,
+            "scene_identity": ChatEngine.SELF_INSERT_DEFAULT_IDENTITY,
+            "interaction_style": "immersive",
+            "plot_agency": "light",
+        }
+        for source in (base or {}, incoming or {}):
+            for key in merged:
+                value = str(source.get(key, "")).strip() if isinstance(source, dict) else ""
+                if value:
+                    merged[key] = value
+        return merged
+
+    @staticmethod
+    def _self_insert_onboarding_lines(profile: dict[str, Any]) -> list[str]:
+        display_name = str(profile.get("display_name", "")).strip()
+        scene_identity = str(profile.get("scene_identity", "")).strip()
+        missing_name = display_name in {"", ChatEngine.SELF_INSERT_DEFAULT_NAME}
+        missing_identity = scene_identity in {"", ChatEngine.SELF_INSERT_DEFAULT_IDENTITY}
+        if not missing_name and not missing_identity:
+            return []
+
+        hints = ["First-time insert hint:"]
+        if missing_name:
+            hints.append("- You can name yourself in-scene, for example: “我叫阿青。”")
+        if missing_identity:
+            hints.append("- You can also define your scene identity, for example: “我是初到贾府的新客。”")
+        hints.append("- You can do this naturally in your next line; no separate command is required.")
+        return hints
+
+    @staticmethod
+    def _write_session_summary(
+        engine: ChatEngine,
+        session: dict[str, Any],
+        output_path: Optional[str],
+        *,
+        latest_responses: Optional[list[tuple[str, str]]] = None,
+    ) -> dict[str, Any]:
+        summary = engine.build_session_summary(session, latest_responses=latest_responses)
+        if not output_path:
+            return summary
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"Session summary: {output}")
+        return summary
+
+    @staticmethod
+    def _write_chat_outputs(
+        session: dict[str, Any],
+        args: argparse.Namespace,
+        *,
+        action: str,
+        summary: dict[str, Any],
+        responses: list[tuple[str, str]],
+        success: bool,
+    ) -> None:
+        response_items = [{"speaker": speaker, "message": message} for speaker, message in responses]
+        result_payload = {
+            "kind": "zaomeng_chat_result",
+            "action": action,
+            "success": bool(success),
+            "mode": summary.get("mode", session.get("mode", "")),
+            "session_id": summary.get("session_id", session.get("id", "")),
+            "novel_id": summary.get("novel_id", session.get("novel_id", "")),
+            "participants": list(summary.get("participants", [])),
+            "responses": response_items,
+            "summary": summary,
+            "updated_at": int(time.time()),
+        }
+        status_payload = {
+            "kind": "host_capability_status",
+            "capability": "chat",
+            "status": "complete" if success else "error",
+            "success": bool(success),
+            "message": f"chat {action} completed" if success else f"chat {action} failed",
+            "inputs": {
+                "mode": session.get("mode", ""),
+                "novel": session.get("novel", ""),
+                "session_id": session.get("id", ""),
+            },
+            "outputs": {
+                "session_summary_out": str(getattr(args, "session_summary_out", "") or ""),
+                "chat_result_out": str(getattr(args, "chat_result_out", "") or ""),
+                "responses_count": len(response_items),
+            },
+            "updated_at": int(time.time()),
+        }
+
+        result_path = getattr(args, "chat_result_out", None)
+        if result_path:
+            output = Path(result_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(result_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Chat result: {output}")
+            status_payload["outputs"]["chat_result_out"] = str(output)
+
+        status_path = getattr(args, "chat_status_out", None)
+        if status_path:
+            output = Path(status_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(status_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Chat status: {output}")
 
     @staticmethod
     def _resolve_character_reference(engine: ChatEngine, raw_name: Optional[str], candidates: list[str]) -> str:

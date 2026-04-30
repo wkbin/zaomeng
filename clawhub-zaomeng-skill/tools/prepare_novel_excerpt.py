@@ -20,8 +20,9 @@ def main() -> int:
         description="Prepare a prompt-sized novel excerpt for prompt-first skill workflows."
     )
     parser.add_argument("--novel", required=True, help="Novel file path (.txt or .epub)")
-    parser.add_argument("--max-sentences", type=int, default=80, help="Maximum sentence count")
-    parser.add_argument("--max-chars", type=int, default=12000, help="Maximum character count")
+    parser.add_argument("--characters", help="Optional comma-separated character names for character-focused excerpt selection")
+    parser.add_argument("--max-sentences", type=int, default=120, help="Maximum sentence count")
+    parser.add_argument("--max-chars", type=int, default=50000, help="Maximum character count")
     parser.add_argument("--output", help="Optional JSON output path")
     parser.add_argument("--status-output", help="Optional status JSON output path")
     parser.add_argument("--run-manifest", help="Optional run_manifest.json path")
@@ -29,6 +30,7 @@ def main() -> int:
 
     payload = build_excerpt_payload(
         args.novel,
+        characters=[item.strip() for item in str(args.characters or "").split(",") if item.strip()],
         max_sentences=max(1, int(args.max_sentences)),
         max_chars=max(200, int(args.max_chars)),
     )
@@ -43,12 +45,16 @@ def main() -> int:
         novel_id=infer_novel_id(args.novel),
         inputs={
             "novel": str(Path(args.novel).resolve()),
+            "characters": [item.strip() for item in str(args.characters or "").split(",") if item.strip()],
             "max_sentences": max(1, int(args.max_sentences)),
             "max_chars": max(200, int(args.max_chars)),
         },
         outputs={
             "excerpt_path": str(output_path.resolve()) if output_path else "",
             "source_name": str(payload.get("source_name", "")),
+            "excerpt_strategy": str(payload.get("excerpt_strategy", "")),
+            "matched_characters": list(payload.get("matched_characters", [])),
+            "missing_characters": list(payload.get("missing_characters", [])),
         },
         manifest_path=args.run_manifest,
         message="excerpt prepared",

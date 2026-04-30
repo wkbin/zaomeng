@@ -492,6 +492,84 @@ class InstallSkillTests(unittest.TestCase):
             self.assertEqual(manifest_payload["status"], "complete")
             self.assertEqual(manifest_payload["summary"]["status_text"], "workflow_complete")
 
+    def test_installed_distill_payload_detects_incremental_context_and_updates_manifest(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        packaged_src = repo_root / "clawhub-zaomeng-skill"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            dst = copy_skill_bundle(packaged_src, tmp_root, "zaomeng-skill")
+            novel_path = tmp_root / "hongloumeng.txt"
+            novel_path.write_text("林黛玉再见宝玉。", encoding="utf-8")
+            manifest_path = tmp_root / "run_manifest.json"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "init_host_run.py"),
+                    "--novel",
+                    str(novel_path),
+                    "--characters",
+                    "林黛玉",
+                    "--output",
+                    str(manifest_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+
+            persona_dir = tmp_root / "data" / "characters" / "hongloumeng" / "林黛玉"
+            persona_dir.mkdir(parents=True, exist_ok=True)
+            (persona_dir / "PROFILE.generated.md").write_text(
+                "# PROFILE\n"
+                "- name: 林黛玉\n"
+                "- novel_id: hongloumeng\n"
+                "- identity_anchor: 真心与自尊都很重\n"
+                "- soul_goal: 守住真情\n",
+                encoding="utf-8",
+            )
+            (persona_dir / "MEMORY.md").write_text(
+                "# MEMORY\n"
+                "- user_edits: 说话更短，不要说教\n",
+                encoding="utf-8",
+            )
+
+            distill_payload_path = tmp_root / "distill_payload.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "build_prompt_payload.py"),
+                    "--mode",
+                    "distill",
+                    "--novel",
+                    str(novel_path),
+                    "--characters",
+                    "林黛玉",
+                    "--characters-root",
+                    str(tmp_root / "data" / "characters"),
+                    "--run-manifest",
+                    str(manifest_path),
+                    "--output",
+                    str(distill_payload_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+
+            distill_payload = json.loads(distill_payload_path.read_text(encoding="utf-8"))
+            self.assertEqual(distill_payload["request"]["update_mode"], "incremental")
+            self.assertIn("林黛玉", distill_payload["request"]["existing_profiles"])
+            self.assertIn("说话更短，不要说教", distill_payload["request"]["existing_profiles"]["林黛玉"]["user_edits"])
+
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["capabilities"]["distill"]["outputs"]["update_mode"], "incremental")
+            self.assertEqual(manifest_payload["capabilities"]["distill"]["outputs"]["existing_character_count"], 1)
+            self.assertEqual(manifest_payload["artifacts"]["distill_context"]["update_mode"], "incremental")
+            self.assertEqual(manifest_payload["artifacts"]["distill_context"]["existing_character_count"], 1)
+            self.assertIn("林黛玉", manifest_payload["artifacts"]["distill_context"]["existing_profile_paths"])
+
     def test_installed_skill_end_to_end_host_workflow(self):
         repo_root = Path(__file__).resolve().parents[1]
         packaged_src = repo_root / "clawhub-zaomeng-skill"
@@ -516,6 +594,8 @@ class InstallSkillTests(unittest.TestCase):
                     str(dst / "tools" / "prepare_novel_excerpt.py"),
                     "--novel",
                     str(novel_path),
+                    "--characters",
+                    "\u6797\u9edb\u7389,\u8d3e\u5b9d\u7389",
                     "--max-sentences",
                     "4",
                     "--max-chars",
@@ -529,6 +609,7 @@ class InstallSkillTests(unittest.TestCase):
             )
             excerpt_payload = json.loads(excerpt_path.read_text(encoding="utf-8"))
             self.assertIn("\u6797\u9edb\u7389", excerpt_payload["excerpt"])
+            self.assertEqual(excerpt_payload["matched_characters"], ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"])
 
             distill_payload_path = tmp_root / "distill_payload.json"
             subprocess.run(
@@ -553,6 +634,10 @@ class InstallSkillTests(unittest.TestCase):
             self.assertEqual(distill_payload["request"]["characters"], ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"])
             self.assertIn("output_schema", distill_payload["references"])
             self.assertIn("\u8d3e\u5b9d\u7389", distill_payload["request"]["excerpt"])
+            self.assertEqual(
+                distill_payload["request"]["excerpt_focus"]["matched_characters"],
+                ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"],
+            )
 
             relation_payload_path = tmp_root / "relation_payload.json"
             subprocess.run(

@@ -48,6 +48,10 @@ class PackageSkillScriptTests(unittest.TestCase):
             self.assertIn("zaomeng-skill/prompts/distill_prompt.md", names)
             self.assertIn("zaomeng-skill/references/output_schema.md", names)
             self.assertIn("zaomeng-skill/examples/sample_character_profile.md", names)
+            self.assertIn("zaomeng-skill/examples/chat_session_summary.example.json", names)
+            self.assertIn("zaomeng-skill/examples/chat_result_single_turn.example.json", names)
+            self.assertIn("zaomeng-skill/examples/chat_status_complete.example.json", names)
+            self.assertIn("zaomeng-skill/examples/host_workflow_example.md", names)
 
 
 if __name__ == "__main__":

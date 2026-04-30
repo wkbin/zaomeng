@@ -1,0 +1,34 @@
+{
+  "kind": "zaomeng_chat_result",
+  "action": "single_turn",
+  "success": true,
+  "mode": "insert",
+  "session_id": "turninsert",
+  "novel_id": "hongloumeng",
+  "participants": [
+    "林黛玉",
+    "贾宝玉"
+  ],
+  "responses": [
+    {
+      "speaker": "林黛玉",
+      "message": "你既初来，且先坐下说话。"
+    }
+  ],
+  "summary": {
+    "status": "ready",
+    "session_id": "turninsert",
+    "mode": "insert",
+    "participants": [
+      "林黛玉",
+      "贾宝玉"
+    ],
+    "self_insert": {
+      "display_name": "阿青",
+      "scene_identity": "贾府新客",
+      "interaction_style": "immersive",
+      "plot_agency": "light"
+    }
+  },
+  "updated_at": 1714464000
+}

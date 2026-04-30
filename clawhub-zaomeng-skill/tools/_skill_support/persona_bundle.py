@@ -175,6 +175,13 @@ SCALAR_FIELDS = {
     "arc_type",
     "arc_blocker",
     "arc_summary",
+    "group_chat_policy",
+    "silence_policy",
+    "correction_policy",
+    "canon_memory",
+    "relationship_updates",
+    "user_edits",
+    "notable_interactions",
     "evidence_source",
     "contradiction_note",
     "anger_style",
@@ -377,6 +384,37 @@ def parse_profile_markdown(text: str, *, source_hint: Path | None = None) -> dic
     return normalize_profile(raw, source_hint=source_hint)
 
 
+def load_existing_persona_bundle(persona_dir: str | Path) -> dict[str, Any]:
+    root = Path(persona_dir)
+    if not root.exists():
+        raise FileNotFoundError(f"persona directory does not exist: {root}")
+
+    merged: dict[str, Any] = {}
+    ordered_files = [
+        root / "PROFILE.generated.md",
+        root / "PROFILE.md",
+    ]
+    for base_name in DEFAULT_NAV_LOAD_ORDER:
+        ordered_files.extend(
+            [
+                root / f"{base_name}.generated.md",
+                root / f"{base_name}.md",
+            ]
+        )
+
+    loaded_any = False
+    for path in ordered_files:
+        if not path.exists() or not path.is_file():
+            continue
+        loaded_any = True
+        current = parse_profile_markdown(path.read_text(encoding="utf-8"), source_hint=path)
+        merged = _merge_normalized_profiles(merged, current)
+
+    if not loaded_any:
+        raise FileNotFoundError(f"no persona markdown files found under {root}")
+    return normalize_profile(merged, source_hint=root / "PROFILE.generated.md")
+
+
 def materialize_persona_bundle(
     persona_dir: str | Path,
     profile: Dict[str, Any],
@@ -431,6 +469,96 @@ def materialize_persona_bundle(
     )
     write_json(target_dir / "ARTIFACT_STATUS.generated.json", status)
     return target_dir
+
+
+def _merge_normalized_profiles(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    if not base:
+        return dict(incoming)
+
+    merged = dict(base)
+    for key in SCALAR_FIELDS:
+        value = str(incoming.get(key, "")).strip()
+        if value:
+            merged[key] = value
+    for key in LIST_FIELDS:
+        values = split_scalar_list(incoming.get(key, []))
+        if not values:
+            continue
+        existing = split_scalar_list(merged.get(key, []))
+        merged[key] = _merge_unique(existing, values)
+    for key in MAP_FIELDS:
+        values = parse_metric_map(incoming.get(key, {}))
+        if values:
+            merged[key] = {**parse_metric_map(merged.get(key, {})), **values}
+
+    incoming_speech = incoming.get("speech_habits", {}) if isinstance(incoming.get("speech_habits", {}), dict) else {}
+    merged_speech = merged.get("speech_habits", {}) if isinstance(merged.get("speech_habits", {}), dict) else {}
+    if incoming_speech:
+        merged["speech_habits"] = {
+            "cadence": str(incoming_speech.get("cadence", merged_speech.get("cadence", ""))).strip(),
+            "signature_phrases": _merge_unique(
+                split_scalar_list(merged_speech.get("signature_phrases", [])),
+                split_scalar_list(incoming_speech.get("signature_phrases", [])),
+            ),
+            "sentence_openers": _merge_unique(
+                split_scalar_list(merged_speech.get("sentence_openers", [])),
+                split_scalar_list(incoming_speech.get("sentence_openers", [])),
+            ),
+            "connective_tokens": _merge_unique(
+                split_scalar_list(merged_speech.get("connective_tokens", [])),
+                split_scalar_list(incoming_speech.get("connective_tokens", [])),
+            ),
+            "sentence_endings": _merge_unique(
+                split_scalar_list(merged_speech.get("sentence_endings", [])),
+                split_scalar_list(incoming_speech.get("sentence_endings", [])),
+            ),
+            "forbidden_fillers": _merge_unique(
+                split_scalar_list(merged_speech.get("forbidden_fillers", [])),
+                split_scalar_list(incoming_speech.get("forbidden_fillers", [])),
+            ),
+        }
+
+    incoming_emotion = incoming.get("emotion_profile", {}) if isinstance(incoming.get("emotion_profile", {}), dict) else {}
+    merged_emotion = merged.get("emotion_profile", {}) if isinstance(merged.get("emotion_profile", {}), dict) else {}
+    if incoming_emotion:
+        merged["emotion_profile"] = {
+            "anger_style": str(incoming_emotion.get("anger_style", merged_emotion.get("anger_style", ""))).strip(),
+            "joy_style": str(incoming_emotion.get("joy_style", merged_emotion.get("joy_style", ""))).strip(),
+            "grievance_style": str(incoming_emotion.get("grievance_style", merged_emotion.get("grievance_style", ""))).strip(),
+        }
+
+    incoming_arc = incoming.get("arc", {}) if isinstance(incoming.get("arc", {}), dict) else {}
+    merged_arc = merged.get("arc", {}) if isinstance(merged.get("arc", {}), dict) else {}
+    if incoming_arc:
+        merged["arc"] = {
+            "start": {**parse_metric_map(merged_arc.get("start", {})), **parse_metric_map(incoming_arc.get("start", {}))},
+            "mid": {**parse_metric_map(merged_arc.get("mid", {})), **parse_metric_map(incoming_arc.get("mid", {}))},
+            "end": {**parse_metric_map(merged_arc.get("end", {})), **parse_metric_map(incoming_arc.get("end", {}))},
+        }
+
+    incoming_evidence = incoming.get("evidence", {}) if isinstance(incoming.get("evidence", {}), dict) else {}
+    merged_evidence = merged.get("evidence", {}) if isinstance(merged.get("evidence", {}), dict) else {}
+    if incoming_evidence:
+        merged["evidence"] = {
+            "description_count": max(_coerce_int(merged_evidence.get("description_count", 0)), _coerce_int(incoming_evidence.get("description_count", 0))),
+            "dialogue_count": max(_coerce_int(merged_evidence.get("dialogue_count", 0)), _coerce_int(incoming_evidence.get("dialogue_count", 0))),
+            "thought_count": max(_coerce_int(merged_evidence.get("thought_count", 0)), _coerce_int(incoming_evidence.get("thought_count", 0))),
+            "chunk_count": max(_coerce_int(merged_evidence.get("chunk_count", 0)), _coerce_int(incoming_evidence.get("chunk_count", 0))),
+        }
+    merged["arc_confidence"] = max(_coerce_int(merged.get("arc_confidence", 0)), _coerce_int(incoming.get("arc_confidence", 0)))
+    return merged
+
+
+def _merge_unique(base: list[str], incoming: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen = set()
+    for item in [*base, *incoming]:
+        text = str(item).strip()
+        if not text or text in seen:
+            continue
+        merged.append(text)
+        seen.add(text)
+    return merged
 
 
 def refresh_persona_navigation(
@@ -767,9 +895,9 @@ def render_agents_md(profile: Dict[str, Any]) -> str:
     return (
         "# AGENTS\n\n"
         "## Runtime Rules\n"
-        "- group_chat_policy: 群聊中优先回应被点名对象、当前冲突中心或最相关的关系目标\n"
-        "- silence_policy: 未被点名且无强关联时允许短暂沉默，不抢答\n"
-        "- correction_policy: 用户纠错与持续提示写入 MEMORY，并在后续对话中沿用\n"
+        f"- group_chat_policy: {profile.get('group_chat_policy', '') or '群聊中优先回应被点名对象、当前冲突中心或最相关的关系目标'}\n"
+        f"- silence_policy: {profile.get('silence_policy', '') or '未被点名且无强关联时允许短暂沉默，不抢答'}\n"
+        f"- correction_policy: {profile.get('correction_policy', '') or '用户纠错与持续提示写入 MEMORY，并在后续对话中沿用'}\n"
         f"- decision_rules: {join_items(profile.get('decision_rules', []))}\n"
     )
 
@@ -778,11 +906,11 @@ def render_memory_md(profile: Dict[str, Any]) -> str:
     return (
         "# MEMORY\n\n"
         "## Stable Memory\n"
-        f"- canon_memory: {join_items(profile.get('life_experience', []))}\n"
-        "- relationship_updates: \n"
+        f"- canon_memory: {profile.get('canon_memory', '') or join_items(profile.get('life_experience', []))}\n"
+        f"- relationship_updates: {profile.get('relationship_updates', '')}\n"
         "\n## Mutable Notes\n"
-        "- user_edits: \n"
-        "- notable_interactions: \n"
+        f"- user_edits: {profile.get('user_edits', '')}\n"
+        f"- notable_interactions: {profile.get('notable_interactions', '')}\n"
     )
 
 

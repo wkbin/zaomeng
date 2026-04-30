@@ -3,6 +3,7 @@
 
 import argparse
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -906,6 +907,112 @@ class RelationBehaviorTests(unittest.TestCase):
             self.assertEqual(restored["history"][0]["speaker"], "\u5218\u5907")
             self.assertEqual(restored["history"][0]["message"], "\u4e8c\u4f4d\u8d24\u5f1f\uff0c\u4eca\u65e5\u603b\u7b97\u5f97\u7247\u523b\u6e05\u95f2\u3002")
 
+    def test_insert_once_uses_self_identity_and_returns_character_replies(self):
+        class CaptureLLM:
+            def __init__(self):
+                self.calls = []
+
+            def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, stream=False):
+                self.calls.append(messages)
+                return {"content": "姑娘既来了，便坐下说话。"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            config.update({"chat_engine": {"generation_mode": "llm-only", "max_speakers_per_turn": 1}})
+
+            self.write_profile(root, "hongloumeng", "\u6797\u9edb\u7389", speech_style="\u514b\u5236", values={"\u5584\u826f": 8})
+            self.write_profile(root, "hongloumeng", "\u8d3e\u5b9d\u7389", speech_style="\u76f4\u767d", values={"\u81ea\u7531": 8})
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            capture_llm = CaptureLLM()
+            engine.llm = capture_llm
+            session = engine.create_session("hongloumeng.txt", "insert")
+            session["state"]["self_insert"] = {
+                "display_name": "\u963f\u9752",
+                "scene_identity": "\u521d\u5230\u8d3e\u5e9c\u7684\u65b0\u5ba2",
+                "interaction_style": "immersive",
+                "plot_agency": "scene",
+            }
+
+            replies = engine.insert_once(session, "\u9edb\u7389\u59d1\u5a18\uff0c\u6211\u521d\u6765\u6b64\u5904\uff0c\u80fd\u5426\u8bf7\u4f60\u6307\u4e2a\u8def\uff1f")
+
+            self.assertEqual(replies, [("\u6797\u9edb\u7389", "姑娘既来了，便坐下说话。")])
+            self.assertEqual(len(capture_llm.calls), 1)
+            system_prompt = capture_llm.calls[0][0]["content"]
+            user_prompt = capture_llm.calls[0][1]["content"]
+            self.assertIn("\u81ea\u6211\u4ee3\u5165\u7528\u6237\u6863\u6848", user_prompt)
+            self.assertIn("\u79f0\u547c: \u963f\u9752", user_prompt)
+            self.assertIn("\u573a\u666f\u8eab\u4efd: \u521d\u5230\u8d3e\u5e9c\u7684\u65b0\u5ba2", user_prompt)
+            self.assertIn("\u5267\u60c5\u5f71\u54cd\u8303\u56f4: scene", user_prompt)
+            self.assertIn("\u5f53\u524d\u4e3b\u8981\u56de\u5e94\u5bf9\u8c61: \u963f\u9752", user_prompt)
+            self.assertIn("\u4f1a\u8bdd\u6a21\u5f0f: insert", user_prompt)
+            self.assertIn("\u4f60\u73b0\u5728\u53ea\u626e\u6f14 \u6797\u9edb\u7389", system_prompt)
+
+    def test_insert_once_updates_self_insert_card_from_first_message(self):
+        class CaptureLLM:
+            def __init__(self):
+                self.calls = []
+
+            def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, stream=False):
+                self.calls.append(messages)
+                return {"content": "既然是新客，先进来坐吧。"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            config.update({"chat_engine": {"generation_mode": "llm-only", "max_speakers_per_turn": 1}})
+
+            self.write_profile(root, "hongloumeng", "\u6797\u9edb\u7389", speech_style="\u514b\u5236", values={"\u5584\u826f": 8})
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            capture_llm = CaptureLLM()
+            engine.llm = capture_llm
+            session = engine.create_session("hongloumeng.txt", "insert")
+
+            replies = engine.insert_once(session, "\u6211\u53eb\u963f\u9752\uff0c\u6211\u662f\u521d\u5230\u8d3e\u5e9c\u7684\u65b0\u5ba2\uff0c\u60f3\u5148\u62dc\u4f1a\u9edb\u7389\u59d1\u5a18\u3002")
+
+            self.assertEqual(replies, [("\u6797\u9edb\u7389", "既然是新客，先进来坐吧。")])
+            self.assertEqual(session["state"]["self_insert"]["display_name"], "\u963f\u9752")
+            self.assertEqual(session["state"]["self_insert"]["scene_identity"], "\u521d\u5230\u8d3e\u5e9c\u7684\u65b0\u5ba2")
+            user_prompt = capture_llm.calls[0][1]["content"]
+            self.assertIn("\u79f0\u547c: \u963f\u9752", user_prompt)
+            self.assertIn("\u573a\u666f\u8eab\u4efd: \u521d\u5230\u8d3e\u5e9c\u7684\u65b0\u5ba2", user_prompt)
+
+    def test_build_session_summary_includes_insert_state_and_latest_responses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            self.write_profile(root, "hongloumeng", "\u6797\u9edb\u7389", speech_style="\u514b\u5236", values={"\u5584\u826f": 8})
+            self.write_profile(root, "hongloumeng", "\u8d3e\u5b9d\u7389", speech_style="\u76f4\u767d", values={"\u81ea\u7531": 8})
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            session = engine.create_session("hongloumeng.txt", "insert")
+            session["state"]["selected_characters"] = ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"]
+            session["state"]["self_insert"] = {
+                "display_name": "\u963f\u9752",
+                "scene_identity": "\u8d3e\u5e9c\u65b0\u5ba2",
+                "interaction_style": "immersive",
+                "plot_agency": "light",
+            }
+            session["history"] = [
+                {"speaker": "\u963f\u9752", "message": "\u521d\u6765\u8d35\u5e9c\uff0c\u8fd8\u8bf7\u591a\u591a\u6307\u6559\u3002", "ts": 1},
+                {"speaker": "\u6797\u9edb\u7389", "target": "\u963f\u9752", "message": "\u4e0d\u5fc5\u62d8\u793c\u3002", "ts": 2},
+            ]
+
+            summary = engine.build_session_summary(
+                session,
+                latest_responses=[("\u6797\u9edb\u7389", "\u4e0d\u5fc5\u62d8\u793c\u3002")],
+            )
+
+            self.assertEqual(summary["mode"], "insert")
+            self.assertEqual(summary["participants"], ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"])
+            self.assertEqual(summary["self_insert"]["display_name"], "\u963f\u9752")
+            self.assertEqual(summary["history_count"], 2)
+            self.assertEqual(summary["last_entry"]["speaker"], "\u6797\u9edb\u7389")
+            self.assertEqual(summary["latest_responses"][0]["speaker"], "\u6797\u9edb\u7389")
+            self.assertTrue(summary["artifacts"]["session_file"].endswith(f"{session['id']}.md"))
+
     def test_act_once_requires_identifiable_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1012,6 +1119,36 @@ class RelationBehaviorTests(unittest.TestCase):
             self.assertEqual(first, [("\u6797\u9edb\u7389", "\u56de\u5e94")])
             self.assertEqual(second, [("\u6797\u9edb\u7389", "\u56de\u5e94")])
             self.assertEqual(session["state"]["focus_targets"]["\u8d3e\u5b9d\u7389"], "\u6797\u9edb\u7389")
+
+    def test_act_once_supports_group_participation_with_multiple_replies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            config.update({"chat_engine": {"max_speakers_per_turn": 4}})
+
+            save_json(
+                root / "characters" / "hongloumeng" / "\u6797\u9edb\u7389.json",
+                {"name": "\u6797\u9edb\u7389", "speech_style": "\u514b\u5236", "typical_lines": [], "values": {}},
+            )
+            save_json(
+                root / "characters" / "hongloumeng" / "\u8d3e\u5b9d\u7389.json",
+                {"name": "\u8d3e\u5b9d\u7389", "speech_style": "\u76f4\u767d", "typical_lines": [], "values": {}},
+            )
+            save_json(
+                root / "characters" / "hongloumeng" / "\u859b\u5b9d\u9497.json",
+                {"name": "\u859b\u5b9d\u9497", "speech_style": "\u5e73\u7a33", "typical_lines": [], "values": {}},
+            )
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            engine._generate_reply = Mock(side_effect=lambda **kwargs: f"{kwargs['responder']}\u56de\u5e94")
+            session = engine.create_session("hongloumeng.txt", "act")
+            session["state"]["controlled_character"] = "\u8d3e\u5b9d\u7389"
+            session["state"]["selected_characters"] = ["\u8d3e\u5b9d\u7389", "\u6797\u9edb\u7389", "\u859b\u5b9d\u9497"]
+
+            replies = engine.act_once(session, "\u8d3e\u5b9d\u7389", "\u4eca\u65e5\u98ce\u597d\uff0c\u6211\u4eec\u5c31\u5728\u8fd9\u91cc\u5750\u5750\u8bf4\u8bdd\u3002")
+
+            self.assertEqual(len(replies), 2)
+            self.assertEqual({name for name, _ in replies}, {"\u6797\u9edb\u7389", "\u859b\u5b9d\u9497"})
 
     def test_act_once_passes_persona_bundle_and_relation_overlay_into_llm_messages(self):
         class CaptureLLM:
@@ -1350,6 +1487,107 @@ class RelationBehaviorTests(unittest.TestCase):
             self.assertEqual(profile["speech_style"], "\u514b\u5236")
             self.assertEqual(profile["values"]["\u8d23\u4efb"], 9)
             self.assertIn("\u4ec1\u539a", profile["core_traits"])
+
+    def test_cli_chat_setup_writes_session_summary_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary_path = Path(tmp) / "session-summary.json"
+            argv = [
+                "zaomeng",
+                "chat",
+                "--novel",
+                "hongloumeng.txt",
+                "--message",
+                "\u8ba9\u6211\u4ee5\u6211\u81ea\u5df1\u8fdb\u5165\u7ea2\u697c\u68a6\uff0c\u548c\u6797\u9edb\u7389\u804a\u5929",
+                "--session-summary-out",
+                str(summary_path),
+            ]
+
+            with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print"):
+                engine = engine_cls.return_value
+                engine._load_character_profiles.return_value = {
+                    "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+                }
+                engine._mentioned_characters.return_value = ["\u6797\u9edb\u7389"]
+                engine.build_session_summary.return_value = {
+                    "status": "ready",
+                    "mode": "insert",
+                    "session_id": "defaultinsert",
+                }
+                session = {
+                    "id": "defaultinsert",
+                    "title": "insert",
+                    "characters": ["\u6797\u9edb\u7389"],
+                    "state": {"focus_targets": {}},
+                }
+                engine.create_session.return_value = session
+
+                ZaomengCLI().run()
+
+                payload = json.loads(summary_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["mode"], "insert")
+                self.assertEqual(payload["session_id"], "defaultinsert")
+                engine.build_session_summary.assert_called_once()
+
+    def test_cli_chat_single_turn_writes_result_and_status_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result_path = Path(tmp) / "chat-result.json"
+            status_path = Path(tmp) / "chat-status.json"
+            summary_path = Path(tmp) / "session-summary.json"
+            argv = [
+                "zaomeng",
+                "chat",
+                "--novel",
+                "hongloumeng.txt",
+                "--mode",
+                "insert",
+                "--message",
+                "\u6211\u53eb\u963f\u9752\uff0c\u60f3\u548c\u6797\u9edb\u7389\u8bf4\u8bdd\u3002",
+                "--session-summary-out",
+                str(summary_path),
+                "--chat-result-out",
+                str(result_path),
+                "--chat-status-out",
+                str(status_path),
+            ]
+
+            with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print"):
+                engine = engine_cls.return_value
+                engine._load_character_profiles.return_value = {
+                    "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+                }
+                engine._mentioned_characters.return_value = ["\u6797\u9edb\u7389"]
+                engine.insert_once.return_value = [("\u6797\u9edb\u7389", "\u4e0d\u5fc5\u62d8\u793c\u3002")]
+                engine.build_session_summary.return_value = {
+                    "status": "ready",
+                    "mode": "insert",
+                    "session_id": "turninsert",
+                    "novel_id": "hongloumeng",
+                    "participants": ["\u6797\u9edb\u7389"],
+                    "self_insert": {"display_name": "\u963f\u9752"},
+                }
+                session = {
+                    "id": "turninsert",
+                    "title": "insert",
+                    "novel": "hongloumeng.txt",
+                    "novel_id": "hongloumeng",
+                    "characters": ["\u6797\u9edb\u7389"],
+                    "state": {"focus_targets": {}},
+                }
+                engine.create_session.return_value = session
+
+                ZaomengCLI().run()
+
+                result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+                status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+                self.assertEqual(result_payload["kind"], "zaomeng_chat_result")
+                self.assertEqual(result_payload["action"], "single_turn")
+                self.assertEqual(result_payload["responses"][0]["speaker"], "\u6797\u9edb\u7389")
+                self.assertEqual(result_payload["summary"]["mode"], "insert")
+                self.assertEqual(status_payload["capability"], "chat")
+                self.assertTrue(status_payload["success"])
+                self.assertEqual(status_payload["status"], "complete")
+                self.assertEqual(status_payload["outputs"]["responses_count"], 1)
+                self.assertIn("chat_result_out", status_payload["outputs"])
 
     def test_relationship_extractor_exports_relation_markdown_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1733,6 +1971,199 @@ class RelationBehaviorTests(unittest.TestCase):
                 "\u8d3e\u5b9d\u7389",
                 "\u59b9\u59b9\u4eca\u65e5\u8fd8\u597d\u4e48\uff1f",
             )
+
+    def test_cli_chat_auto_mode_supports_group_act_setup_request(self):
+        argv = [
+            "zaomeng",
+            "chat",
+            "--novel",
+            "hongloumeng.txt",
+            "--message",
+            "\u8ba9\u6211\u4ee3\u5165\u8d3e\u5b9d\u7389\uff0c\u548c\u6797\u9edb\u7389\u3001\u859b\u5b9d\u9497\u4e00\u8d77\u7fa4\u804a",
+        ]
+
+        with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print"):
+            engine = engine_cls.return_value
+            engine._load_character_profiles.return_value = {
+                "\u8d3e\u5b9d\u7389": {"name": "\u8d3e\u5b9d\u7389"},
+                "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+                "\u859b\u5b9d\u9497": {"name": "\u859b\u5b9d\u9497"},
+            }
+            engine._mentioned_characters.return_value = [
+                "\u8d3e\u5b9d\u7389",
+                "\u6797\u9edb\u7389",
+                "\u859b\u5b9d\u9497",
+            ]
+            session = {
+                "id": "groupactsession",
+                "title": "group-act",
+                "characters": ["\u8d3e\u5b9d\u7389", "\u6797\u9edb\u7389", "\u859b\u5b9d\u9497"],
+                "state": {"focus_targets": {}},
+            }
+            engine.create_session.return_value = session
+
+            ZaomengCLI().run()
+
+            engine.create_session.assert_called_once_with("hongloumeng.txt", "act")
+            engine.act_once.assert_not_called()
+            engine.observe_once.assert_not_called()
+            engine._save_session.assert_called_once()
+            self.assertEqual(session["mode"], "act")
+            self.assertEqual(session["state"]["controlled_character"], "\u8d3e\u5b9d\u7389")
+            self.assertEqual(
+                session["state"]["selected_characters"],
+                ["\u8d3e\u5b9d\u7389", "\u6797\u9edb\u7389", "\u859b\u5b9d\u9497"],
+            )
+            self.assertEqual(
+                session["characters"],
+                ["\u8d3e\u5b9d\u7389", "\u6797\u9edb\u7389", "\u859b\u5b9d\u9497"],
+            )
+
+    def test_cli_chat_auto_mode_supports_self_insert_setup_request(self):
+        argv = [
+            "zaomeng",
+            "chat",
+            "--novel",
+            "hongloumeng.txt",
+            "--message",
+            "\u8ba9\u6211\u4ee5\u6211\u81ea\u5df1\u8fdb\u5165\u7ea2\u697c\u68a6\uff0c\u548c\u6797\u9edb\u7389\u3001\u8d3e\u5b9d\u7389\u804a\u5929",
+            "--self-name",
+            "\u963f\u9752",
+            "--self-identity",
+            "\u8d3e\u5e9c\u521d\u6765\u7684\u65b0\u5ba2",
+        ]
+
+        with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print"):
+            engine = engine_cls.return_value
+            engine._load_character_profiles.return_value = {
+                "\u8d3e\u5b9d\u7389": {"name": "\u8d3e\u5b9d\u7389"},
+                "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+            }
+            engine._mentioned_characters.return_value = ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"]
+            session = {
+                "id": "insertsession",
+                "title": "insert",
+                "characters": ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"],
+                "state": {"focus_targets": {}},
+            }
+            engine.create_session.return_value = session
+
+            ZaomengCLI().run()
+
+            engine.create_session.assert_called_once_with("hongloumeng.txt", "insert")
+            engine.insert_once.assert_not_called()
+            engine._save_session.assert_called_once()
+            self.assertEqual(session["mode"], "insert")
+            self.assertEqual(session["characters"], ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"])
+            self.assertEqual(session["state"]["self_insert"]["display_name"], "\u963f\u9752")
+            self.assertEqual(session["state"]["self_insert"]["scene_identity"], "\u8d3e\u5e9c\u521d\u6765\u7684\u65b0\u5ba2")
+
+    def test_cli_chat_auto_mode_extracts_self_insert_profile_from_message(self):
+        argv = [
+            "zaomeng",
+            "chat",
+            "--novel",
+            "hongloumeng.txt",
+            "--message",
+            "\u8ba9\u6211\u4ee5\u6211\u81ea\u5df1\u8fdb\u5165\u7ea2\u697c\u68a6\uff0c\u6211\u53eb\u963f\u9752\uff0c\u6211\u662f\u8d3e\u5e9c\u521d\u6765\u7684\u65b0\u5ba2\uff0c\u548c\u6797\u9edb\u7389\u3001\u8d3e\u5b9d\u7389\u804a\u5929",
+        ]
+
+        with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print"):
+            engine = engine_cls.return_value
+            engine._load_character_profiles.return_value = {
+                "\u8d3e\u5b9d\u7389": {"name": "\u8d3e\u5b9d\u7389"},
+                "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+            }
+            engine._mentioned_characters.return_value = ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"]
+            session = {
+                "id": "insertsession",
+                "title": "insert",
+                "characters": ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"],
+                "state": {"focus_targets": {}},
+            }
+            engine.create_session.return_value = session
+
+            ZaomengCLI().run()
+
+            self.assertEqual(session["mode"], "insert")
+            self.assertEqual(session["state"]["self_insert"]["display_name"], "\u963f\u9752")
+            self.assertEqual(session["state"]["self_insert"]["scene_identity"], "\u8d3e\u5e9c\u521d\u6765\u7684\u65b0\u5ba2")
+
+    def test_cli_chat_reuses_self_insert_card_from_session(self):
+        argv = [
+            "zaomeng",
+            "chat",
+            "--novel",
+            "hongloumeng.txt",
+            "--session",
+            "insertsession",
+            "--message",
+            "\u521d\u6765\u8d35\u5e9c\uff0c\u8fd8\u8bf7\u591a\u591a\u6307\u6559\u3002",
+        ]
+
+        with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print") as mock_print:
+            engine = engine_cls.return_value
+            engine._mentioned_characters.return_value = []
+            session = {
+                "id": "insertsession",
+                "title": "insert",
+                "novel_id": "hongloumeng",
+                "mode": "insert",
+                "characters": ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"],
+                "state": {
+                    "focus_targets": {},
+                    "self_insert": {
+                        "display_name": "\u963f\u9752",
+                        "scene_identity": "\u8d3e\u5e9c\u65b0\u5ba2",
+                        "interaction_style": "immersive",
+                        "plot_agency": "light",
+                    },
+                },
+            }
+            engine.restore_session.return_value = session
+            engine.insert_once.return_value = [("\u6797\u9edb\u7389", "\u4e0d\u5fc5\u62d8\u793c\u3002")]
+
+            ZaomengCLI().run()
+
+            engine.restore_session.assert_called_once_with("insertsession")
+            engine.insert_once.assert_called_once_with(
+                session,
+                "\u521d\u6765\u8d35\u5e9c\uff0c\u8fd8\u8bf7\u591a\u591a\u6307\u6559\u3002",
+            )
+            rendered = "\n".join(" ".join(str(arg) for arg in call.args) for call in mock_print.call_args_list)
+            self.assertIn("Reusing self insert card", rendered)
+            self.assertIn("\u963f\u9752", rendered)
+
+    def test_cli_chat_insert_setup_prints_first_time_hint_when_profile_is_default(self):
+        argv = [
+            "zaomeng",
+            "chat",
+            "--novel",
+            "hongloumeng.txt",
+            "--message",
+            "\u8ba9\u6211\u4ee5\u6211\u81ea\u5df1\u8fdb\u5165\u7ea2\u697c\u68a6\uff0c\u548c\u6797\u9edb\u7389\u804a\u5929",
+        ]
+
+        with patch("src.core.main.ChatEngine") as engine_cls, patch("sys.argv", argv), patch("builtins.print") as mock_print:
+            engine = engine_cls.return_value
+            engine._load_character_profiles.return_value = {
+                "\u6797\u9edb\u7389": {"name": "\u6797\u9edb\u7389"},
+            }
+            engine._mentioned_characters.return_value = ["\u6797\u9edb\u7389"]
+            session = {
+                "id": "defaultinsert",
+                "title": "insert",
+                "characters": ["\u6797\u9edb\u7389"],
+                "state": {"focus_targets": {}},
+            }
+            engine.create_session.return_value = session
+
+            ZaomengCLI().run()
+
+            rendered = "\n".join(" ".join(str(arg) for arg in call.args) for call in mock_print.call_args_list)
+            self.assertIn("First-time insert hint:", rendered)
+            self.assertIn("我叫阿青", rendered)
+            self.assertIn("我是初到贾府的新客", rendered)
 
     def test_relationship_extractor_exports_relation_markdown_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:

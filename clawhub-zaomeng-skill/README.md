@@ -1,4 +1,4 @@
-# zaomeng-skill
+﻿# zaomeng-skill
 
 `zaomeng-skill` 是一个面向中文小说人物蒸馏、关系抽取、关系图谱和角色对话的 skill。
 
@@ -52,7 +52,9 @@
 支持两种主要玩法：
 
 - `act`
-  你扮演一个角色说话，其他角色按设定回应
+  你扮演一个角色说话，可以是一对一，也可以直接加入多人群聊
+- `insert`
+  你以“你自己”的身份进入小说场景，不扮演书中角色，而是直接和他们互动
 - `observe`
   让多个角色围绕一个场景、话题或开场白进行互动
 
@@ -65,12 +67,64 @@
 ### 标准流程
 
 1. 提供小说文件或正文
-2. 生成 excerpt
+2. 生成按角色聚焦的 excerpt
 3. 生成 distill 或 relation prompt payload
 4. 交给宿主 LLM 完成生成
 5. 若宿主落盘了 `PROFILE.generated.md`，继续物化完整人物包
 6. 导出关系图谱
-7. 再进入 `act` 或 `observe`
+7. 再进入 `act`、`insert` 或 `observe`
+
+多角色蒸馏时，不应只截取小说开头。应传入 `--characters`，让 excerpt 围绕目标角色的实际出场窗口抽取，尤其适用于角色分散出现在不同章节的长篇文本。
+
+### 增量蒸馏
+
+如果同一本小说下已经存在角色人物包，这个 skill 会在构建 distill payload 时自动复用已有档案，把本次蒸馏视为增量更新：
+
+- 自动检测 `data/characters/<novel_id>/<角色名>/`
+- 把已有 `PROFILE`、拆分人格文件和 `MEMORY` 合并到 `request.existing_profiles`
+- 将 `request.update_mode` 标记为 `incremental`
+- 把增量上下文写入 `run_manifest.json -> artifacts.distill_context`
+
+此外，distill payload 现在会额外给出 `request.excerpt_focus`，包含：
+
+- `requested_characters`
+- `matched_characters`
+- `missing_characters`
+- `strategy`
+
+宿主可以据此判断：这次 excerpt 是否真的覆盖了请求角色，是否有角色根本没在文本里命中。
+
+### 会话摘要 JSON
+
+面向宿主接入时，聊天链路可以额外输出一份标准化会话摘要 JSON：
+
+```bash
+py -3 -m src.cli.app chat --novel <路径> --message "<请求>" --session-summary-out <session-summary.json>
+```
+
+这份摘要用于让宿主直接拿到当前会话状态，而不必自己反解析 markdown。建议至少关注：
+
+- `mode`
+- `participants`
+- `controlled_character`
+- `focus_targets`
+- `self_insert`
+- `latest_responses`
+- `artifacts.session_file`
+- `artifacts.relation_snapshot_file`
+
+如果宿主还需要当前动作结果和成功标记，也可以要求：
+
+```bash
+py -3 -m src.cli.app chat --novel <路径> --message "<请求>" --chat-result-out <chat-result.json> --chat-status-out <chat.status.json>
+```
+
+可直接参考打包样例：
+
+- `examples/chat_session_summary.example.json`
+- `examples/chat_result_single_turn.example.json`
+- `examples/chat_status_complete.example.json`
+- `examples/host_workflow_example.md`
 
 ### Distill Post-Process
 
@@ -116,11 +170,15 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 ## Helper Commands
 
 ```bash
-py -3 tools/prepare_novel_excerpt.py --novel <路径> [--max-sentences 80] [--max-chars 12000]
-py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B]
+py -3 tools/prepare_novel_excerpt.py --novel <路径> [--characters A,B] [--max-sentences 120] [--max-chars 50000]
+py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B] [--characters-root <data/characters 或 data/characters/<novel_id>>] [--update-mode auto|create|incremental]
 py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
 py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [--relations-file <关系结果.md>]
+```
+
+```bash
+py -3 tools/prepare_novel_excerpt.py --novel 十日终焉.txt --characters 齐夏,肖冉,章晨泽 --max-chars 50000
 ```
 
 ## 推荐使用方式
@@ -134,7 +192,7 @@ py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [-
 2. 指定要蒸馏的角色
 3. 宿主分阶段播报蒸馏进度和图谱生成进度
 4. 查看人物档案或关系图谱
-5. 进入 `act` 或 `observe`
+5. 进入 `act`、`insert` 或 `observe`
 
 ## 示例
 
@@ -166,6 +224,16 @@ py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [-
 
 ```text
 请让大家围绕联合孙权这件事各说一句
+```
+
+### 进入 insert
+
+```text
+让我以我自己进入红楼梦，和林黛玉、贾宝玉聊天
+```
+
+```text
+把我放进三国场景里，我想以初来军中的新客身份和刘备他们说话
 ```
 
 ## 人物包结构
@@ -208,6 +276,10 @@ runtime/data/characters/<novel_id>/<角色名>/
   负责全局人设底线与防 OOC
 - `references/validation_policy.md`
   负责输出自检和校验规则
+- `references/chat_contract.md`
+  负责会话摘要、聊天结果和聊天状态的字段契约
+- `references/capability_index.md`
+  负责 distill、materialize、export_graph、verify_workflow、chat 的能力索引
 
 ## 发布内容
 

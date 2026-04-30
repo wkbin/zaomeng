@@ -304,6 +304,8 @@ Tasks:
 4. Make helper scripts update the manifest and their own status files directly.
 5. Document the capability contract in the skill itself so hosts can implement
    the flow without reverse-engineering helper behavior.
+6. Make `distill` support both create and incremental update modes through the
+   same contract, including existing-profile reuse and standard manifest fields.
 
 ## P12: Distill UX And Artifact Index
 
@@ -330,6 +332,8 @@ Tasks:
 4. Add a lightweight host helper to append progress events without depending on
    CLI-only orchestration.
 5. Add regression coverage for manifest updates across the standard host flow.
+6. Record incremental distill context in the manifest so hosts can surface
+   "new create" versus "incremental refresh" without parsing prompt internals.
 
 ## Non-Goals For Now
 

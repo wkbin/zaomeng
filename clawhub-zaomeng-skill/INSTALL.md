@@ -25,6 +25,8 @@
 - `tools/build_prompt_payload.py`
 - `tools/export_relation_graph.py`
 - `references/output_schema.md`
+- `references/capability_index.md`
+- `references/chat_contract.md`
 - `references/style_differ.md`
 - `references/logic_constraint.md`
 - `references/safety_policy.md`
@@ -33,6 +35,10 @@
 - `examples/sample_character_profile.md`
 - `examples/sample_relations.md`
 - `examples/test-prompts.json`
+- `examples/chat_session_summary.example.json`
+- `examples/chat_result_single_turn.example.json`
+- `examples/chat_status_complete.example.json`
+- `examples/host_workflow_example.md`
 
 ## Python 依赖
 

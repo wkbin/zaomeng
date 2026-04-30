@@ -1,0 +1,18 @@
+{
+  "kind": "host_capability_status",
+  "capability": "chat",
+  "status": "complete",
+  "success": true,
+  "message": "chat single_turn completed",
+  "inputs": {
+    "mode": "insert",
+    "novel": "hongloumeng.txt",
+    "session_id": "turninsert"
+  },
+  "outputs": {
+    "session_summary_out": "session-summary.json",
+    "chat_result_out": "chat-result.json",
+    "responses_count": 1
+  },
+  "updated_at": 1714464000
+}

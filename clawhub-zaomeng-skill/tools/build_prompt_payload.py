@@ -28,8 +28,10 @@ def main() -> int:
     parser.add_argument("--mode", choices=["distill", "relation"], required=True, help="Prompt payload mode")
     parser.add_argument("--novel", required=True, help="Novel file path (.txt or .epub)")
     parser.add_argument("--characters", help="Comma-separated characters for distill mode")
-    parser.add_argument("--max-sentences", type=int, default=80, help="Maximum sentence count")
-    parser.add_argument("--max-chars", type=int, default=12000, help="Maximum character count")
+    parser.add_argument("--characters-root", help="Optional characters root or <characters>/<novel_id> directory for incremental distill context")
+    parser.add_argument("--update-mode", choices=["auto", "create", "incremental"], default="auto", help="How distill payload should treat existing persona artifacts")
+    parser.add_argument("--max-sentences", type=int, default=120, help="Maximum sentence count")
+    parser.add_argument("--max-chars", type=int, default=50000, help="Maximum character count")
     parser.add_argument("--output", help="Optional JSON output path")
     parser.add_argument("--status-output", help="Optional status JSON output path")
     parser.add_argument("--run-manifest", help="Optional run_manifest.json path")
@@ -44,6 +46,9 @@ def main() -> int:
             characters=characters,
             max_sentences=max_sentences,
             max_chars=max_chars,
+            characters_root=args.characters_root,
+            manifest_path=args.run_manifest,
+            update_mode=args.update_mode,
         )
     else:
         payload = build_relation_prompt_payload(
@@ -73,6 +78,8 @@ def main() -> int:
         outputs={
             "payload_path": str(output_path.resolve()) if output_path else "",
             "mode": args.mode,
+            "update_mode": str(payload.get("request", {}).get("update_mode", "")) if isinstance(payload.get("request", {}), dict) else "",
+            "existing_character_count": int(payload.get("meta", {}).get("existing_character_count", 0)) if isinstance(payload.get("meta", {}), dict) else 0,
             "locked_characters": list(payload.get("request", {}).get("characters", []))
             if isinstance(payload.get("request", {}), dict)
             else [],
@@ -93,6 +100,18 @@ def main() -> int:
     if args.run_manifest:
         artifact_key = "distill_payload" if args.mode == "distill" else "relation_payload"
         stage = "distill_payload_ready" if args.mode == "distill" else "relation_payload_ready"
+        payload_request = payload.get("request", {}) if isinstance(payload.get("request", {}), dict) else {}
+        payload_meta = payload.get("meta", {}) if isinstance(payload.get("meta", {}), dict) else {}
+        distill_context = {}
+        if args.mode == "distill":
+            distill_context = {
+                "update_mode": str(payload_request.get("update_mode", "")),
+                "existing_character_count": int(payload_meta.get("existing_character_count", 0)),
+                "characters_root": str(payload_meta.get("characters_root", "")),
+                "existing_profile_paths": dict(payload_meta.get("existing_profile_paths", {}))
+                if isinstance(payload_meta.get("existing_profile_paths", {}), dict)
+                else {},
+            }
         update_run_manifest(
             args.run_manifest,
             stage=stage,
@@ -103,6 +122,7 @@ def main() -> int:
             artifact_updates={
                 "payloads": {artifact_key: str(output_path.resolve()) if output_path else ""},
                 "status_files": {status_name: str(status_path.resolve())},
+                "distill_context": distill_context,
             },
             total_characters=len(status_payload["outputs"].get("locked_characters", []))
             if args.mode == "distill"

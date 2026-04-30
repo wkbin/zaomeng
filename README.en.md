@@ -1,6 +1,6 @@
-# zaomeng.skill
+﻿# zaomeng.skill
 
-[中文](README.md) | [English](README.en.md)
+[涓枃](README.md) | [English](README.en.md)
 
 `zaomeng` is not a generic chatbot.
 
@@ -9,6 +9,18 @@ It is closer to a skill that brings fictional characters back onto the stage:
 - distill character profiles from a novel
 - extract relationships and generate relationship graphs
 - let characters speak according to their personality, stance, and bonds
+
+It now supports two distillation paths:
+
+- fresh distillation: create a character profile for the first time
+- incremental distillation: if the character already has a persona bundle, reuse prior profile data, memory, and user corrections, then continue updating from new textual evidence
+
+Why incremental distillation matters:
+
+- it fits serialized fiction, long novels, and split-volume workflows, where you may only want to add one new excerpt at a time instead of rerunning the whole book
+- it lets persona files grow chapter by chapter as the story reveals new evidence
+- it preserves accumulated user corrections and memory instead of losing them on each rerun
+- it works well when you distill one batch of characters now and add more characters later without resetting existing results
 
 If what you want is not "some pleasant AI chat" but "make Lin Daiyu sound like Lin Daiyu" or "let a whole cast argue in character inside one scene," that is exactly the problem this project is trying to solve.
 
@@ -28,6 +40,8 @@ Give it a novel, and it will try to build reusable character profiles from the o
 
 The goal is not a one-page summary. The goal is a profile that can actually support later roleplay and dialogue.
 
+If the character was distilled before, the current version can keep updating that persona incrementally instead of rebuilding everything from scratch.
+
 ### 2. Generate relationship graphs
 
 It does not stop at relation fields. It also exports a visual relationship graph so you can quickly see who trusts whom, who depends on whom, and where tension lives.
@@ -36,12 +50,31 @@ That becomes especially useful for ensemble fiction, fanwork, character analysis
 
 ### 3. Enter in-character dialogue
 
-After distillation, you can keep going in two main modes:
+After distillation, you can keep going in three main modes:
 
-- `act`: you play one character, other characters reply in character
+- `act`: you speak as one character, either in one-on-one dialogue or inside a multi-character group scene
+- `insert`: you do not play an existing novel character; you enter the scene as yourself and interact with the cast directly
 - `observe`: you stay out of the scene and let several characters interact naturally
 
 That goes beyond "give me a reply in this character's tone" because it also uses persona files, relationship state, memory, and the active scene.
+
+The split is now clearer:
+
+- use `act` when you want to step into the scene as one role and have others respond
+- use `insert` when you want yourself to enter the novel world and speak to the characters directly
+- use `observe` when you want to watch the cast drive the scene without speaking as anyone yourself
+
+The first `insert` session creates a lightweight scene card for you, including:
+
+- how the cast should address you
+- what identity you have inside the scene
+- whether you want a natural, immersive, or probing interaction style
+- whether your presence should lightly color the scene, help move it, or be allowed to affect relationships
+
+If you skip those details the first time, that is still fine. The system will give you a light nudge, and you can simply add them in your next line:
+
+- "My name is A-Qing."
+- "I am a newly arrived guest in the Jia household."
 
 ## How It Works Now
 
@@ -74,8 +107,9 @@ The right order is simple:
 
 1. provide the novel text
 2. say which characters you want distilled
-3. wait for persona files and the relationship graph
-4. enter `act` or `observe`
+3. if the character directory already exists, continue with incremental distillation; otherwise create a new persona
+4. wait for persona files and the relationship graph
+5. enter `act`, `insert`, or `observe`
 
 ### Natural-language requests that work well
 
@@ -100,11 +134,11 @@ Generate the relationship graph. I want the HTML version
 ### Example 1: `act` mode
 
 ```text
-User      ❯  Let me play Jia Baoyu and chat with Lin Daiyu.
+User      鉂? Let me play Jia Baoyu and chat with Lin Daiyu.
             Set the scene at Qinfang Pavilion in the Grand View Garden,
             on a spring afternoon, with Daiyu standing by the bridge watching fish.
 
-zaomeng   ❯  (On a spring afternoon, sunlight filters through willow branches
+zaomeng   鉂? (On a spring afternoon, sunlight filters through willow branches
             and falls across the waters of Qinfang Stream.
             Daiyu stands alone by the bridge, one hand resting lightly
             against the rail as she watches the koi drifting below.
@@ -113,11 +147,11 @@ zaomeng   ❯  (On a spring afternoon, sunlight filters through willow branches
             In her hand is a fallen flower she must have picked up
             without thinking, her fingers holding it a little too tightly.)
 
-User      ❯  Cousin Lin, in weather this warm, why are you standing here alone
+User      鉂? Cousin Lin, in weather this warm, why are you standing here alone
             and drifting into thought?
             If the wind keeps up, you will grow faint if you stay too long.
 
-zaomeng   ❯  (At the sound of his voice, she does not turn at once.
+zaomeng   鉂? (At the sound of his voice, she does not turn at once.
             Her eyes remain fixed on the glittering water and the fish below.
             After a while she answers softly.)
             You do concern yourself with too much.
@@ -134,11 +168,11 @@ zaomeng   ❯  (At the sound of his voice, she does not turn at once.
             Yet here you are, coming to this quiet place to look for me.
             Are you not afraid someone will say you still have no proper sense of yourself?
 
-User      ❯  How did such a fine afternoon turn into words so full of jealousy?
+User      鉂? How did such a fine afternoon turn into words so full of jealousy?
             For me, no lively place in the world is worth half the charm
             of Qinfang Bridge when you are standing here.
 
-zaomeng   ❯  (The flower in her hand trembles.
+zaomeng   鉂? (The flower in her hand trembles.
             Her fingers tighten slightly around it.
             A faint flush slowly reaches the tips of her ears,
             yet she turns her face aside so he cannot see it clearly.)
@@ -163,10 +197,10 @@ zaomeng   ❯  (The flower in her hand trembles.
 ### Example 2: `observe` mode
 
 ```text
-User      ❯  Put Jia Baoyu, Lin Daiyu, and Xue Baochai into group chat mode
+User      鉂? Put Jia Baoyu, Lin Daiyu, and Xue Baochai into group chat mode
             with no scene specified.
 
-zaomeng   ❯  All character profiles and relationship data have been loaded.
+zaomeng   鉂? All character profiles and relationship data have been loaded.
             Setting the scene...
             Group chat mode started.
             Scene: Hengwu Court, autumn afternoon.
@@ -194,9 +228,38 @@ Daiyu: Then I came at the wrong time.
        Had I known you were here, I would not have come,
        lest someone say again that I have come only to disturb your private talk.
 
-zaomeng   ❯  That was the first round of group chat.
+zaomeng   鉂? That was the first round of group chat.
             You can now continue the topic, switch the scene,
             cue a specific character, or enter the next round directly.
+```
+
+### Example 3: `insert` mode
+
+```text
+User      鉂? Let me enter Dream of the Red Chamber as myself
+            and talk with Lin Daiyu and Jia Baoyu.
+            My name is A-Qing, and I am a new guest visiting the Jia household.
+
+zaomeng   鉂? Done. A lightweight self-insert card has been created:
+            Name: A-Qing
+            Scene identity: new guest in the Jia household
+            Interaction style: immersive
+            Plot influence: light
+            You can now speak your first line as yourself inside the scene.
+
+User      鉂? Miss Daiyu, I have only just arrived here.
+            I heard the gardens are the finest part of this place.
+            Would you be willing to show me around?
+
+Lin Daiyu 鉂? Since you are newly arrived, there is no need to be so formal.
+            The garden is indeed worth seeing,
+            though if you only chase what is lively,
+            you may miss what is actually worth looking at.
+
+Jia Baoyu 鉂? Why make such a small thing difficult?
+            If you want to see it, I will take you myself.
+            Whether it is Xiaoxiang Lodge or Yihong Courtyard,
+            we can start wherever pleases you most.
 ```
 
 ## Installation

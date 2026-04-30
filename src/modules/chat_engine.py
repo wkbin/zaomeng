@@ -36,6 +36,50 @@ class ChatEngine:
 
     logger = logging.getLogger(__name__)
 
+    SELF_INSERT_DEFAULT_NAME = "你"
+    SELF_INSERT_DEFAULT_IDENTITY = "外来访客"
+    SELF_INSERT_NAME_PATTERNS = (
+        re.compile(r"(?:我叫|名字叫|你可以叫我|叫我)(?P<name>[^，。！？,.!?\\s]{1,12})"),
+        re.compile(r"我是(?P<name>[^，。！？,.!?\\s]{1,8})"),
+    )
+    SELF_INSERT_IDENTITY_PATTERNS = (
+        re.compile(r"(?:我是|身份是|算是)(?P<identity>[^，。！？,.!?\\n]{2,32})"),
+        re.compile(r"作为(?P<identity>[^，。！？,.!?\\n]{2,32})"),
+    )
+    SELF_INSERT_IDENTITY_KEYWORDS = (
+        "客",
+        "访客",
+        "新客",
+        "来客",
+        "旅人",
+        "弟子",
+        "学生",
+        "书生",
+        "使者",
+        "掌柜",
+        "大夫",
+        "郎中",
+        "姑娘",
+        "公子",
+        "夫人",
+        "丫鬟",
+        "侍女",
+        "护卫",
+        "幕僚",
+        "官",
+        "兵",
+        "人",
+        "者",
+        "到",
+        "来",
+        "入",
+        "府",
+        "宫",
+        "门",
+        "庄",
+        "楼",
+    )
+
     SYSTEM_SPEAKERS = {"Narrator", "User", "旁白", "用户"}
     ADDRESS_SUFFIXES = ("哥哥", "姐姐", "妹妹", "弟弟", "姑娘", "公子", "爷")
     PERSONA_LIST_FIELDS = {
@@ -206,6 +250,7 @@ class ChatEngine:
                 "focus_targets": {},
                 "controlled_character": "",
                 "selected_characters": list(characters),
+                "self_insert": {},
                 "relation_delta": {},
                 "relation_matrix": self._build_relation_matrix(characters, novel_id),
             },
@@ -222,7 +267,55 @@ class ChatEngine:
         data["state"].setdefault("focus_targets", {})
         data["state"].setdefault("controlled_character", "")
         data["state"].setdefault("selected_characters", list(data.get("characters", [])))
+        data["state"].setdefault("self_insert", {})
         return data
+
+    def build_session_summary(
+        self,
+        session: Dict[str, Any],
+        latest_responses: Optional[List[tuple[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        state = session.get("state", {})
+        participants = state.get("selected_characters") or session.get("characters", [])
+        history = session.get("history", [])
+        last_entry = history[-1] if history else {}
+        mode = str(session.get("mode", "observe")).strip() or "observe"
+
+        summary = {
+            "status": "ready",
+            "session_id": session.get("id", ""),
+            "title": session.get("title", ""),
+            "novel": session.get("novel", ""),
+            "novel_id": session.get("novel_id", ""),
+            "mode": mode,
+            "participants": list(participants),
+            "controlled_character": str(state.get("controlled_character", "")).strip(),
+            "focus_targets": dict(state.get("focus_targets", {})),
+            "history_count": len(history),
+            "artifacts": {
+                "session_file": str(self.path_provider.sessions_dir() / f"{session.get('id', '')}.md"),
+                "relation_snapshot_file": str(self.path_provider.sessions_dir() / f"{session.get('id', '')}_relations.md"),
+            },
+            "capabilities": {
+                "act": True,
+                "insert": True,
+                "observe": True,
+            },
+        }
+        if last_entry:
+            summary["last_entry"] = {
+                "speaker": last_entry.get("speaker", ""),
+                "target": last_entry.get("target", ""),
+                "message": last_entry.get("message", ""),
+            }
+        if mode == "insert":
+            summary["self_insert"] = dict(self._self_insert_profile(session))
+        if latest_responses:
+            summary["latest_responses"] = [
+                {"speaker": speaker, "message": message}
+                for speaker, message in latest_responses
+            ]
+        return summary
 
     def observe_mode(self, session: Dict[str, Any]) -> None:
         print("进入 observe 模式。输入 /save /reflect /correct /quit")
@@ -265,6 +358,29 @@ class ChatEngine:
             self.print_turn_cost()
             self.print_correction_hint(session)
 
+    def insert_mode(self, session: Dict[str, Any]) -> None:
+        profile = self._self_insert_profile(session)
+        print(
+            "进入 insert 模式，"
+            f"你将以 {profile.get('display_name', '你')} / {profile.get('scene_identity', '外来访客')} 的身份发言。"
+            "输入 /save /reflect /correct /quit"
+        )
+        if profile.get("display_name", "你") == "你" or profile.get("scene_identity", "外来访客") == "外来访客":
+            print("首次进入提示：你下一句里可以自然补一句“我叫……”或“我是……”，系统会按这个身份继续接。")
+        while True:
+            user_msg = input(f"\n{profile.get('display_name', '你')}(你): ").strip()
+            if not user_msg:
+                continue
+            if self._handle_inline_command(session, user_msg):
+                if user_msg == "/quit":
+                    break
+                continue
+
+            responses = self.insert_once(session, user_msg)
+            self._print_responses(responses)
+            self.print_turn_cost()
+            self.print_correction_hint(session)
+
     def observe_once(self, session: Dict[str, Any], user_msg: str) -> List[tuple[str, str]]:
         speaker, normalized_msg = self._resolve_observe_turn(session, user_msg)
         responders = self._active_characters(session, speaker=speaker, context=normalized_msg)
@@ -279,6 +395,14 @@ class ChatEngine:
         if not responders:
             raise ValueError("未识别到明确对话对象。请在消息里点名角色，或先补充关系数据。")
         return self._run_turn(session, controlled, user_msg, responders)
+
+    def insert_once(self, session: Dict[str, Any], user_msg: str) -> List[tuple[str, str]]:
+        self._ingest_self_insert_profile(session, user_msg)
+        speaker = self._self_insert_name(session)
+        responders = self._active_characters(session, speaker=speaker, context=user_msg)
+        if not responders:
+            raise ValueError("未识别到可回应的角色。请点名角色，或先用 setup 指定群聊参与者。")
+        return self._run_turn(session, speaker, user_msg, responders)
 
     def print_turn_cost(self) -> None:
         summary = self.llm.get_cost_summary()
@@ -497,6 +621,8 @@ class ChatEngine:
         message: str,
         prior_responses: List[tuple[str, str]],
     ) -> str:
+        if self._is_self_insert_speaker(session, speaker):
+            return self._self_insert_name(session)
         candidates = [name for name in session["characters"] if name != responder]
         mentioned = self._mentioned_characters(message, candidates)
         if mentioned:
@@ -594,6 +720,18 @@ class ChatEngine:
             f"当前回应角色: {responder}",
             f"当前主要回应对象: {target_name or '未指定'}",
         ]
+        if session.get("mode") == "insert":
+            profile = self._self_insert_profile(session)
+            lines.extend(
+                [
+                    "自我代入用户档案:",
+                    f"- 称呼: {profile.get('display_name', '你')}",
+                    f"- 场景身份: {profile.get('scene_identity', '外来访客')}",
+                    f"- 互动风格: {profile.get('interaction_style', 'immersive')}",
+                    f"- 剧情影响范围: {profile.get('plot_agency', 'light')}",
+                    "- 把对方当作场景中的真实来客回应，不要把用户写成旁白外的系统命令。",
+                ]
+            )
         if history_lines:
             lines.append("最近对话:")
             lines.extend(f"- {line}" for line in history_lines)
@@ -624,7 +762,7 @@ class ChatEngine:
         return re.sub(r"\s*\(needs_revision:.*?\)\s*$", "", str(reply or "").strip())
 
     def _remember_focus_targets(self, session: Dict[str, Any], speaker: str, responders: List[str]) -> None:
-        if speaker in self.SYSTEM_SPEAKERS or not responders:
+        if speaker in self.SYSTEM_SPEAKERS or self._is_self_insert_speaker(session, speaker) or not responders:
             return
         focus_targets = session.setdefault("state", {}).setdefault("focus_targets", {})
         if len(responders) == 1:
@@ -1394,13 +1532,32 @@ class ChatEngine:
 
         ranked = self._rank_characters(session, speaker, candidates)
         if session.get("mode") == "act":
+            if self._is_group_act_session(session, speaker=speaker):
+                return ranked[: max(1, limit)]
             if not ranked:
                 return []
             top = ranked[0]
             if self._relation_score(session, speaker, top) <= self._default_relation_score():
                 return []
             return [top]
+        if session.get("mode") == "insert":
+            return ranked[: max(1, limit)]
         return ranked[: max(1, limit)]
+
+    def _is_group_act_session(self, session: Dict[str, Any], *, speaker: Optional[str] = None) -> bool:
+        if session.get("mode") != "act":
+            return False
+        state = session.get("state", {})
+        controlled = str(state.get("controlled_character", "")).strip()
+        if not controlled:
+            return False
+        if speaker and controlled and normalize_character_name(speaker) != normalize_character_name(controlled):
+            return False
+        selected = state.get("selected_characters", session.get("characters", []))
+        if not isinstance(selected, list):
+            selected = list(session.get("characters", []))
+        participant_count = len([name for name in selected if name in session.get("characters", [])])
+        return participant_count > 2
 
     def _remembered_target(
         self,
@@ -1513,6 +1670,8 @@ class ChatEngine:
         return 7
 
     def _relation_score(self, session: Dict[str, Any], speaker: Optional[str], candidate: str) -> int:
+        if self._is_self_insert_speaker(session, speaker):
+            return self._default_relation_score()
         if not speaker or speaker in self.SYSTEM_SPEAKERS:
             return 0
         state = self._get_relation_state(session, speaker, candidate)
@@ -1551,6 +1710,86 @@ class ChatEngine:
         if len(matched) == 1:
             return matched[0]
         return normalized
+
+    def _self_insert_profile(self, session: Dict[str, Any]) -> Dict[str, str]:
+        state = session.setdefault("state", {})
+        profile = state.get("self_insert", {})
+        merged = {
+            "display_name": self.SELF_INSERT_DEFAULT_NAME,
+            "scene_identity": self.SELF_INSERT_DEFAULT_IDENTITY,
+            "interaction_style": "immersive",
+            "plot_agency": "light",
+        }
+        if isinstance(profile, dict):
+            for key in merged:
+                value = str(profile.get(key, "")).strip()
+                if value:
+                    merged[key] = value
+        state["self_insert"] = merged
+        return merged
+
+    def _ingest_self_insert_profile(self, session: Dict[str, Any], user_msg: str) -> None:
+        if session.get("mode") != "insert":
+            return
+        profile = self._self_insert_profile(session)
+        updates: Dict[str, str] = {}
+
+        inferred_name = self._extract_self_insert_name(user_msg)
+        if inferred_name and inferred_name != profile.get("display_name", self.SELF_INSERT_DEFAULT_NAME):
+            updates["display_name"] = inferred_name
+
+        inferred_identity = self._extract_self_insert_identity(user_msg)
+        if inferred_identity and inferred_identity != profile.get("scene_identity", self.SELF_INSERT_DEFAULT_IDENTITY):
+            updates["scene_identity"] = inferred_identity
+
+        if updates:
+            merged = dict(profile)
+            merged.update(updates)
+            session.setdefault("state", {})["self_insert"] = merged
+
+    def _self_insert_name(self, session: Dict[str, Any]) -> str:
+        return self._self_insert_profile(session).get("display_name", self.SELF_INSERT_DEFAULT_NAME)
+
+    def _is_self_insert_speaker(self, session: Dict[str, Any], speaker: Optional[str]) -> bool:
+        if session.get("mode") != "insert" or not speaker:
+            return False
+        return normalize_character_name(str(speaker)) == normalize_character_name(self._self_insert_name(session))
+
+    @classmethod
+    def _extract_self_insert_name(cls, text: str) -> str:
+        for pattern in cls.SELF_INSERT_NAME_PATTERNS:
+            match = pattern.search(text or "")
+            if not match:
+                continue
+            candidate = cls._clean_self_insert_candidate(match.group("name"))
+            if candidate and candidate not in {"我", "你", cls.SELF_INSERT_DEFAULT_NAME}:
+                return candidate
+        return ""
+
+    @classmethod
+    def _extract_self_insert_identity(cls, text: str) -> str:
+        for pattern in cls.SELF_INSERT_IDENTITY_PATTERNS:
+            match = pattern.search(text or "")
+            if not match:
+                continue
+            candidate = cls._clean_self_insert_candidate(match.group("identity"))
+            if cls._looks_like_scene_identity(candidate):
+                return candidate
+        return ""
+
+    @staticmethod
+    def _clean_self_insert_candidate(value: str) -> str:
+        cleaned = re.sub(r"[“”\"'：:]", "", value or "").strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned[:32]
+
+    @classmethod
+    def _looks_like_scene_identity(cls, value: str) -> bool:
+        if not value or value in {"我", "你", cls.SELF_INSERT_DEFAULT_NAME, cls.SELF_INSERT_DEFAULT_IDENTITY}:
+            return False
+        if len(value) >= 5:
+            return True
+        return any(keyword in value for keyword in cls.SELF_INSERT_IDENTITY_KEYWORDS)
 
     @staticmethod
     def _infer_target(speaker: str, history: List[Dict[str, Any]], all_chars: List[str]) -> str:

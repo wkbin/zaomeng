@@ -1,0 +1,41 @@
+{
+  "status": "ready",
+  "session_id": "turninsert",
+  "title": "hongloumeng_insert_1714464000",
+  "novel": "hongloumeng.txt",
+  "novel_id": "hongloumeng",
+  "mode": "insert",
+  "participants": [
+    "林黛玉",
+    "贾宝玉"
+  ],
+  "controlled_character": "",
+  "focus_targets": {},
+  "history_count": 2,
+  "artifacts": {
+    "session_file": "runtime/data/sessions/turninsert.md",
+    "relation_snapshot_file": "runtime/data/sessions/turninsert_relations.md"
+  },
+  "capabilities": {
+    "act": true,
+    "insert": true,
+    "observe": true
+  },
+  "self_insert": {
+    "display_name": "阿青",
+    "scene_identity": "贾府新客",
+    "interaction_style": "immersive",
+    "plot_agency": "light"
+  },
+  "last_entry": {
+    "speaker": "林黛玉",
+    "target": "阿青",
+    "message": "你既初来，且先坐下说话。"
+  },
+  "latest_responses": [
+    {
+      "speaker": "林黛玉",
+      "message": "你既初来，且先坐下说话。"
+    }
+  ]
+}
