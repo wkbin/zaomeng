@@ -16,6 +16,7 @@ class InstallSkillTests(unittest.TestCase):
         self.assertIn(".metadata.json", entries)
         self.assertIn("SKILL.md", entries)
         self.assertIn("requirements.txt", entries)
+        self.assertIn("assets", entries)
         self.assertIn("tools", entries)
         self.assertNotIn("runtime", entries)
 
@@ -28,6 +29,7 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue((dst / ".metadata.json").exists())
             self.assertTrue((dst / "SKILL.md").exists())
             self.assertTrue((dst / "requirements.txt").exists())
+            self.assertTrue((dst / "assets" / "vendor" / "mermaid-11.14.0.min.js").exists())
             self.assertTrue((dst / "prompts").exists())
             self.assertTrue((dst / "references").exists())
             self.assertTrue((dst / "tools" / "prepare_novel_excerpt.py").exists())
@@ -135,11 +137,11 @@ class InstallSkillTests(unittest.TestCase):
             self.assertIn("mini_relations.mermaid.md", payload["mermaid_path"])
             mermaid_text = mermaid_path.read_text(encoding="utf-8")
             html_text = html_path.read_text(encoding="utf-8")
+            self.assertTrue((relation_dir / "mermaid-11.14.0.min.js").exists())
             self.assertIn("linkStyle 0", mermaid_text)
             self.assertNotIn(";;", mermaid_text)
-            self.assertIn("关系类型", html_text)
-            self.assertIn("最低信任值", html_text)
-            self.assertIn("关系卡片", html_text)
+            self.assertIn("mermaid-11.14.0.min.js", html_text)
+            self.assertNotIn("cdn.jsdelivr.net", html_text)
             if payload["svg_path"]:
                 self.assertIn(".svg", html_text)
 

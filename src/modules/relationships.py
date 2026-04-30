@@ -444,6 +444,7 @@ class RelationshipExtractor:
         *,
         node_styles: Optional[Dict[str, Dict[str, str]]] = None,
         mermaid_graph: Optional[str] = None,
+        mermaid_runtime_filename: str = "",
     ) -> str:
         node_styles = node_styles or {}
         rows: List[str] = []
@@ -513,6 +514,14 @@ class RelationshipExtractor:
             for _, style in unique_categories
         )
         conflict_count = sum(1 for payload in relations.values() if int(payload.get("hostility", 0)) >= 6)
+        runtime_script_tag = (
+            f"  <script src=\"{html.escape(mermaid_runtime_filename)}\"></script>\n"
+            "  <script>\n"
+            "    mermaid.initialize({ startOnLoad: true, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
+            "  </script>\n"
+            if mermaid_runtime_filename
+            else ""
+        )
         return (
             "<!DOCTYPE html>\n"
             "<html lang=\"zh-CN\">\n"
@@ -561,10 +570,7 @@ class RelationshipExtractor:
             "    .note { color: var(--muted); font-size: 13px; margin-top: 10px; }\n"
             "    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .page { padding: 20px 14px 28px; } h1 { font-size: 26px; } }\n"
             "  </style>\n"
-            "  <script type=\"module\">\n"
-            "    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
-            "    mermaid.initialize({ startOnLoad: true, theme: 'base', securityLevel: 'loose', themeVariables: { primaryTextColor: '#1f2937', lineColor: '#7b5b34', primaryBorderColor: '#8a5a2b', clusterBorder: '#d6c7a7', fontFamily: 'Noto Serif SC, Source Han Serif SC, serif' } });\n"
-            "  </script>\n"
+            f"{runtime_script_tag}"
             "</head>\n"
             "<body>\n"
             "  <div class=\"page\">\n"

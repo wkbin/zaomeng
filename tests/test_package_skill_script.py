@@ -41,6 +41,7 @@ class PackageSkillScriptTests(unittest.TestCase):
             self.assertIn("README.md", names)
             self.assertIn("PUBLISH.md", names)
             self.assertIn("requirements.txt", names)
+            self.assertIn("assets/vendor/mermaid-11.14.0.min.js", names)
             self.assertIn("tools/prepare_novel_excerpt.py", names)
             self.assertIn("tools/build_prompt_payload.py", names)
             self.assertIn("tools/export_relation_graph.py", names)

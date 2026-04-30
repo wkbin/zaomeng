@@ -6,12 +6,17 @@ from __future__ import annotations
 import html
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from .workflow_completion import build_capability_status, build_relation_completion_status, default_status_path, update_run_manifest, write_json
+
+
+MERMAID_VERSION = "11.14.0"
+MERMAID_BUNDLE_NAME = f"mermaid-{MERMAID_VERSION}.min.js"
 
 
 def export_relation_graph(
@@ -36,6 +41,7 @@ def export_relation_graph(
     mermaid_path = output_dir / f"{base_name}.mermaid.md"
     html_path = output_dir / f"{base_name}.html"
     svg_path = output_dir / f"{base_name}.svg"
+    mermaid_runtime_filename = _ensure_mermaid_runtime_asset(output_dir)
 
     characters_root = _infer_characters_root(relation_path, resolved_novel_id)
     node_styles = _build_visual_node_styles(characters_root, relations)
@@ -48,6 +54,7 @@ def export_relation_graph(
         mermaid_graph=mermaid_graph,
         rendered_svg=rendered_svg,
         svg_filename=svg_path.name if rendered_svg else "",
+        mermaid_runtime_filename=mermaid_runtime_filename,
     )
 
     mermaid_path.write_text(mermaid_graph + "\n", encoding="utf-8")
@@ -479,6 +486,7 @@ def _render_relation_html(
     mermaid_graph: str,
     rendered_svg: str = "",
     svg_filename: str = "",
+    mermaid_runtime_filename: str = "",
 ) -> str:
     relation_entries = _build_relation_entries(relations)
     relation_types = sorted({entry["relationship_type"] for entry in relation_entries})
@@ -550,6 +558,11 @@ def _render_relation_html(
     relation_entries_json = html.escape(json.dumps(relation_entries, ensure_ascii=False))
     node_styles_json = html.escape(json.dumps(node_styles, ensure_ascii=False))
     default_style_json = html.escape(json.dumps(_default_node_style(), ensure_ascii=False))
+    runtime_script_tag = (
+        f'  <script src="{html.escape(mermaid_runtime_filename)}"></script>\n'
+        if mermaid_runtime_filename
+        else ""
+    )
     unique_categories: list[tuple[str, dict[str, str]]] = []
     seen_categories = set()
     for style in node_styles.values():
@@ -670,8 +683,8 @@ def _render_relation_html(
         "  <script type=\"application/json\" id=\"default-style-data\">"
         + default_style_json
         + "</script>\n"
-        "  <script src=\"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js\"></script>\n"
-        "  <script>\n"
+        + runtime_script_tag
+        + "  <script>\n"
         "    const relationEntries = JSON.parse(document.getElementById('relation-data').textContent);\n"
         "    const nodeStyles = JSON.parse(document.getElementById('node-style-data').textContent);\n"
         "    const defaultStyle = JSON.parse(document.getElementById('default-style-data').textContent);\n"
@@ -851,7 +864,8 @@ def _edge_style(
 
 def _render_mermaid_svg(mermaid_graph: str) -> str:
     browser = _find_headless_browser()
-    if browser is None:
+    mermaid_runtime = _load_vendored_mermaid_runtime()
+    if browser is None or not mermaid_runtime:
         return ""
 
     template = (
@@ -859,7 +873,9 @@ def _render_mermaid_svg(mermaid_graph: str) -> str:
         "<html lang=\"zh-CN\">\n"
         "<head>\n"
         "  <meta charset=\"utf-8\" />\n"
-        "  <script src=\"https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js\"></script>\n"
+        "  <script>\n"
+        + mermaid_runtime
+        + "\n  </script>\n"
         "</head>\n"
         "<body>\n"
         "  <div id=\"graph-svg\"></div>\n"
@@ -893,7 +909,6 @@ def _render_mermaid_svg(mermaid_graph: str) -> str:
             str(browser),
             "--headless",
             "--disable-gpu",
-            "--allow-file-access-from-files",
             "--virtual-time-budget=8000",
             "--dump-dom",
             html_path.as_uri(),
@@ -922,6 +937,31 @@ def _find_headless_browser() -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def _skill_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _vendored_mermaid_asset_path() -> Path:
+    return _skill_root() / "assets" / "vendor" / MERMAID_BUNDLE_NAME
+
+
+def _load_vendored_mermaid_runtime() -> str:
+    asset_path = _vendored_mermaid_asset_path()
+    if not asset_path.exists():
+        return ""
+    return asset_path.read_text(encoding="utf-8")
+
+
+def _ensure_mermaid_runtime_asset(output_dir: Path) -> str:
+    asset_path = _vendored_mermaid_asset_path()
+    if not asset_path.exists():
+        return ""
+    target_path = output_dir / asset_path.name
+    if not target_path.exists():
+        shutil.copy2(asset_path, target_path)
+    return target_path.name
 
 
 def _extract_svg_from_dom(dom: str) -> str:

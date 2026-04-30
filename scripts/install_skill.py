@@ -19,6 +19,7 @@ PROMPT_FIRST_FILES = (
     "requirements.txt",
 )
 PROMPT_FIRST_DIRS = (
+    "assets",
     "prompts",
     "references",
     "examples",
