@@ -6,6 +6,15 @@
 
 **让角色走出纸面，拥有第二次呼吸。**
 
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-8A2BE2.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Skill-6f42c1.svg)](https://github.com/wkbin/zaomeng)
+[![LLM-first](https://img.shields.io/badge/Workflow-LLM--first-2ea44f.svg)](https://github.com/wkbin/zaomeng)
+
+&nbsp;
+
+[安装](#安装) · [使用方式](#使用方式) · [增量蒸馏](#增量蒸馏) · [English](README.en.md)
+
 把中文小说人物蒸馏成可复用的人物包，生成关系图谱，再让他们按自己的性格、立场、关系和记忆重新开口说话。
 
 `zaomeng` 不是一个泛用聊天项目。  

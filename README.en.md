@@ -6,6 +6,15 @@
 
 **Let characters step off the page and breathe a second time.**
 
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-8A2BE2.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Skill-6f42c1.svg)](https://github.com/wkbin/zaomeng)
+[![LLM-first](https://img.shields.io/badge/Workflow-LLM--first-2ea44f.svg)](https://github.com/wkbin/zaomeng)
+
+&nbsp;
+
+[Install](#install) · [Usage](#usage) · [Incremental Distillation](#incremental-distillation) · [中文](README.md)
+
 Distill Chinese novel characters into reusable persona bundles, export relationship graphs, and let them speak again with their own personality, stance, bonds, and memory intact.
 
 `zaomeng` is not a generic chatbot project.  
