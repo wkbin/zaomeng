@@ -1,32 +1,20 @@
-﻿# zaomeng.skill
+# zaomeng
 
-[涓枃](README.md) | [English](README.en.md)
+[中文](README.md) | [English](README.en.md)
 
-`zaomeng` is not a generic chatbot.
+`zaomeng` is not a generic chatbot project.
 
-It is closer to a skill that brings fictional characters back onto the stage:
+It is a focused system for character distillation, relationship graph generation, and in-character interaction for fiction:
 
-- distill character profiles from a novel
+- distill reusable character profiles from novels
 - extract relationships and generate relationship graphs
-- let characters speak according to their personality, stance, and bonds
+- let characters speak according to their persona, stance, bonds, and memory
 
-It now supports two distillation paths:
-
-- fresh distillation: create a character profile for the first time
-- incremental distillation: if the character already has a persona bundle, reuse prior profile data, memory, and user corrections, then continue updating from new textual evidence
-
-Why incremental distillation matters:
-
-- it fits serialized fiction, long novels, and split-volume workflows, where you may only want to add one new excerpt at a time instead of rerunning the whole book
-- it lets persona files grow chapter by chapter as the story reveals new evidence
-- it preserves accumulated user corrections and memory instead of losing them on each rerun
-- it works well when you distill one batch of characters now and add more characters later without resetting existing results
-
-If what you want is not "some pleasant AI chat" but "make Lin Daiyu sound like Lin Daiyu" or "let a whole cast argue in character inside one scene," that is exactly the problem this project is trying to solve.
+If what you want is not “an AI chatting pleasantly” but “Lin Daiyu sounds like Lin Daiyu, Liu Bei sounds like Liu Bei, and a whole cast can share one scene without collapsing into one voice,” that is exactly what this project is trying to do.
 
 ## What You Can Do With It
 
-### 1. Distill characters
+### 1. Distill Characters
 
 Give it a novel, and it will try to build reusable character profiles from the original text, including:
 
@@ -38,43 +26,48 @@ Give it a novel, and it will try to build reusable character profiles from the o
 - emotional triggers
 - character arc
 
-The goal is not a one-page summary. The goal is a profile that can actually support later roleplay and dialogue.
+The goal is not a one-page summary. The goal is a profile that can keep supporting later dialogue, roleplay, and correction.
 
-If the character was distilled before, the current version can keep updating that persona incrementally instead of rebuilding everything from scratch.
+The project currently supports two distillation paths:
 
-### 2. Generate relationship graphs
+- fresh distillation: build a persona for a character for the first time
+- incremental distillation: if that character already exists, reuse prior profile data, memory, and user corrections, then keep updating from new evidence
 
-It does not stop at relation fields. It also exports a visual relationship graph so you can quickly see who trusts whom, who depends on whom, and where tension lives.
+### 2. Generate Relationship Graphs
 
-That becomes especially useful for ensemble fiction, fanwork, character analysis, and interactive story setups.
+It does not stop at structured relationship fields. It also exports visual relationship graphs so you can quickly see:
 
-### 3. Enter in-character dialogue
+- who trusts whom
+- who depends on whom
+- where tension or rivalry lives
 
-After distillation, you can keep going in three main modes:
+Typical outputs include:
 
-- `act`: you speak as one character, either in one-on-one dialogue or inside a multi-character group scene
-- `insert`: you do not play an existing novel character; you enter the scene as yourself and interact with the cast directly
-- `observe`: you stay out of the scene and let several characters interact naturally
+- relationship Markdown
+- Mermaid source
+- HTML graph
+- SVG graph
 
-That goes beyond "give me a reply in this character's tone" because it also uses persona files, relationship state, memory, and the active scene.
+### 3. Enter Character Interaction
 
-The split is now clearer:
+After distillation, there are now **3 modes**, not 2:
 
-- use `act` when you want to step into the scene as one role and have others respond
-- use `insert` when you want yourself to enter the novel world and speak to the characters directly
-- use `observe` when you want to watch the cast drive the scene without speaking as anyone yourself
+- `act`: you speak as one character, either in one-on-one dialogue or by joining a group scene directly
+- `insert`: you do not play an existing character; you enter the scene as yourself and interact with the cast directly
+- `observe`: you stay out of the scene and watch several characters carry the scene forward
 
-The first `insert` session creates a lightweight scene card for you, including:
+The split is simple:
+
+- use `act` when you want to step in as a role
+- use `insert` when you want yourself to enter the fictional world
+- use `observe` when you want to watch the cast interact without speaking as anyone
+
+The first `insert` session creates a lightweight scene card for you, usually including:
 
 - how the cast should address you
 - what identity you have inside the scene
-- whether you want a natural, immersive, or probing interaction style
-- whether your presence should lightly color the scene, help move it, or be allowed to affect relationships
-
-If you skip those details the first time, that is still fine. The system will give you a light nudge, and you can simply add them in your next line:
-
-- "My name is A-Qing."
-- "I am a newly arrived guest in the Jia household."
+- whether you want natural, immersive, or probing interaction
+- how much your presence should affect the scene
 
 ## How It Works Now
 
@@ -84,34 +77,18 @@ The current version is **LLM-first**:
 - `zaomeng` prepares prompts, constraints, persona files, relationship context, and helper outputs
 - the skill path prefers reusing the host model that already exists
 
-So the emphasis is no longer "hardcode a large pile of rules and glue lines together." The emphasis is giving the model clearer persona and relationship constraints so the output sounds more alive and more in character.
-
-## Best Fit
-
-It is especially useful for:
-
-- novel roleplay
-- multi-character group chat
-- fanwork assistance
-- character analysis
-- long-form cast organization
-- worldview and persona consistency checks
-
-If your recurring complaint is "the AI talks, but it does not sound like this person," this project is aimed right at that gap.
+The emphasis is no longer “hardcode a pile of rules and glue lines together.” The emphasis is giving the model clearer persona and relationship constraints so the output sounds more alive and more faithful to the source character.
 
 ## Recommended First-Time Flow
 
-Most users do not need to start with commands.
-
-The right order is simple:
+The simplest order is:
 
 1. provide the novel text
 2. say which characters you want distilled
-3. if the character directory already exists, continue with incremental distillation; otherwise create a new persona
-4. wait for persona files and the relationship graph
-5. enter `act`, `insert`, or `observe`
+3. wait for persona files and the relationship graph
+4. enter `act`, `insert`, or `observe`
 
-### Natural-language requests that work well
+### Natural-Language Requests That Work Well
 
 ```text
 Distill Lin Daiyu, Jia Baoyu, and Xue Baochai from this novel
@@ -126,215 +103,22 @@ Let me play Jia Baoyu. Lin Daiyu should answer me
 ```
 
 ```text
-Generate the relationship graph. I want the HTML version
+Let me enter Dream of the Red Chamber as myself and talk with Lin Daiyu and Jia Baoyu
 ```
-
-## High-Quality Dialogue Examples
-
-### Example 1: `act` mode
 
 ```text
-User      鉂? Let me play Jia Baoyu and chat with Lin Daiyu.
-            Set the scene at Qinfang Pavilion in the Grand View Garden,
-            on a spring afternoon, with Daiyu standing by the bridge watching fish.
-
-zaomeng   鉂? (On a spring afternoon, sunlight filters through willow branches
-            and falls across the waters of Qinfang Stream.
-            Daiyu stands alone by the bridge, one hand resting lightly
-            against the rail as she watches the koi drifting below.
-            The wind lifts the edge of her skirt and a few loose strands
-            by her temple. She seems lost in thought.
-            In her hand is a fallen flower she must have picked up
-            without thinking, her fingers holding it a little too tightly.)
-
-User      鉂? Cousin Lin, in weather this warm, why are you standing here alone
-            and drifting into thought?
-            If the wind keeps up, you will grow faint if you stay too long.
-
-zaomeng   鉂? (At the sound of his voice, she does not turn at once.
-            Her eyes remain fixed on the glittering water and the fish below.
-            After a while she answers softly.)
-            You do concern yourself with too much.
-            I am only watching fish, and the fish do not seem to mind me there.
-            That is more than can be said for lively places full of people,
-            where one more person is always in the way.
-            (Her fingers unconsciously rub at the fallen flower.
-            A few petals break loose and drift onto the water,
-            only to be pecked away by the fish.
-            Then she turns her face slightly, glancing at Baoyu from the corner of her eye,
-            her tone still cool.)
-            If anyone is likely to grow faint, it is probably you.
-            On such a fine day, why are you not off keeping Baochai company over tea and chess?
-            Yet here you are, coming to this quiet place to look for me.
-            Are you not afraid someone will say you still have no proper sense of yourself?
-
-User      鉂? How did such a fine afternoon turn into words so full of jealousy?
-            For me, no lively place in the world is worth half the charm
-            of Qinfang Bridge when you are standing here.
-
-zaomeng   鉂? (The flower in her hand trembles.
-            Her fingers tighten slightly around it.
-            A faint flush slowly reaches the tips of her ears,
-            yet she turns her face aside so he cannot see it clearly.)
-            ...Hmph.
-            (There is a brief silence. When she speaks again,
-            her voice is a little softer than before,
-            as though the spring breeze had worn down one sharp edge.)
-            You have said such things more than once.
-            However pleasant they sound, too many repetitions make them less rare.
-            (A koi flicks its tail, splashing a few drops of water onto the back of her hand.
-            She lowers her eyes to look at it, and suddenly murmurs:)
-            "Soft the east wind beyond the peach-blossom curtain;
-            within it, the morning toilette lies still undone..."
-            (The moment the words leave her mouth she seems to realize she has betrayed herself.
-            The flush deepens. She lifts the broken flower as though to hide the corner of her mouth,
-            her gaze sliding away into the distance.)
-            ...I was only watching fish. I was not reciting poetry for your sake.
-            If you find it dull here, then go elsewhere.
-            You need not stand here and offend my eyes.
+Generate the relationship graph. I want the HTML and SVG versions
 ```
-
-### Example 2: `observe` mode
-
-```text
-User      鉂? Put Jia Baoyu, Lin Daiyu, and Xue Baochai into group chat mode
-            with no scene specified.
-
-zaomeng   鉂? All character profiles and relationship data have been loaded.
-            Setting the scene...
-            Group chat mode started.
-            Scene: Hengwu Court, autumn afternoon.
-            Baochai is inside sorting colored thread.
-            Baoyu comes to borrow a book and finds Daiyu already there.
-            The three gather in Baochai's quarters.
-            Timeline: after Chapter 42.
-            (The Golden Orchid vow has passed.
-            Daiyu and Baochai appear reconciled on the surface,
-            but the undercurrent of the triangle remains.)
-
-Baoyu: How fortunate that both my dear sisters are here.
-       I only came to borrow a book from Baochai,
-       yet Lin Daiyu is here too, and that saves me another walk.
-       The weather is so fine today. Why don't we all sit together and talk for a while?
-
-Baochai: You have arrived at just the right time.
-         I do happen to have a newly acquired copy of Guangyun here.
-         If you want to borrow it, take it.
-         Only do not leave it lying in Yihong Courtyard to gather dust again.
-         As for Cousin Lin, she came to see me.
-         Sit down. I shall have Ying'er bring tea.
-
-Daiyu: Then I came at the wrong time.
-       Had I known you were here, I would not have come,
-       lest someone say again that I have come only to disturb your private talk.
-
-zaomeng   鉂? That was the first round of group chat.
-            You can now continue the topic, switch the scene,
-            cue a specific character, or enter the next round directly.
-```
-
-### Example 3: `insert` mode
-
-```text
-User      鉂? Let me enter Dream of the Red Chamber as myself
-            and talk with Lin Daiyu and Jia Baoyu.
-            My name is A-Qing, and I am a new guest visiting the Jia household.
-
-zaomeng   鉂? Done. A lightweight self-insert card has been created:
-            Name: A-Qing
-            Scene identity: new guest in the Jia household
-            Interaction style: immersive
-            Plot influence: light
-            You can now speak your first line as yourself inside the scene.
-
-User      鉂? Miss Daiyu, I have only just arrived here.
-            I heard the gardens are the finest part of this place.
-            Would you be willing to show me around?
-
-Lin Daiyu 鉂? Since you are newly arrived, there is no need to be so formal.
-            The garden is indeed worth seeing,
-            though if you only chase what is lively,
-            you may miss what is actually worth looking at.
-
-Jia Baoyu 鉂? Why make such a small thing difficult?
-            If you want to see it, I will take you myself.
-            Whether it is Xiaoxiang Lodge or Yihong Courtyard,
-            we can start wherever pleases you most.
-```
-
-## Installation
-
-### If you just want to use it
-
-Install it as a skill first.
-
-#### OpenClaw
-
-```bash
-openclaw skills install wkbin/zaomeng-skill
-```
-
-#### ClawHub
-
-```bash
-npx clawhub@latest install zaomeng-skill
-```
-
-or:
-
-```bash
-pnpm dlx clawhub@latest install zaomeng-skill
-```
-
-```bash
-bunx clawhub@latest install zaomeng-skill
-```
-
-This is now the main path: **prompt-first skill + host LLM**.
-
-### If you are developing on it
-
-Clone the repository directly:
-
-```bash
-git clone https://github.com/wkbin/zaomeng.git
-cd zaomeng
-```
-
-The repository still keeps the source code, tests, and CLI needed for local development and debugging, but that is no longer the main entry point for ordinary users.
-
-## Typical Outputs
-
-After a run, you will usually get:
-
-- character profiles
-- relationship results
-- relationship graph HTML
-- in-character dialogue output
-- persistent correction memory
-
-Character storage is now markdown-first rather than legacy-JSON-first.
-
-## What Changed From Earlier Versions
-
-If you read an older introduction before, these points have changed:
-
-- it is now **LLM-first**, not rule-template-first
-- the skill path reuses the host model first instead of assuming separate runtime configuration
-- `clawhub-zaomeng-skill` now centers on `prompts/`, `references/`, and helper scripts
-- outputs now emphasize markdown persona files, relationship graphs, and reusable chat artifacts
 
 ## Project Layout
 
-If you are only here to use it, you can skip this section.
-
-The repository is now roughly split into three layers:
+The repository is roughly split into three layers:
 
 - `src/`: core source code
-- `clawhub-zaomeng-skill/`: publishable skill package
-- `tests/`: regression coverage
+- `clawhub-zaomeng-skill/`: the publishable skill bundle
+- `tests/`: regression tests
 
-The most important assets in the skill package are:
+The most important assets inside the skill bundle are:
 
 - `prompts/`
 - `references/`
@@ -342,11 +126,11 @@ The most important assets in the skill package are:
 - `tools/build_prompt_payload.py`
 - `tools/export_relation_graph.py`
 
-## In One Line
+## One-Line Summary
 
-`zaomeng` is not trying to be "an AI that can talk."
+`zaomeng` is not trying to be “an AI that can talk.”
 
-It is trying to let people from novels speak again with their own personality, relationships, and voice.
+It is trying to let fictional people speak again with their own personality, relationships, tone, and memory intact.
 
 ## License
 
