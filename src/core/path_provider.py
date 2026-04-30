@@ -59,7 +59,7 @@ class PathProvider:
     def _find_auxiliary_file(self, folder: str, filename: str) -> Path:
         candidates = (
             self.project_root() / folder / filename,
-            self.project_root() / "clawhub-zaomeng-skill" / folder / filename,
+            self.project_root() / "zaomeng-skill" / folder / filename,
             self.project_root().parent / folder / filename,
         )
         for path in candidates:

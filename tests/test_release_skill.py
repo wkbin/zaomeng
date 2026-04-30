@@ -17,7 +17,7 @@ class ReleaseSkillScriptTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
-            skill_dir = tmp_root / "clawhub-zaomeng-skill"
+            skill_dir = tmp_root / "zaomeng-skill"
             output_dir = tmp_root / "dist"
             (skill_dir / "examples").mkdir(parents=True, exist_ok=True)
 

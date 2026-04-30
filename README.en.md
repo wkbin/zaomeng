@@ -115,7 +115,7 @@ Generate the relationship graph. I want the HTML and SVG versions
 The repository is roughly split into three layers:
 
 - `src/`: core source code
-- `clawhub-zaomeng-skill/`: the publishable skill bundle
+- `zaomeng-skill/`: the publishable skill bundle
 - `tests/`: regression tests
 
 The most important assets inside the skill bundle are:
@@ -136,4 +136,4 @@ It is trying to let fictional people speak again with their own personality, rel
 
 Main project: `AGPL-3.0-only`
 
-`clawhub-zaomeng-skill`: `MIT-0`
+`zaomeng-skill`: `MIT-0`

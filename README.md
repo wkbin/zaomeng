@@ -115,7 +115,7 @@
 当前仓库大致分成三层：
 
 - `src/`：核心源码
-- `clawhub-zaomeng-skill/`：可发布的 skill 包
+- `zaomeng-skill/`：可发布的 skill 包
 - `tests/`：回归测试
 
 其中 skill 包的重点资产包括：
@@ -136,4 +136,4 @@
 
 主项目：`AGPL-3.0-only`
 
-`clawhub-zaomeng-skill`：`MIT-0`
+`zaomeng-skill`：`MIT-0`

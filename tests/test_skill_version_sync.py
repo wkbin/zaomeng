@@ -15,7 +15,7 @@ class SkillVersionSyncTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
-            skill_dir = tmp_root / "clawhub-zaomeng-skill"
+            skill_dir = tmp_root / "zaomeng-skill"
             (skill_dir / "examples").mkdir(parents=True, exist_ok=True)
 
             (skill_dir / ".metadata.json").write_text(

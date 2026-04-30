@@ -48,9 +48,9 @@ def release_skill(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync version, run checks, and package clawhub-zaomeng-skill in one step."
+        description="Sync version, run checks, and package zaomeng-skill in one step."
     )
-    parser.add_argument("--skill-dir", default="clawhub-zaomeng-skill", help="Skill source directory relative to the repo root.")
+    parser.add_argument("--skill-dir", default="zaomeng-skill", help="Skill source directory relative to the repo root.")
     parser.add_argument("--output-dir", default="dist", help="Directory where the packaged .skill.zip archive will be written.")
     parser.add_argument("--version", help="Optional version override. If provided, version sync runs first.")
     parser.add_argument("--package-name", default="zaomeng", help="Archive filename prefix. Default: zaomeng")

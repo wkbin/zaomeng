@@ -16,7 +16,7 @@ class PackageSkillScriptTests(unittest.TestCase):
     def test_package_skill_archive_uses_versioned_filename_and_expected_entries(self):
         repo_root = Path(__file__).resolve().parents[1]
         script_path = repo_root / "scripts" / "package_skill.py"
-        version = read_skill_version(repo_root / "clawhub-zaomeng-skill")
+        version = read_skill_version(repo_root / "zaomeng-skill")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "dist"
@@ -57,8 +57,8 @@ class PackageSkillScriptTests(unittest.TestCase):
     def test_package_skill_archive_skips_cache_directories(self):
         repo_root = Path(__file__).resolve().parents[1]
         script_path = repo_root / "scripts" / "package_skill.py"
-        version = read_skill_version(repo_root / "clawhub-zaomeng-skill")
-        cache_file = repo_root / "clawhub-zaomeng-skill" / "tools" / "__pycache__" / "temp.pyc"
+        version = read_skill_version(repo_root / "zaomeng-skill")
+        cache_file = repo_root / "zaomeng-skill" / "tools" / "__pycache__" / "temp.pyc"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_bytes(b"cache")
         self.addCleanup(lambda: cache_file.unlink(missing_ok=True))

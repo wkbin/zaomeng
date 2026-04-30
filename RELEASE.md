@@ -1,15 +1,15 @@
 # Release Flow
 
-This file describes the repository-level release path for `clawhub-zaomeng-skill`.
+This file describes the repository-level release path for `zaomeng-skill`.
 
-The skill package itself keeps user-facing usage docs under `clawhub-zaomeng-skill/`.
+The skill package itself keeps user-facing usage docs under `zaomeng-skill/`.
 This file is only for maintainers preparing a new published build.
 
 ## Single Version Source
 
 The canonical version source is:
 
-- `clawhub-zaomeng-skill/.metadata.json`
+- `zaomeng-skill/.metadata.json`
 
 Everything else should be synchronized from that value.
 
@@ -57,12 +57,12 @@ zaomeng-<version>.skill.zip
 
 `scripts/sync_skill_version.py` updates:
 
-- `clawhub-zaomeng-skill/.metadata.json`
-- `clawhub-zaomeng-skill/SKILL.md`
-- `clawhub-zaomeng-skill/README.md`
-- `clawhub-zaomeng-skill/README_EN.md`
-- `clawhub-zaomeng-skill/PUBLISH.md`
-- `clawhub-zaomeng-skill/examples/test-prompts.json`
+- `zaomeng-skill/.metadata.json`
+- `zaomeng-skill/SKILL.md`
+- `zaomeng-skill/README.md`
+- `zaomeng-skill/README_EN.md`
+- `zaomeng-skill/PUBLISH.md`
+- `zaomeng-skill/examples/test-prompts.json`
 
 ## What Gets Validated
 

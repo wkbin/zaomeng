@@ -21,7 +21,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_copy_skill_bundle_installs_prompt_first_payload_by_default(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dst = copy_skill_bundle(packaged_src, Path(tmpdir), "zaomeng-skill")
@@ -44,7 +44,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_prepare_excerpt_tool_runs_without_repo_src(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -77,7 +77,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_relation_graph_tool_exports_files_without_repo_src(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -145,7 +145,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_persona_bundle_tool_materializes_split_files_from_profile_markdown(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -244,7 +244,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_verify_host_workflow_reports_complete_after_persona_and_graph_outputs(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -330,7 +330,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_host_run_manifest_tracks_standard_progress_and_artifacts(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -494,7 +494,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_distill_payload_detects_incremental_context_and_updates_manifest(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)
@@ -572,7 +572,7 @@ class InstallSkillTests(unittest.TestCase):
 
     def test_installed_skill_end_to_end_host_workflow(self):
         repo_root = Path(__file__).resolve().parents[1]
-        packaged_src = repo_root / "clawhub-zaomeng-skill"
+        packaged_src = repo_root / "zaomeng-skill"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_root = Path(tmpdir)

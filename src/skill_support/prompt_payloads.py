@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ def _repo_root() -> Path:
 
 
 def _skill_root() -> Path:
-    return _repo_root() / "clawhub-zaomeng-skill"
+    return _repo_root() / "zaomeng-skill"
 
 
 def _read_utf8(path: Path) -> str:

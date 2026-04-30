@@ -45,7 +45,7 @@ def sync_skill_version(skill_dir: Path, version: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync the skill version across metadata, docs, and example assets.")
     parser.add_argument("--version", required=True, help="Target skill version.")
-    parser.add_argument("--skill-dir", default="clawhub-zaomeng-skill", help="Skill directory relative to the repo root.")
+    parser.add_argument("--skill-dir", default="zaomeng-skill", help="Skill directory relative to the repo root.")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]

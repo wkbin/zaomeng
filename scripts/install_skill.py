@@ -71,10 +71,10 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
-    packaged_src = repo_root / "clawhub-zaomeng-skill"
+    packaged_src = repo_root / "zaomeng-skill"
 
     if not packaged_src.exists():
-        raise FileNotFoundError("Missing clawhub-zaomeng-skill/ directory")
+        raise FileNotFoundError("Missing zaomeng-skill/ directory")
 
     if not any([args.openclaw_dir, args.hermes_dir, args.skills_dir, args.project_root]):
         print("No target provided. Use --openclaw-dir, --hermes-dir, --skills-dir, or --project-root")

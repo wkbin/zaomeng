@@ -51,11 +51,11 @@ def build_archive(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Package clawhub-zaomeng-skill into a versioned .skill.zip archive."
+        description="Package zaomeng-skill into a versioned .skill.zip archive."
     )
     parser.add_argument(
         "--skill-dir",
-        default="clawhub-zaomeng-skill",
+        default="zaomeng-skill",
         help="Skill source directory relative to the repo root.",
     )
     parser.add_argument(
@@ -65,7 +65,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--version",
-        help="Optional version override. Defaults to the version in clawhub-zaomeng-skill/.metadata.json.",
+        help="Optional version override. Defaults to the version in zaomeng-skill/.metadata.json.",
     )
     parser.add_argument(
         "--package-name",

@@ -10,8 +10,8 @@ from scripts.skill_metadata import read_skill_version
 
 class PackagingDocsTests(unittest.TestCase):
     def test_manifest_describes_prompt_first_bundle(self):
-        manifest_text = Path("clawhub-zaomeng-skill/MANIFEST.md").read_text(encoding="utf-8")
-        metadata_text = Path("clawhub-zaomeng-skill/.metadata.json").read_text(encoding="utf-8")
+        manifest_text = Path("zaomeng-skill/MANIFEST.md").read_text(encoding="utf-8")
+        metadata_text = Path("zaomeng-skill/.metadata.json").read_text(encoding="utf-8")
         self.assertIn("requirements.txt", manifest_text)
         self.assertIn("tools/init_host_run.py", manifest_text)
         self.assertIn("tools/prepare_novel_excerpt.py", manifest_text)
@@ -26,7 +26,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertIn('"version": "', metadata_text)
 
     def test_install_docs_describe_prompt_first_install(self):
-        install_text = Path("clawhub-zaomeng-skill/INSTALL.md").read_text(encoding="utf-8")
+        install_text = Path("zaomeng-skill/INSTALL.md").read_text(encoding="utf-8")
         self.assertIn("requirements.txt", install_text)
         self.assertIn("tools/prepare_novel_excerpt.py", install_text)
         self.assertIn("tools/build_prompt_payload.py", install_text)
@@ -35,8 +35,8 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("--include-runtime", install_text)
 
     def test_readmes_describe_prompt_first_helpers(self):
-        skill_readme = Path("clawhub-zaomeng-skill/README.md").read_text(encoding="utf-8")
-        skill_readme_en = Path("clawhub-zaomeng-skill/README_EN.md").read_text(encoding="utf-8")
+        skill_readme = Path("zaomeng-skill/README.md").read_text(encoding="utf-8")
+        skill_readme_en = Path("zaomeng-skill/README_EN.md").read_text(encoding="utf-8")
 
         self.assertIn("tools/init_host_run.py", skill_readme)
         self.assertIn("tools/prepare_novel_excerpt.py", skill_readme)
@@ -64,9 +64,9 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("runtime/zaomeng_cli.py", skill_readme_en)
 
     def test_skill_docs_prioritize_host_llm_and_run_manifest_contract(self):
-        clawhub_skill = Path("clawhub-zaomeng-skill/SKILL.md").read_text(encoding="utf-8")
-        skill_readme = Path("clawhub-zaomeng-skill/README.md").read_text(encoding="utf-8")
-        skill_readme_en = Path("clawhub-zaomeng-skill/README_EN.md").read_text(encoding="utf-8")
+        clawhub_skill = Path("zaomeng-skill/SKILL.md").read_text(encoding="utf-8")
+        skill_readme = Path("zaomeng-skill/README.md").read_text(encoding="utf-8")
+        skill_readme_en = Path("zaomeng-skill/README_EN.md").read_text(encoding="utf-8")
 
         self.assertIn("run_manifest.json", clawhub_skill)
         self.assertIn("tools/build_prompt_payload.py", clawhub_skill)
@@ -100,7 +100,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("runtime/zaomeng_cli.py", clawhub_skill)
 
     def test_chat_contract_reference_is_present(self):
-        contract_text = Path("clawhub-zaomeng-skill/references/chat_contract.md").read_text(encoding="utf-8")
+        contract_text = Path("zaomeng-skill/references/chat_contract.md").read_text(encoding="utf-8")
         self.assertIn("Dialogue Handoff Contract", contract_text)
         self.assertIn("act", contract_text)
         self.assertIn("insert", contract_text)
@@ -111,7 +111,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("src.cli.app chat", contract_text)
 
     def test_capability_index_reference_is_present(self):
-        capability_text = Path("clawhub-zaomeng-skill/references/capability_index.md").read_text(encoding="utf-8")
+        capability_text = Path("zaomeng-skill/references/capability_index.md").read_text(encoding="utf-8")
         self.assertIn("Capability Index", capability_text)
         self.assertIn("distill", capability_text)
         self.assertIn("materialize", capability_text)
@@ -123,7 +123,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("src.cli.app chat", capability_text)
 
     def test_host_workflow_example_is_present(self):
-        workflow_text = Path("clawhub-zaomeng-skill/examples/host_workflow_example.md").read_text(encoding="utf-8")
+        workflow_text = Path("zaomeng-skill/examples/host_workflow_example.md").read_text(encoding="utf-8")
         self.assertIn("tools/init_host_run.py", workflow_text)
         self.assertIn("tools/build_prompt_payload.py", workflow_text)
         self.assertIn("tools/materialize_persona_bundle.py", workflow_text)
@@ -134,9 +134,9 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("src.cli.app chat", workflow_text)
 
     def test_distillation_docs_require_multi_character_differentiation(self):
-        prompt_text = Path("clawhub-zaomeng-skill/prompts/distill_prompt.md").read_text(encoding="utf-8")
-        schema_text = Path("clawhub-zaomeng-skill/references/output_schema.md").read_text(encoding="utf-8")
-        validation_text = Path("clawhub-zaomeng-skill/references/validation_policy.md").read_text(encoding="utf-8")
+        prompt_text = Path("zaomeng-skill/prompts/distill_prompt.md").read_text(encoding="utf-8")
+        schema_text = Path("zaomeng-skill/references/output_schema.md").read_text(encoding="utf-8")
+        validation_text = Path("zaomeng-skill/references/validation_policy.md").read_text(encoding="utf-8")
 
         self.assertIn("request.update_mode", prompt_text)
         self.assertIn("request.existing_profiles", prompt_text)
@@ -163,7 +163,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertIn("interest_claim", validation_text)
 
     def test_skill_version_is_synced_across_metadata_and_release_docs(self):
-        skill_dir = Path("clawhub-zaomeng-skill")
+        skill_dir = Path("zaomeng-skill")
         version = read_skill_version(skill_dir)
         metadata = json.loads((skill_dir / ".metadata.json").read_text(encoding="utf-8"))
         skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
