@@ -2,44 +2,77 @@
 
 [中文](README.md) | [English](README.en.md)
 
-`zaomeng` is not a generic chatbot project.
+> *“Some characters were not fully written away. They were only never truly awakened.”*
 
-It is a focused system for character distillation, relationship graph generation, and in-character interaction for fiction:
+**Let characters step off the page and breathe a second time.**
 
-- distill reusable character profiles from novels
-- extract relationships and generate relationship graphs
-- let characters speak according to their persona, stance, bonds, and memory
+Distill Chinese novel characters into reusable persona bundles, export relationship graphs, and let them speak again with their own personality, stance, bonds, and memory intact.
 
-If what you want is not “an AI chatting pleasantly” but “Lin Daiyu sounds like Lin Daiyu, Liu Bei sounds like Liu Bei, and a whole cast can share one scene without collapsing into one voice,” that is exactly what this project is trying to do.
+`zaomeng` is not a generic chatbot project.  
+It is a focused workflow for character distillation, relationship extraction, graph export, and in-character interaction.
+
+- distill character bundles from novels
+- extract relationships and export graphs
+- let characters enter `act` / `insert` / `observe`
+
+If what you want is not “an AI chatting pleasantly,” but “Lin Daiyu sounds like Lin Daiyu, Qi Xia sounds like Qi Xia, and a whole cast can share one scene without collapsing into one voice,” that is exactly what this project is trying to do.
+
+It is not trying to put a thin chatbot layer on top of fictional people.  
+It is trying to do something more demanding:
+
+- make characters reusable beyond a single summary
+- make relationships visible, traceable, and reusable
+- make dialogue sound like something that specific person would actually say
+
+## Install
+
+### Install the skill
+
+The main publishable surface of this project is the `zaomeng-skill/` bundle.
+
+```bash
+# Install into OpenClaw
+openclaw skills install wkbin/zaomeng-skill
+
+# Install into ClawHub
+npx clawhub@latest install zaomeng-skill
+pnpm dlx clawhub@latest install zaomeng-skill
+bunx clawhub@latest install zaomeng-skill
+
+# Install into a local skills directory
+python scripts/install_skill.py --skills-dir <your-skills-root>
+```
+
+### Dependencies
+
+```bash
+pip install -r requirements.txt
+```
 
 ## What You Can Do With It
 
 ### 1. Distill Characters
 
-Give it a novel, and it will try to build reusable character profiles from the original text, including:
+Give it a novel, and it will try to build reusable persona bundles from the original text, including:
 
-- personality tone
+- core identity
 - core motivation
+- personality tone
 - speaking style
 - decision logic
-- relationship tendency
 - emotional triggers
+- key bonds
 - character arc
 
-The goal is not a one-page summary. The goal is a profile that can keep supporting later dialogue, roleplay, and correction.
+The goal is not a one-page summary. The goal is a persona bundle that can keep supporting later dialogue, roleplay, correction, and incremental updates.
 
-The project currently supports two distillation paths:
+### 2. Export Relationship Graphs
 
-- fresh distillation: build a persona for a character for the first time
-- incremental distillation: if that character already exists, reuse prior profile data, memory, and user corrections, then keep updating from new evidence
-
-### 2. Generate Relationship Graphs
-
-It does not stop at structured relationship fields. It also exports visual relationship graphs so you can quickly see:
+It does not stop at structured relationship fields. It also exports visual graphs so you can quickly see:
 
 - who trusts whom
 - who depends on whom
-- where tension or rivalry lives
+- where tension, rivalry, or conflict lives
 
 Typical outputs include:
 
@@ -50,45 +83,35 @@ Typical outputs include:
 
 ### 3. Enter Character Interaction
 
-After distillation, there are now **3 modes**, not 2:
+After distillation, there are now **3 modes**:
 
-- `act`: you speak as one character, either in one-on-one dialogue or by joining a group scene directly
+- `act`: you speak as one character, either one-on-one or by joining a group scene directly
 - `insert`: you do not play an existing character; you enter the scene as yourself and interact with the cast directly
 - `observe`: you stay out of the scene and watch several characters carry the scene forward
 
-The split is simple:
+The simplest way to think about them:
 
 - use `act` when you want to step in as a role
 - use `insert` when you want yourself to enter the fictional world
 - use `observe` when you want to watch the cast interact without speaking as anyone
 
-The first `insert` session creates a lightweight scene card for you, usually including:
+In `insert`, the first session creates a lightweight scene card for you, usually including:
 
 - how the cast should address you
 - what identity you have inside the scene
 - whether you want natural, immersive, or probing interaction
 - how much your presence should affect the scene
 
-## How It Works Now
+## Usage
 
-The current version is **LLM-first**:
+The recommended order is simple:
 
-- the host or runtime LLM does the actual language generation
-- `zaomeng` prepares prompts, constraints, persona files, relationship context, and helper outputs
-- the skill path prefers reusing the host model that already exists
+1. provide the novel text or file
+2. specify which characters you want distilled
+3. wait for persona bundles and the relationship graph
+4. then enter `act`, `insert`, or `observe`
 
-The emphasis is no longer “hardcode a pile of rules and glue lines together.” The emphasis is giving the model clearer persona and relationship constraints so the output sounds more alive and more faithful to the source character.
-
-## Recommended First-Time Flow
-
-The simplest order is:
-
-1. provide the novel text
-2. say which characters you want distilled
-3. wait for persona files and the relationship graph
-4. enter `act`, `insert`, or `observe`
-
-### Natural-Language Requests That Work Well
+### Natural-language requests that work well
 
 ```text
 Distill Lin Daiyu, Jia Baoyu, and Xue Baochai from this novel
@@ -110,15 +133,42 @@ Let me enter Dream of the Red Chamber as myself and talk with Lin Daiyu and Jia 
 Generate the relationship graph. I want the HTML and SVG versions
 ```
 
+## How It Works Now
+
+The current version is **LLM-first**:
+
+- the host or runtime LLM does the actual language generation
+- `zaomeng` prepares prompts, persona bundles, relationship context, and helper outputs
+- `zaomeng-skill` prefers reusing the model capability already provided by the host
+
+The emphasis is no longer “hardcode a pile of rules and glue lines together.” The emphasis is giving the model clearer persona, relationship, and scene constraints so the output sounds more like the source character.
+
+## Incremental Distillation
+
+The project supports incremental distillation.
+
+If a character from the same novel has already been distilled, the next pass does not blindly rebuild from scratch. It tries to reuse:
+
+- `PROFILE`
+- split persona files
+- `MEMORY`
+- user corrections
+
+This works especially well for:
+
+- serialized fiction with new chapters
+- long novels processed in batches
+- repeated correction loops that keep improving persona quality
+
 ## Project Layout
 
-The repository is roughly split into three layers:
+The repository is currently split into three main layers:
 
 - `src/`: core source code
 - `zaomeng-skill/`: the publishable skill bundle
 - `tests/`: regression tests
 
-The most important assets inside the skill bundle are:
+The most important assets inside the skill bundle are usually:
 
 - `prompts/`
 - `references/`
@@ -126,14 +176,12 @@ The most important assets inside the skill bundle are:
 - `tools/build_prompt_payload.py`
 - `tools/export_relation_graph.py`
 
-## One-Line Summary
+## One-line Summary
 
-`zaomeng` is not trying to be “an AI that can talk.”
-
+`zaomeng` is not trying to be “an AI that can talk.”  
 It is trying to let fictional people speak again with their own personality, relationships, tone, and memory intact.
 
 ## License
 
-Main project: `AGPL-3.0-only`
-
+Main project: `AGPL-3.0-only`  
 `zaomeng-skill`: `MIT-0`
