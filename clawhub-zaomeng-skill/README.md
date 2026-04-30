@@ -1,4 +1,4 @@
-﻿# zaomeng-skill
+# zaomeng-skill
 
 `zaomeng-skill` 是一个面向中文小说人物蒸馏、关系抽取、关系图谱和角色对话的 skill。
 
@@ -19,7 +19,7 @@
 | 版本 | `4.1.4` |
 | 模式 | LLM-first |
 | 适用宿主 | OpenClaw、ClawHub、Hermes、其他 host-managed agent |
-| 核心能力 | 人物蒸馏、关系抽取、关系图谱、角色单聊、角色群聊 |
+| 核心能力 | 人物蒸馏、关系抽取、关系图谱、宿主驱动角色对话 |
 | 许可证 | `MIT-0` |
 
 ## 它能做什么
@@ -46,10 +46,11 @@
 - 关系结果 markdown
 - Mermaid 源码
 - HTML 可视化图谱
+- SVG 图谱
 
 ### 3. 进入角色聊天
 
-支持两种主要玩法：
+支持三种玩法：
 
 - `act`
   你扮演一个角色说话，可以是一对一，也可以直接加入多人群聊
@@ -57,6 +58,8 @@
   你以“你自己”的身份进入小说场景，不扮演书中角色，而是直接和他们互动
 - `observe`
   让多个角色围绕一个场景、话题或开场白进行互动
+
+这些对话由宿主直接驱动。`zaomeng-skill` 提供人物包、关系图谱、prompt 约束和运行状态，不再把内嵌 `chat CLI` 当作主路径能力。
 
 ### 4. 保存纠错
 
@@ -94,38 +97,6 @@
 
 宿主可以据此判断：这次 excerpt 是否真的覆盖了请求角色，是否有角色根本没在文本里命中。
 
-### 会话摘要 JSON
-
-面向宿主接入时，聊天链路可以额外输出一份标准化会话摘要 JSON：
-
-```bash
-py -3 -m src.cli.app chat --novel <路径> --message "<请求>" --session-summary-out <session-summary.json>
-```
-
-这份摘要用于让宿主直接拿到当前会话状态，而不必自己反解析 markdown。建议至少关注：
-
-- `mode`
-- `participants`
-- `controlled_character`
-- `focus_targets`
-- `self_insert`
-- `latest_responses`
-- `artifacts.session_file`
-- `artifacts.relation_snapshot_file`
-
-如果宿主还需要当前动作结果和成功标记，也可以要求：
-
-```bash
-py -3 -m src.cli.app chat --novel <路径> --message "<请求>" --chat-result-out <chat-result.json> --chat-status-out <chat.status.json>
-```
-
-可直接参考打包样例：
-
-- `examples/chat_session_summary.example.json`
-- `examples/chat_result_single_turn.example.json`
-- `examples/chat_status_complete.example.json`
-- `examples/host_workflow_example.md`
-
 ### Distill Post-Process
 
 宿主 LLM 写出 `PROFILE.generated.md` 后，不要停在单文件状态。  
@@ -144,6 +115,23 @@ py -3 -m src.cli.app chat --novel <路径> --message "<请求>" --chat-result-ou
 - `AGENTS.generated.md`
 - `MEMORY.generated.md`
 - `NAVIGATION.generated.md`
+
+### 对话接管
+
+蒸馏和图谱完成后，宿主直接进入对话阶段即可。推荐宿主读取：
+
+- 人物目录下的 `PROFILE.md`
+- 拆分人格文件，如 `SOUL.md`、`GOALS.md`、`STYLE.md`
+- `MEMORY.md`
+- 关系结果 markdown
+- 关系图 HTML / SVG
+- `run_manifest.json`
+
+宿主进入对话后，按模式解释即可：
+
+- `act`：用户代入某个角色发言
+- `insert`：用户以自己身份进入场景
+- `observe`：用户只观察角色推进群聊
 
 ## 安装方式
 
@@ -170,6 +158,7 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 ## Helper Commands
 
 ```bash
+py -3 tools/init_host_run.py --novel <路径> --characters A,B --output <run_manifest.json>
 py -3 tools/prepare_novel_excerpt.py --novel <路径> [--characters A,B] [--max-sentences 120] [--max-chars 50000]
 py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B] [--characters-root <data/characters 或 data/characters/<novel_id>>] [--update-mode auto|create|incremental]
 py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
@@ -273,13 +262,13 @@ runtime/data/characters/<novel_id>/<角色名>/
 - `references/style_differ.md`
   负责反同质化与风格差异化
 - `references/logic_constraint.md`
-  负责全局人设底线与防 OOC
+  负责人设底线与防 OOC
 - `references/validation_policy.md`
   负责输出自检和校验规则
-- `references/chat_contract.md`
-  负责会话摘要、聊天结果和聊天状态的字段契约
 - `references/capability_index.md`
-  负责 distill、materialize、export_graph、verify_workflow、chat 的能力索引
+  负责 `distill`、`materialize`、`export_graph`、`verify_workflow` 的能力索引
+- `references/chat_contract.md`
+  负责说明宿主如何接管 `act` / `insert` / `observe` 对话阶段
 
 ## 发布内容
 
@@ -292,6 +281,7 @@ runtime/data/characters/<novel_id>/<角色名>/
 - `INSTALL.md`
 - `MANIFEST.md`
 - `PUBLISH.md`
+- `requirements.txt`
 - `prompts/`
 - `references/`
 - `tools/`

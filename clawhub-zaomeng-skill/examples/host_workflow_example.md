@@ -8,7 +8,7 @@ This example shows one complete host-side flow:
 4. materialize persona bundles
 5. export the relationship graph
 6. verify workflow completeness
-7. enter chat with machine-readable outputs
+7. hand off to host-driven dialogue
 
 ## 1. Initialize The Run
 
@@ -99,27 +99,19 @@ Host expectation:
 - workflow verification JSON is written
 - `run_manifest.json` ends in a complete state
 
-## 7. Enter Chat
+## 7. Hand Off To Dialogue
 
-Example: self-insert into the scene and request machine-readable outputs.
+At this point, the host already has everything needed to enter `act`, `insert`, or `observe`:
 
-```bash
-py -3 -m src.cli.app chat --novel hongloumeng.txt --message "让我以我自己进入红楼梦，和林黛玉、贾宝玉聊天。我叫阿青，是初到贾府的新客。" --session-summary-out runtime/chat/session-summary.json --chat-result-out runtime/chat/chat-result.json --chat-status-out runtime/chat/chat.status.json
-```
+- character directories
+- `PROFILE.md`
+- split persona files
+- `MEMORY.md`
+- relation markdown
+- graph HTML / SVG
+- `run_manifest.json`
 
-Host read order:
-
-1. read `runtime/chat/chat.status.json`
-2. read `runtime/chat/chat-result.json`
-3. read `runtime/chat/session-summary.json`
-
-Expected files:
-
-```text
-runtime/chat/chat.status.json
-runtime/chat/chat-result.json
-runtime/chat/session-summary.json
-```
+The host now drives the dialogue directly with its own LLM.
 
 ## Recommended UI / Agent Surfacing
 
@@ -128,7 +120,7 @@ After the workflow completes, a host can safely surface:
 - character directories
 - relationship graph HTML / SVG
 - workflow summary from `run_manifest.json`
-- current chat mode and latest turn from chat JSON outputs
+- a clear invitation to enter `act`, `insert`, or `observe`
 
 ## Cross References
 

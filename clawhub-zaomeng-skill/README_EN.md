@@ -9,19 +9,7 @@ Its operating model is simple:
 - hand them to the host LLM for generation
 - materialize the canonical profile into a complete persona bundle
 
-It supports two distillation modes:
-
-- fresh distillation: create a new persona bundle for a character
-- incremental distillation: if a persona bundle already exists, reuse prior profile data, memory, and user corrections, then update only where new evidence supports it
-
-Incremental distillation is especially useful when:
-
-- a serialized novel keeps getting new chapters and you only want to feed the latest excerpt
-- a long novel is processed in batches instead of all at once
-- persona quality improves through repeated user corrections that should be preserved
-- an existing persona bundle should be extended, not rebuilt from scratch, every time new material appears
-
-This skill runs inside a host-managed environment; the host performs the actual model call, and the packaged Python helper dependencies are declared in `requirements.txt`.
+This skill runs inside a host-managed environment. The host performs the actual model calls, and the packaged Python helper dependencies are declared in `requirements.txt`.
 
 ## Overview
 
@@ -31,14 +19,14 @@ This skill runs inside a host-managed environment; the host performs the actual 
 | Version | `4.1.4` |
 | Mode | LLM-first |
 | Host Targets | OpenClaw, ClawHub, Hermes, other host-managed agents |
-| Core Capabilities | character distillation with incremental updates, relation extraction, graph export, one-on-one roleplay, group chat |
+| Core Capabilities | character distillation, relation extraction, graph export, host-driven dialogue |
 | License | `MIT-0` |
 
 ## What It Does
 
 ### 1. Distill Characters
 
-Extract structured character profiles from novel text, covering richer dimensions such as:
+Extract structured character profiles from novel text, covering dimensions such as:
 
 - core identity
 - core motivation
@@ -58,23 +46,20 @@ Extract pairwise relationships from same-scene interactions and output:
 - relationship markdown
 - Mermaid source
 - HTML visualization
+- SVG graph
 
 ### 3. Enter Character Chat
 
-Two main modes are supported:
+Three play modes are supported:
 
 - `act`
-  you play one character, either in one-on-one dialogue or by joining a group scene directly
+  you play one character, either one-on-one or by joining a group scene directly
 - `insert`
   you enter the scene as yourself rather than as an existing novel character
 - `observe`
-  multiple characters talk around a scene, topic, or opening line
+  multiple characters continue a scene, topic, or opening line while you watch
 
-In practice:
-
-- `act`: you are inside the scene as one of the characters
-- `insert`: you are inside the scene as yourself, and the cast responds to you as an in-world visitor
-- `observe`: you stay outside the scene and watch the characters carry it forward
+These dialogue modes are host-driven. `zaomeng-skill` provides persona bundles, relation artifacts, prompt constraints, and run-state files. It no longer treats an embedded `chat CLI` as the primary packaged capability.
 
 ### 4. Save Corrections
 
@@ -103,8 +88,6 @@ If a character bundle already exists for the same novel, the skill automatically
 - mark `request.update_mode` as `incremental`
 - write the incremental context into `run_manifest.json -> artifacts.distill_context`
 
-This lets the host chain the workflow directly without guessing whether the run is creating a new persona or updating an existing one.
-
 The distill payload also exposes `request.excerpt_focus`:
 
 - `requested_characters`
@@ -113,59 +96,6 @@ The distill payload also exposes `request.excerpt_focus`:
 - `strategy`
 
 The host can use this to detect missing cast coverage before the LLM starts distilling from the wrong evidence.
-
-### Chat Session Summary
-
-For host-managed chat flows, the CLI can emit a host-facing session summary JSON:
-
-```bash
-py -3 -m src.cli.app chat --novel <path> --message "<request>" --session-summary-out <session-summary.json>
-```
-
-This summary keeps the host from reverse-engineering the session markdown. It includes:
-
-- `mode`
-- `participants`
-- `controlled_character`
-- `focus_targets`
-- `self_insert` when the session is in `insert` mode
-- `latest_responses` after a non-interactive turn
-- `artifacts.session_file`
-- `artifacts.relation_snapshot_file`
-
-Recommended host behavior:
-
-- read it right after setup-only chat requests
-- read it again after each single-turn run
-- treat it as the standard source for current mode, active cast, and self-insert identity
-
-### Chat Result And Status
-
-If the host also wants a direct success marker and a single payload for the current chat action, it can request:
-
-```bash
-py -3 -m src.cli.app chat --novel <path> --message "<request>" --chat-result-out <chat-result.json> --chat-status-out <chat.status.json>
-```
-
-Recommended interpretation:
-
-- `chat-result-out`: the action payload for `setup`, `single_turn`, or `interactive_ready`
-- `chat-status-out`: the capability-style success marker for the current chat call
-
-You can also use the packaged examples directly:
-
-- `examples/chat_session_summary.example.json`
-- `examples/chat_result_single_turn.example.json`
-- `examples/chat_status_complete.example.json`
-
-The field contract is defined in:
-
-- `references/chat_contract.md`
-- `references/capability_index.md`
-
-For a full end-to-end host example, see:
-
-- `examples/host_workflow_example.md`
 
 ### Distill Post-Process
 
@@ -185,6 +115,23 @@ Run `tools/materialize_persona_bundle.py` immediately to materialize the canonic
 - `AGENTS.generated.md`
 - `MEMORY.generated.md`
 - `NAVIGATION.generated.md`
+
+### Dialogue Handoff
+
+After distillation and graph export complete, the host can enter dialogue directly. Recommended host inputs:
+
+- `PROFILE.md`
+- split persona files such as `SOUL.md`, `GOALS.md`, and `STYLE.md`
+- `MEMORY.md`
+- relationship markdown
+- graph HTML / SVG
+- `run_manifest.json`
+
+Host mode interpretation:
+
+- `act`: the user speaks as one character
+- `insert`: the user enters the scene as themselves
+- `observe`: the user watches the cast continue the scene
 
 ## Installation
 
@@ -211,6 +158,7 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 ## Helper Commands
 
 ```bash
+py -3 tools/init_host_run.py --novel <path> --characters A,B --output <run_manifest.json>
 py -3 tools/prepare_novel_excerpt.py --novel <path> [--characters A,B] [--max-sentences 120] [--max-chars 50000]
 py -3 tools/build_prompt_payload.py --mode distill|relation --novel <path> [--characters A,B] [--characters-root <data/characters or data/characters/<novel_id>>] [--update-mode auto|create|incremental]
 py -3 tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md>
@@ -317,21 +265,10 @@ Depending on available evidence, split persona files may also exist:
   persona boundaries and anti-OOC rules
 - `references/validation_policy.md`
   output validation and self-check policy
-
-## Release Payload
-
-Recommended release contents:
-
-- `README.md`
-- `README_EN.md`
-- `.metadata.json`
-- `SKILL.md`
-- `INSTALL.md`
-- `MANIFEST.md`
-- `PUBLISH.md`
-- `prompts/`
-- `references/`
-- `tools/`
+- `references/capability_index.md`
+  host-facing index for `distill`, `materialize`, `export_graph`, and `verify_workflow`
+- `references/chat_contract.md`
+  host-facing handoff guidance for `act`, `insert`, and `observe`
 
 ## License
 

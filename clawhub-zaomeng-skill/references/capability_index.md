@@ -6,7 +6,7 @@ This document is the host-side index for the standard `zaomeng` capabilities.
 
 Use it as the first stop when the host needs to answer:
 
-- which command should I call
+- which helper should I call
 - what files should I expect
 - how do I know whether this capability succeeded
 
@@ -18,7 +18,6 @@ Use it as the first stop when the host needs to answer:
 | `materialize` | `tools/materialize_persona_bundle.py` | persona bundle files | `ARTIFACT_STATUS.generated.json` plus capability status |
 | `export_graph` | `tools/export_relation_graph.py` | relationship graph HTML / SVG / Mermaid | graph `.status.json` plus capability status |
 | `verify_workflow` | `tools/verify_host_workflow.py` | workflow verification JSON | capability status with `status=complete` and `success=true` |
-| `chat` | `py -3 -m src.cli.app chat` | session summary / chat result / chat status JSON | `chat-status-out` with `status=complete` and `success=true` |
 
 ## 1. Distill
 
@@ -98,39 +97,34 @@ Recommended use:
 - run after materialize and export graph
 - treat it as the final host-side completeness check
 
-## 5. Chat
+## Dialogue Stage
 
-Entry:
+`act`, `insert`, and `observe` are host-driven dialogue modes, not packaged helper capabilities.
 
-```bash
-py -3 -m src.cli.app chat --novel <path> --message "<request>" --session-summary-out <session-summary.json> --chat-result-out <chat-result.json> --chat-status-out <chat.status.json>
-```
+At dialogue time, the host should read:
 
-Standard outputs:
-
-- `session-summary-out`
-- `chat-result-out`
-- `chat-status-out`
+- persona bundle files under `runtime/data/characters/<novel_id>/<character_name>/`
+- `MEMORY.md`
+- relation markdown and graph artifacts
+- `run_manifest.json`
+- constraint references such as `output_schema.md`, `style_differ.md`, and `logic_constraint.md`
 
 Reference:
 
 - `references/chat_contract.md`
-- `examples/chat_session_summary.example.json`
-- `examples/chat_result_single_turn.example.json`
-- `examples/chat_status_complete.example.json`
 
 ## Read Order
 
-Recommended host read order across the whole workflow:
+Recommended host read order across the structured workflow:
 
 1. read capability status first
 2. read the primary output for the current capability
 3. if present, read `run_manifest.json` for the updated cross-step index
 
-For `chat`, use the chat-specific order from `references/chat_contract.md`.
+After the workflow completes, hand off to the dialogue stage described in `references/chat_contract.md`.
 
 ## End-To-End Example
 
-For one complete host-side chain from run initialization to chat outputs, see:
+For one complete host-side chain from run initialization to dialogue handoff, see:
 
 - `examples/host_workflow_example.md`

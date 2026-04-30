@@ -1,14 +1,14 @@
-# Chat Contract
+# Dialogue Handoff Contract
 
 ## Purpose
 
-This document defines the host-facing contract for `chat` execution.
+This document defines how the host should enter `act`, `insert`, and `observe` after the structured workflow completes.
 
 The goal is simple:
 
-- the host should not infer success from console text
-- the host should not reverse-engineer session markdown
-- the host should have stable machine-readable outputs for `act`, `insert`, and `observe`
+- the skill prepares persona bundles and relationship artifacts
+- the host uses those artifacts directly to run dialogue
+- the packaged skill does not require a separate `chat CLI` entrypoint
 
 ## Supported Modes
 
@@ -19,144 +19,98 @@ The goal is simple:
 - `observe`
   the user stays outside the scene and watches the cast continue
 
-## Recommended Invocation
+## Required Inputs
 
-```bash
-py -3 -m src.cli.app chat \
-  --novel <novel-path-or-name> \
-  --message "<request-or-user-turn>" \
-  --session-summary-out <session-summary.json> \
-  --chat-result-out <chat-result.json> \
-  --chat-status-out <chat.status.json>
-```
+Before the host starts dialogue, it should already have:
 
-## Input Expectations
+- the novel id or novel path for the current run
+- the requested cast
+- one persona bundle directory per distilled character
+- relationship markdown or graph artifacts when available
+- `run_manifest.json` from the current run
 
-Minimum required inputs:
+Minimum persona inputs per active character:
 
-- `--novel`
-- either:
-  - `--message`
-  - or `--session` for an existing session
+- `PROFILE.md`
+- `MEMORY.md`
 
-Optional host-facing outputs:
+Recommended additional persona inputs when present:
 
-- `--session-summary-out`
-- `--chat-result-out`
-- `--chat-status-out`
+- `SOUL.md`
+- `GOALS.md`
+- `STYLE.md`
+- `TRAUMA.md`
+- `IDENTITY.md`
+- `BACKGROUND.md`
+- `CAPABILITY.md`
+- `BONDS.md`
+- `CONFLICTS.md`
+- `ROLE.md`
 
-## Output Files
+## Host Responsibilities
 
-### 1. Session Summary
+### 1. Mode Selection
 
-`session-summary-out` is the long-lived state snapshot for the current session.
+The host decides whether the request is:
 
-Minimum fields:
+- `act`
+- `insert`
+- `observe`
 
-- `status`
-- `session_id`
-- `novel_id`
-- `mode`
-- `participants`
-- `controlled_character`
-- `focus_targets`
-- `history_count`
-- `artifacts.session_file`
-- `artifacts.relation_snapshot_file`
+### 2. Active Cast Selection
 
-Conditional fields:
+The host determines which characters are active for the current turn or scene.
 
-- `self_insert`
-  only for `insert`
-- `latest_responses`
-  present after non-interactive single-turn execution
+Recommended inputs:
 
-Reference example:
+- explicitly requested characters
+- relation graph context
+- current scene focus
 
-- `examples/chat_session_summary.example.json`
+### 3. Self-Insert Card
 
-### 2. Chat Result
+For `insert`, the host should create or refresh a lightweight self-insert card, for example:
 
-`chat-result-out` is the action payload for the current `chat` call.
+- user display name
+- current in-scene identity
+- how they entered the scene
+- what the cast should currently know about them
 
-Required fields:
+### 4. Dialogue Rendering
 
-- `kind = "zaomeng_chat_result"`
-- `action = "setup" | "single_turn" | "interactive_ready"`
-- `success`
-- `mode`
-- `session_id`
-- `novel_id`
-- `participants`
-- `responses`
-- `summary`
+The host performs the actual generation. It should use the persona bundle and constraints to keep the output:
 
-Reference example:
+- in character
+- mode-consistent
+- relation-aware
+- scene-aware
 
-- `examples/chat_result_single_turn.example.json`
+## Recommended Artifact Read Order
 
-### 3. Chat Status
+1. `run_manifest.json`
+2. relation markdown and graph artifacts
+3. `PROFILE.md`
+4. split persona files
+5. `MEMORY.md`
 
-`chat-status-out` is the capability-style success marker for the current `chat` call.
+## Output Expectations
 
-Required fields:
+The exact dialogue output format is host-defined.
 
-- `kind = "host_capability_status"`
-- `capability = "chat"`
-- `status = "complete" | "error"`
-- `success = true | false`
-- `message`
-- `inputs`
-- `outputs`
+At minimum, the host should keep enough structured state to know:
 
-Reference example:
+- current mode
+- active cast
+- controlled character for `act`
+- self-insert identity for `insert`
+- latest scene summary
+- latest turn outputs
 
-- `examples/chat_status_complete.example.json`
+## Host UI Guidance
 
-## Action Semantics
+After the structured workflow completes, the host should surface:
 
-### `setup`
-
-Used when the request only establishes mode / participants / self-insert card and does not yet run a reply turn.
-
-Expected behavior:
-
-- a session is created or updated
-- `responses` is empty
-- `session-summary-out` is already meaningful and should be read immediately
-
-### `single_turn`
-
-Used when a non-interactive turn is executed immediately from `--message`.
-
-Expected behavior:
-
-- `responses` contains the current turn output
-- `summary.latest_responses` should align with `responses`
-- the host can render the result directly from `chat-result-out`
-
-### `interactive_ready`
-
-Used when the CLI enters interactive mode and the host wants an initial machine-readable snapshot before the first turn.
-
-Expected behavior:
-
-- `responses` is empty
-- `summary` describes the initial mode and participants
-
-## Recommended Read Order
-
-1. read `chat-status-out`
-   confirm whether the current `chat` call succeeded
-2. read `chat-result-out`
-   consume the immediate result of this action
-3. read `session-summary-out`
-   keep tracking the latest session state
-
-## Host Integration Notes
-
-- Treat JSON outputs as the source of truth for orchestration
-- Treat markdown session files as persistence, not as the primary integration contract
-- Prefer `session-summary-out` for UI state and session continuity
-- Prefer `chat-result-out` for rendering the latest action result
-- Prefer `chat-status-out` for capability success/failure checks
+- character directories
+- relationship graph HTML / SVG
+- workflow summary from `run_manifest.json`
+- a clear prompt that the user can now enter `act`, `insert`, or `observe`

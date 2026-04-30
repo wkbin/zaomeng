@@ -12,9 +12,13 @@
 
 ## Helper 脚本
 
+- `tools/init_host_run.py`
+- `tools/update_run_progress.py`
 - `tools/prepare_novel_excerpt.py`
 - `tools/build_prompt_payload.py`
+- `tools/materialize_persona_bundle.py`
 - `tools/export_relation_graph.py`
+- `tools/verify_host_workflow.py`
 
 ## Prompt 模板
 
@@ -38,13 +42,10 @@
 - `examples/sample_character_profile.md`
 - `examples/sample_relations.md`
 - `examples/test-prompts.json`
-- `examples/chat_session_summary.example.json`
-- `examples/chat_result_single_turn.example.json`
-- `examples/chat_status_complete.example.json`
 - `examples/host_workflow_example.md`
 
 ## 打包目标
 
 - 提供宿主可直接调用的 skill 资产
-- 以 prompts、references、examples 和 helper scripts 为核心
-- 支持人物蒸馏、关系抽取、人物关系图谱和角色对话
+- 以 `prompts`、`references`、`examples` 和 helper scripts 为核心
+- 支持人物蒸馏、关系抽取、人物关系图谱和宿主驱动角色对话
