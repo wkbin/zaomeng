@@ -279,25 +279,57 @@ Tasks:
 4. Keep packaging docs, install docs, and skill metadata aligned.
 5. Keep release packaging deterministic and easy to validate before publish.
 
-## P11: Further Code Thinning
+## P11: Host Capability Contract
 
 Status: in progress
 
 Goals:
-- Keep implementation weight proportional to what the product truly needs.
-- Let LLM-driven behavior handle expression while code handles structure.
+- Make the skill's host-facing abilities explicit and stable.
+- Let hosts chain the workflow by reading standard outputs rather than guessing
+  which step should happen next.
 
 Tasks:
-1. Continue trimming authored fallback prose where the host LLM should be doing
-   the real expressive work.
-2. Keep rules structural and boundary-oriented rather than writing large
-   hand-authored response bodies.
-3. Revisit overly large modules and split only where it improves clarity and
-   ownership.
-4. Prefer small, composable helpers over broad orchestration files when adding
-   new behavior.
-5. Treat unnecessary compatibility scaffolding as debt once the new path is the
-   only supported path.
+1. Define the four host-facing capabilities clearly:
+   - `distill`
+   - `materialize`
+   - `export_graph`
+   - `verify_workflow`
+2. Give each capability a standard contract:
+   - expected inputs
+   - output JSON shape
+   - sidecar status file
+   - success marker
+3. Introduce a shared `run_manifest.json` so the host can track the whole run
+   from one canonical file.
+4. Make helper scripts update the manifest and their own status files directly.
+5. Document the capability contract in the skill itself so hosts can implement
+   the flow without reverse-engineering helper behavior.
+
+## P12: Distill UX And Artifact Index
+
+Status: in progress
+
+Goals:
+- Standardize progress reporting during distillation.
+- Make final artifacts easy to find and inspect from one place.
+
+Tasks:
+1. Standardize progress stages for host-driven runs:
+   - locked characters
+   - current character
+   - completed count
+   - graph exporting
+   - graph completed
+2. Keep those progress events written into `run_manifest.json`, not only printed
+   to the terminal.
+3. Ensure the final manifest directly points to:
+   - character directories
+   - relation graph HTML
+   - relation graph SVG
+   - capability status files
+4. Add a lightweight host helper to append progress events without depending on
+   CLI-only orchestration.
+5. Add regression coverage for manifest updates across the standard host flow.
 
 ## Non-Goals For Now
 

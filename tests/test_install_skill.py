@@ -33,7 +33,9 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue((dst / "tools" / "prepare_novel_excerpt.py").exists())
             self.assertTrue((dst / "tools" / "build_prompt_payload.py").exists())
             self.assertTrue((dst / "tools" / "export_relation_graph.py").exists())
+            self.assertTrue((dst / "tools" / "init_host_run.py").exists())
             self.assertTrue((dst / "tools" / "materialize_persona_bundle.py").exists())
+            self.assertTrue((dst / "tools" / "update_run_progress.py").exists())
             self.assertTrue((dst / "tools" / "verify_host_workflow.py").exists())
             self.assertTrue((dst / "tools" / "_skill_support" / "novel_preparation.py").exists())
             self.assertTrue((dst / "tools" / "_skill_support" / "persona_bundle.py").exists())
@@ -325,6 +327,170 @@ class InstallSkillTests(unittest.TestCase):
             self.assertEqual(verify_payload["status"], "complete")
             self.assertEqual(len(verify_payload["characters"]), 2)
             self.assertEqual(verify_payload["relation_graph"]["status"], "complete")
+
+    def test_installed_host_run_manifest_tracks_standard_progress_and_artifacts(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        packaged_src = repo_root / "clawhub-zaomeng-skill"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            dst = copy_skill_bundle(packaged_src, tmp_root, "zaomeng-skill")
+            novel_path = tmp_root / "hongloumeng.txt"
+            novel_path.write_text("林黛玉见宝玉。宝玉念着黛玉。宝钗从旁调和。", encoding="utf-8")
+            manifest_path = tmp_root / "run_manifest.json"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "init_host_run.py"),
+                    "--novel",
+                    str(novel_path),
+                    "--characters",
+                    "林黛玉,贾宝玉",
+                    "--output",
+                    str(manifest_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["progress"]["stage"], "characters_locked")
+            self.assertEqual(manifest_payload["locked_characters"], ["林黛玉", "贾宝玉"])
+
+            distill_payload_path = tmp_root / "distill_payload.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "build_prompt_payload.py"),
+                    "--mode",
+                    "distill",
+                    "--novel",
+                    str(novel_path),
+                    "--characters",
+                    "林黛玉,贾宝玉",
+                    "--output",
+                    str(distill_payload_path),
+                    "--run-manifest",
+                    str(manifest_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["progress"]["stage"], "distill_payload_ready")
+            self.assertEqual(manifest_payload["summary"]["status_text"], "waiting_for_host_generation")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "update_run_progress.py"),
+                    "--run-manifest",
+                    str(manifest_path),
+                    "--stage",
+                    "character_started",
+                    "--character",
+                    "林黛玉",
+                    "--message",
+                    "正在蒸馏林黛玉",
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["progress"]["current_character"], "林黛玉")
+
+            characters_root = tmp_root / "data" / "characters" / "hongloumeng"
+            profiles = {
+                "林黛玉": "# PROFILE\n- name: 林黛玉\n- novel_id: hongloumeng\n- identity_anchor: 真心与自尊都很重\n- soul_goal: 守住真情\n- worldview: 世情热闹，真心稀薄\n- speech_style: 轻声细语\n",
+                "贾宝玉": "# PROFILE\n- name: 贾宝玉\n- novel_id: hongloumeng\n- identity_anchor: 看重真情\n- soul_goal: 留住身边真心的人\n- worldview: 人情比功名更重\n- speech_style: 直接真切\n",
+            }
+            for name, profile_text in profiles.items():
+                persona_dir = characters_root / name
+                persona_dir.mkdir(parents=True, exist_ok=True)
+                profile_path = persona_dir / "PROFILE.generated.md"
+                profile_path.write_text(profile_text, encoding="utf-8")
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(dst / "tools" / "materialize_persona_bundle.py"),
+                        "--profile-file",
+                        str(profile_path),
+                        "--run-manifest",
+                        str(manifest_path),
+                        "--output",
+                        str(tmp_root / f"{name}.json"),
+                    ],
+                    cwd=dst,
+                    check=True,
+                    capture_output=True,
+                )
+
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["progress"]["completed_count"], 2)
+            self.assertEqual(manifest_payload["summary"]["characters_completed"], 2)
+            self.assertIn("林黛玉", manifest_payload["artifacts"]["character_dirs"])
+            self.assertIn("贾宝玉", manifest_payload["artifacts"]["character_dirs"])
+
+            relation_dir = tmp_root / "data" / "relations" / "hongloumeng"
+            relation_dir.mkdir(parents=True, exist_ok=True)
+            relations_file = relation_dir / "hongloumeng_relations.md"
+            relations_file.write_text(
+                "# RELATION_GRAPH\n\n"
+                "- novel_id: hongloumeng\n\n"
+                "## 林黛玉_贾宝玉\n"
+                "- trust: 9\n"
+                "- affection: 9\n"
+                "- hostility: 1\n"
+                "- confidence: 8\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "export_relation_graph.py"),
+                    "--relations-file",
+                    str(relations_file),
+                    "--run-manifest",
+                    str(manifest_path),
+                    "--output",
+                    str(tmp_root / "graph.json"),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest_payload["progress"]["graph_status"], "complete")
+            self.assertTrue(manifest_payload["artifacts"]["relation_graph"]["html_path"].endswith(".html"))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "verify_host_workflow.py"),
+                    "--characters-root",
+                    str(characters_root),
+                    "--characters",
+                    "林黛玉,贾宝玉",
+                    "--relations-file",
+                    str(relations_file),
+                    "--run-manifest",
+                    str(manifest_path),
+                    "--output",
+                    str(tmp_root / "verify.json"),
+                ],
+                cwd=dst,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0)
+
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertTrue(manifest_payload["success"])
+            self.assertEqual(manifest_payload["status"], "complete")
+            self.assertEqual(manifest_payload["summary"]["status_text"], "workflow_complete")
 
     def test_installed_skill_end_to_end_host_workflow(self):
         repo_root = Path(__file__).resolve().parents[1]

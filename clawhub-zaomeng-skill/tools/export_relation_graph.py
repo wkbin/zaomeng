@@ -12,6 +12,7 @@ TOOLS_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_ROOT))
 
 from _skill_support.relation_graph_export import export_relation_graph
+from _skill_support.workflow_completion import update_run_manifest
 
 
 def main() -> int:
@@ -22,12 +23,24 @@ def main() -> int:
     parser.add_argument("--novel-id", help="Optional explicit novel id")
     parser.add_argument("--config", help="Optional config.yaml path for custom data directories")
     parser.add_argument("--output", help="Optional JSON output path")
+    parser.add_argument("--run-manifest", help="Optional run_manifest.json path")
     args = parser.parse_args()
+
+    if args.run_manifest:
+        update_run_manifest(
+            args.run_manifest,
+            stage="graph_export_started",
+            status="running",
+            message="relation graph export started",
+            capability="export_graph",
+            graph_status="running",
+        )
 
     payload = export_relation_graph(
         args.relations_file,
         novel_id=args.novel_id,
         config_path=args.config,
+        manifest_path=args.run_manifest,
     )
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
     if args.output:

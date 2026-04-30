@@ -12,6 +12,7 @@ TOOLS_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_ROOT))
 
 from _skill_support.persona_bundle import load_profile_source, materialize_persona_bundle
+from _skill_support.workflow_completion import build_capability_status, default_status_path, update_run_manifest, write_json
 
 
 def _default_output_dir(source: Path, profile: dict[str, object]) -> Path:
@@ -37,6 +38,7 @@ def main() -> int:
         help="Optional explicit character output directory. Defaults to the source character folder.",
     )
     parser.add_argument("--output", help="Optional JSON output path")
+    parser.add_argument("--run-manifest", help="Optional run_manifest.json path")
     args = parser.parse_args()
 
     source = Path(args.profile_file)
@@ -45,6 +47,9 @@ def main() -> int:
     target_dir = materialize_persona_bundle(output_dir, profile)
 
     payload = {
+        "capability": "materialize",
+        "status": "complete",
+        "success": True,
         "character": profile.get("name", ""),
         "novel_id": profile.get("novel_id", ""),
         "profile_source": str(source.resolve()),
@@ -53,10 +58,52 @@ def main() -> int:
         "generated_files": sorted(path.name for path in target_dir.glob("*.generated.md")),
         "editable_files": sorted(path.name for path in target_dir.glob("*.md") if not path.name.endswith(".generated.md")),
     }
+    output_path = Path(args.output) if args.output else None
+    capability_status_path = default_status_path(
+        "materialize",
+        output_path=output_path,
+        manifest_path=args.run_manifest,
+        output_dir=target_dir,
+        character=str(profile.get("name", "")).strip(),
+    )
+    capability_status = build_capability_status(
+        "materialize",
+        status=payload["status"],
+        success=bool(payload["success"]),
+        novel_id=str(payload["novel_id"]),
+        character=str(payload["character"]),
+        inputs={"profile_file": str(source.resolve())},
+        outputs={
+            "persona_dir": payload["persona_dir"],
+            "artifact_status_path": payload["status_path"],
+            "generated_files": payload["generated_files"],
+        },
+        manifest_path=args.run_manifest,
+        message="persona bundle materialized",
+    )
+    write_json(capability_status_path, capability_status)
+    payload["capability_status_path"] = str(capability_status_path.resolve())
+    if args.run_manifest:
+        update_run_manifest(
+            args.run_manifest,
+            stage="character_completed",
+            status="running",
+            message=f"{payload['character']} materialized",
+            character=str(payload["character"]),
+            capability="materialize",
+            capability_status=capability_status,
+            artifact_updates={
+                "character_dirs": {str(payload["character"]): payload["persona_dir"]},
+                "status_files": {"materialize": str(capability_status_path.resolve())},
+            },
+            status_file=capability_status_path,
+        )
+
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
-    if args.output:
-        Path(args.output).write_text(rendered + "\n", encoding="utf-8")
-    else:
+    if output_path:
+        output_path.write_text(rendered + "\n", encoding="utf-8")
+
+    if not output_path:
         print(rendered)
     return 0
 

@@ -6,8 +6,14 @@ from .persona_bundle import load_profile_source, materialize_persona_bundle, par
 from .prompt_payloads import build_distill_prompt_payload, build_relation_prompt_payload
 from .relation_graph_export import export_relation_graph
 from .workflow_completion import (
+    STANDARD_PROGRESS_STAGES,
+    build_capability_status,
     build_persona_completion_status,
     build_relation_completion_status,
+    default_status_path,
+    infer_novel_id,
+    initialize_run_manifest,
+    update_run_manifest,
     verify_host_workflow,
 )
 
@@ -21,7 +27,13 @@ __all__ = [
     "materialize_persona_bundle",
     "parse_profile_markdown",
     "export_relation_graph",
+    "STANDARD_PROGRESS_STAGES",
+    "build_capability_status",
     "build_persona_completion_status",
     "build_relation_completion_status",
+    "default_status_path",
+    "infer_novel_id",
+    "initialize_run_manifest",
+    "update_run_manifest",
     "verify_host_workflow",
 ]

@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .workflow_completion import build_relation_completion_status, write_json
+from .workflow_completion import build_capability_status, build_relation_completion_status, default_status_path, update_run_manifest, write_json
 
 
 def export_relation_graph(
@@ -19,6 +19,7 @@ def export_relation_graph(
     *,
     novel_id: str | None = None,
     config_path: str | None = None,
+    manifest_path: str | Path | None = None,
 ) -> dict[str, str]:
     del config_path
     relation_path = Path(relations_file).resolve()
@@ -64,6 +65,47 @@ def export_relation_graph(
         svg_path=svg_path if rendered_svg else None,
     )
     status_path = write_json(output_dir / f"{base_name}.status.json", status_payload)
+    capability_status_path = default_status_path(
+        "export_graph",
+        manifest_path=manifest_path,
+        output_dir=output_dir,
+    )
+    capability_status = build_capability_status(
+        "export_graph",
+        status=status_payload["status"],
+        success=bool(status_payload.get("success")),
+        novel_id=resolved_novel_id,
+        inputs={"relations_file": str(relation_path)},
+        outputs={
+            "html_path": str(html_path),
+            "mermaid_path": str(mermaid_path),
+            "svg_path": str(svg_path) if rendered_svg else "",
+            "relation_status_path": str(status_path),
+        },
+        manifest_path=manifest_path,
+        message="relation graph exported",
+    )
+    write_json(capability_status_path, capability_status)
+    if manifest_path:
+        update_run_manifest(
+            manifest_path,
+            stage="graph_export_completed",
+            status="running",
+            message="relation graph exported",
+            capability="export_graph",
+            capability_status=capability_status,
+            artifact_updates={
+                "relation_graph": {
+                    "html_path": str(html_path),
+                    "mermaid_path": str(mermaid_path),
+                    "svg_path": str(svg_path) if rendered_svg else "",
+                    "relation_status_path": str(status_path),
+                },
+                "status_files": {"export_graph": str(capability_status_path.resolve())},
+            },
+            status_file=capability_status_path,
+            graph_status="complete",
+        )
 
     return {
         "novel_id": resolved_novel_id,
@@ -71,6 +113,7 @@ def export_relation_graph(
         "mermaid_path": str(mermaid_path),
         "svg_path": str(svg_path) if rendered_svg else "",
         "status_path": str(status_path),
+        "capability_status_path": str(capability_status_path),
     }
 
 
