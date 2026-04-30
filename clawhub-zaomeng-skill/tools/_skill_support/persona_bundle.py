@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
+from .workflow_completion import build_persona_completion_status, write_json
 
 DEFAULT_NAV_LOAD_ORDER = (
     "SOUL",
@@ -423,6 +424,12 @@ def materialize_persona_bundle(
         default_nav_load_order=default_nav_load_order,
         persona_file_catalog=persona_file_catalog,
     )
+    status = build_persona_completion_status(
+        target_dir,
+        name=str(profile.get("name", "")),
+        novel_id=str(profile.get("novel_id", "")),
+    )
+    write_json(target_dir / "ARTIFACT_STATUS.generated.json", status)
     return target_dir
 
 

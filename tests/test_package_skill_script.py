@@ -9,14 +9,14 @@ import unittest
 from pathlib import Path
 from zipfile import ZipFile
 
-from scripts.package_skill import read_skill_version
+from scripts.skill_metadata import read_skill_version
 
 
 class PackageSkillScriptTests(unittest.TestCase):
     def test_package_skill_archive_uses_versioned_filename_and_expected_entries(self):
         repo_root = Path(__file__).resolve().parents[1]
         script_path = repo_root / "scripts" / "package_skill.py"
-        version = read_skill_version(repo_root / "clawhub-zaomeng-skill" / "PUBLISH.md")
+        version = read_skill_version(repo_root / "clawhub-zaomeng-skill")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "dist"

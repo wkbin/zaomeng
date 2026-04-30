@@ -120,6 +120,7 @@ py -3 tools/prepare_novel_excerpt.py --novel <path> [--max-sentences 80] [--max-
 py -3 tools/build_prompt_payload.py --mode distill|relation --novel <path> [--characters A,B]
 py -3 tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <relation-result.md>
+py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [--relations-file <relation-result.md>]
 ```
 
 ## Recommended Usage

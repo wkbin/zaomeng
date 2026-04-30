@@ -34,8 +34,10 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue((dst / "tools" / "build_prompt_payload.py").exists())
             self.assertTrue((dst / "tools" / "export_relation_graph.py").exists())
             self.assertTrue((dst / "tools" / "materialize_persona_bundle.py").exists())
+            self.assertTrue((dst / "tools" / "verify_host_workflow.py").exists())
             self.assertTrue((dst / "tools" / "_skill_support" / "novel_preparation.py").exists())
             self.assertTrue((dst / "tools" / "_skill_support" / "persona_bundle.py").exists())
+            self.assertTrue((dst / "tools" / "_skill_support" / "workflow_completion.py").exists())
             self.assertFalse((dst / "runtime").exists())
 
     def test_installed_prepare_excerpt_tool_runs_without_repo_src(self):
@@ -123,6 +125,8 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue(html_path.exists())
             self.assertTrue(mermaid_path.exists())
             self.assertIn("svg_path", payload)
+            self.assertIn("status_path", payload)
+            self.assertTrue(Path(payload["status_path"]).exists())
             if payload["svg_path"]:
                 self.assertTrue(Path(payload["svg_path"]).exists())
             self.assertIn("mini_relations.html", payload["html_path"])
@@ -217,6 +221,7 @@ class InstallSkillTests(unittest.TestCase):
             payload = json.loads((tmp_root / "persona_bundle.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["character"], "林黛玉")
             self.assertEqual(Path(payload["persona_dir"]), persona_dir.resolve())
+            self.assertTrue(Path(payload["status_path"]).exists())
             self.assertTrue((persona_dir / "SOUL.generated.md").exists())
             self.assertTrue((persona_dir / "IDENTITY.generated.md").exists())
             self.assertTrue((persona_dir / "BACKGROUND.generated.md").exists())
@@ -230,8 +235,306 @@ class InstallSkillTests(unittest.TestCase):
             self.assertTrue((persona_dir / "AGENTS.generated.md").exists())
             self.assertTrue((persona_dir / "MEMORY.generated.md").exists())
             self.assertTrue((persona_dir / "NAVIGATION.generated.md").exists())
+            status_payload = json.loads((persona_dir / "ARTIFACT_STATUS.generated.json").read_text(encoding="utf-8"))
+            self.assertEqual(status_payload["status"], "complete")
             nav_text = (persona_dir / "NAVIGATION.generated.md").read_text(encoding="utf-8")
             self.assertIn("SOUL -> GOALS -> STYLE", nav_text)
+
+    def test_installed_verify_host_workflow_reports_complete_after_persona_and_graph_outputs(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        packaged_src = repo_root / "clawhub-zaomeng-skill"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            dst = copy_skill_bundle(packaged_src, tmp_root, "zaomeng-skill")
+            characters_root = tmp_root / "data" / "characters" / "hongloumeng"
+            relation_dir = tmp_root / "data" / "relations" / "hongloumeng"
+            relation_dir.mkdir(parents=True, exist_ok=True)
+
+            for name in ("林黛玉", "贾宝玉"):
+                persona_dir = characters_root / name
+                persona_dir.mkdir(parents=True, exist_ok=True)
+                (persona_dir / "PROFILE.generated.md").write_text(
+                    "# PROFILE\n"
+                    f"- name: {name}\n"
+                    "- novel_id: hongloumeng\n"
+                    "- identity_anchor: 测试\n"
+                    "- soul_goal: 测试\n"
+                    "- worldview: 测试\n"
+                    "- speech_style: 测试\n",
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(dst / "tools" / "materialize_persona_bundle.py"),
+                        "--profile-file",
+                        str(persona_dir / "PROFILE.generated.md"),
+                        "--output",
+                        str(tmp_root / f"{name}.json"),
+                    ],
+                    cwd=dst,
+                    check=True,
+                    capture_output=True,
+                )
+
+            relations_file = relation_dir / "hongloumeng_relations.md"
+            relations_file.write_text(
+                "# RELATION_GRAPH\n\n"
+                "- novel_id: hongloumeng\n\n"
+                "## 林黛玉_贾宝玉\n"
+                "- trust: 9\n"
+                "- affection: 9\n"
+                "- hostility: 1\n"
+                "- confidence: 8\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "export_relation_graph.py"),
+                    "--relations-file",
+                    str(relations_file),
+                    "--output",
+                    str(tmp_root / "graph.json"),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "verify_host_workflow.py"),
+                    "--characters-root",
+                    str(characters_root),
+                    "--characters",
+                    "林黛玉,贾宝玉",
+                    "--relations-file",
+                    str(relations_file),
+                    "--output",
+                    str(tmp_root / "verify.json"),
+                ],
+                cwd=dst,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            verify_payload = json.loads((tmp_root / "verify.json").read_text(encoding="utf-8"))
+            self.assertEqual(verify_payload["status"], "complete")
+            self.assertEqual(len(verify_payload["characters"]), 2)
+            self.assertEqual(verify_payload["relation_graph"]["status"], "complete")
+
+    def test_installed_skill_end_to_end_host_workflow(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        packaged_src = repo_root / "clawhub-zaomeng-skill"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            dst = copy_skill_bundle(packaged_src, tmp_root, "zaomeng-skill")
+            novel_path = tmp_root / "hongloumeng.txt"
+            novel_path.write_text(
+                (
+                    "\u6797\u9edb\u7389\u521d\u8fdb\u8d3e\u5e9c\uff0c\u89c1\u8d3e\u5b9d\u7389\u65f6\u5fc3\u751f\u611f\u5e94\u3002"
+                    "\u8d3e\u5b9d\u7389\u601c\u60dc\u6797\u9edb\u7389\u7684\u5b64\u51b7\u4e0e\u624d\u60c5\u3002"
+                    "\u859b\u5b9d\u9497\u5904\u4e8b\u7a33\u59a5\uff0c\u5e38\u5728\u793c\u6cd5\u4e0e\u60c5\u611f\u95f4\u8c03\u548c\u6c14\u6c1b\u3002"
+                ),
+                encoding="utf-8",
+            )
+
+            excerpt_path = tmp_root / "excerpt.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "prepare_novel_excerpt.py"),
+                    "--novel",
+                    str(novel_path),
+                    "--max-sentences",
+                    "4",
+                    "--max-chars",
+                    "600",
+                    "--output",
+                    str(excerpt_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            excerpt_payload = json.loads(excerpt_path.read_text(encoding="utf-8"))
+            self.assertIn("\u6797\u9edb\u7389", excerpt_payload["excerpt"])
+
+            distill_payload_path = tmp_root / "distill_payload.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "build_prompt_payload.py"),
+                    "--mode",
+                    "distill",
+                    "--novel",
+                    str(novel_path),
+                    "--characters",
+                    "\u6797\u9edb\u7389,\u8d3e\u5b9d\u7389",
+                    "--output",
+                    str(distill_payload_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            distill_payload = json.loads(distill_payload_path.read_text(encoding="utf-8"))
+            self.assertEqual(distill_payload["mode"], "distill")
+            self.assertEqual(distill_payload["request"]["characters"], ["\u6797\u9edb\u7389", "\u8d3e\u5b9d\u7389"])
+            self.assertIn("output_schema", distill_payload["references"])
+            self.assertIn("\u8d3e\u5b9d\u7389", distill_payload["request"]["excerpt"])
+
+            relation_payload_path = tmp_root / "relation_payload.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "build_prompt_payload.py"),
+                    "--mode",
+                    "relation",
+                    "--novel",
+                    str(novel_path),
+                    "--output",
+                    str(relation_payload_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            relation_payload = json.loads(relation_payload_path.read_text(encoding="utf-8"))
+            self.assertEqual(relation_payload["mode"], "relation")
+            self.assertIn("\u859b\u5b9d\u9497", relation_payload["request"]["excerpt"])
+
+            characters_root = tmp_root / "data" / "characters" / "hongloumeng"
+            profiles = {
+                "\u6797\u9edb\u7389": (
+                    "# PROFILE\n"
+                    "## Meta\n"
+                    "- name: \u6797\u9edb\u7389\n"
+                    "- novel_id: hongloumeng\n"
+                    f"- source_path: {novel_path.as_posix()}\n"
+                    "## Basic Positioning\n"
+                    "- core_identity: \u8d3e\u5e9c\u5bc4\u5c45\u95fa\u79c0\n"
+                    "- faction_position: \u8d3e\u5e9c\u5185\u7720\n"
+                    "- story_role: \u60c5\u611f\u4e2d\u5fc3\n"
+                    "- identity_anchor: \u4ee5\u771f\u5fc3\u7167\u4eba\uff0c\u4e5f\u6700\u6015\u771f\u5fc3\u88ab\u8f7b\u6162\n"
+                    "## Root Layer\n"
+                    "- life_experience: \u5bc4\u4eba\u7bf1\u4e0b\uff1b\u654f\u611f\u591a\u601d\n"
+                    "## Inner Core\n"
+                    "- soul_goal: \u6c42\u5f97\u4e0d\u88ab\u8f9c\u8d1f\u7684\u771f\u60c5\n"
+                    "- core_traits: \u654f\u611f\uff1b\u806a\u6167\uff1b\u6e05\u50b2\n"
+                    "- worldview: \u4e16\u60c5\u70ed\u95f9\uff0c\u771f\u5fc3\u5374\u7a00\u8584\n"
+                    "- speech_style: \u8f7b\u58f0\u7ec6\u8bed\uff0c\u8bdd\u91cc\u85cf\u950b\n"
+                ),
+                "\u8d3e\u5b9d\u7389": (
+                    "# PROFILE\n"
+                    "## Meta\n"
+                    "- name: \u8d3e\u5b9d\u7389\n"
+                    "- novel_id: hongloumeng\n"
+                    f"- source_path: {novel_path.as_posix()}\n"
+                    "## Basic Positioning\n"
+                    "- core_identity: \u8d3e\u5e9c\u516c\u5b50\n"
+                    "- faction_position: \u8d3e\u5e9c\u5185\u7720\n"
+                    "- story_role: \u6838\u5fc3\u4e3b\u89d2\n"
+                    "- identity_anchor: \u770b\u91cd\u771f\u60c5\uff0c\u4e0d\u613f\u88ab\u4e16\u4fd7\u675f\u7f1a\n"
+                    "## Root Layer\n"
+                    "- life_experience: \u751f\u4e8e\u9531\u79c0\uff0c\u5374\u53cd\u611f\u79c1\u6b32\u4e0e\u793c\u6cd5\n"
+                    "## Inner Core\n"
+                    "- soul_goal: \u7559\u4f4f\u8eab\u8fb9\u6700\u771f\u630a\u7684\u4eba\n"
+                    "- core_traits: \u70ed\u70c8\uff1b\u6000\u60b2\uff1b\u53cd\u53db\n"
+                    "- worldview: \u4eba\u60c5\u6bd4\u529f\u540d\u66f4\u91cd\u8981\n"
+                    "- speech_style: \u76f4\u63a5\u771f\u5207\uff0c\u5076\u5c14\u5e26\u5c11\u5e74\u6c14\n"
+                ),
+            }
+
+            for name, profile_text in profiles.items():
+                persona_dir = characters_root / name
+                persona_dir.mkdir(parents=True, exist_ok=True)
+                profile_path = persona_dir / "PROFILE.generated.md"
+                profile_path.write_text(profile_text, encoding="utf-8")
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(dst / "tools" / "materialize_persona_bundle.py"),
+                        "--profile-file",
+                        str(profile_path),
+                        "--output",
+                        str(tmp_root / f"{name}.json"),
+                    ],
+                    cwd=dst,
+                    check=True,
+                    capture_output=True,
+                )
+                self.assertTrue((persona_dir / "ARTIFACT_STATUS.generated.json").exists())
+                self.assertTrue((persona_dir / "NAVIGATION.generated.md").exists())
+                self.assertIn(
+                    "SOUL -> GOALS -> STYLE",
+                    (persona_dir / "NAVIGATION.generated.md").read_text(encoding="utf-8"),
+                )
+
+            relation_dir = tmp_root / "data" / "relations" / "hongloumeng"
+            relation_dir.mkdir(parents=True, exist_ok=True)
+            relations_file = relation_dir / "hongloumeng_relations.md"
+            relations_file.write_text(
+                (
+                    "# RELATION_GRAPH\n\n"
+                    "- novel_id: hongloumeng\n\n"
+                    "## \u6797\u9edb\u7389_\u8d3e\u5b9d\u7389\n"
+                    "- trust: 9\n"
+                    "- affection: 10\n"
+                    "- hostility: 1\n"
+                    "- confidence: 8\n"
+                    "- relation_change: \u5347\u6e29\n"
+                    "- typical_interaction: \u8bdd\u91cc\u6709\u8bd5\u63a2\uff0c\u4e5f\u6709\u4e92\u76f8\u601c\u60dc\n"
+                ),
+                encoding="utf-8",
+            )
+            graph_payload_path = tmp_root / "graph.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "export_relation_graph.py"),
+                    "--relations-file",
+                    str(relations_file),
+                    "--output",
+                    str(graph_payload_path),
+                ],
+                cwd=dst,
+                check=True,
+                capture_output=True,
+            )
+            graph_payload = json.loads(graph_payload_path.read_text(encoding="utf-8"))
+            self.assertTrue(Path(graph_payload["html_path"]).exists())
+            self.assertTrue(Path(graph_payload["mermaid_path"]).exists())
+            self.assertTrue(Path(graph_payload["status_path"]).exists())
+
+            verify_payload_path = tmp_root / "verify.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(dst / "tools" / "verify_host_workflow.py"),
+                    "--characters-root",
+                    str(characters_root),
+                    "--characters",
+                    "\u6797\u9edb\u7389,\u8d3e\u5b9d\u7389",
+                    "--relations-file",
+                    str(relations_file),
+                    "--output",
+                    str(verify_payload_path),
+                ],
+                cwd=dst,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            verify_payload = json.loads(verify_payload_path.read_text(encoding="utf-8"))
+            self.assertEqual(verify_payload["status"], "complete")
+            self.assertEqual(len(verify_payload["characters"]), 2)
+            self.assertEqual(verify_payload["relation_graph"]["status"], "complete")
+            self.assertEqual(verify_payload["missing_character_dirs"], [])
 
 
 if __name__ == "__main__":

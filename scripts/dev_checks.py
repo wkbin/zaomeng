@@ -11,6 +11,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SMOKE_TEST_MODULES = [
     "tests.test_cli_structure",
+    "tests.test_package_skill_script",
+    "tests.test_release_skill",
+    "tests.test_skill_version_sync",
     "tests.test_install_skill",
     "tests.test_novel_preparation",
     "tests.test_prompt_payloads",

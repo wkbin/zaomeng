@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .workflow_completion import build_relation_completion_status, write_json
+
 
 def export_relation_graph(
     relations_file: str | Path,
@@ -18,6 +20,7 @@ def export_relation_graph(
     novel_id: str | None = None,
     config_path: str | None = None,
 ) -> dict[str, str]:
+    del config_path
     relation_path = Path(relations_file).resolve()
     relations_payload = _load_relations_payload(relation_path)
     relations = relations_payload["relations"]
@@ -53,11 +56,21 @@ def export_relation_graph(
     elif svg_path.exists():
         svg_path.unlink()
 
+    status_payload = build_relation_completion_status(
+        relation_path,
+        novel_id=resolved_novel_id,
+        html_path=html_path,
+        mermaid_path=mermaid_path,
+        svg_path=svg_path if rendered_svg else None,
+    )
+    status_path = write_json(output_dir / f"{base_name}.status.json", status_payload)
+
     return {
         "novel_id": resolved_novel_id,
         "html_path": str(html_path),
         "mermaid_path": str(mermaid_path),
         "svg_path": str(svg_path) if rendered_svg else "",
+        "status_path": str(status_path),
     }
 
 

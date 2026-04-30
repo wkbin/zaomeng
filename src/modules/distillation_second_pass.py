@@ -24,9 +24,9 @@ def build_second_pass_messages(
             logic_text,
             (
                 "第二次蒸馏任务：\n"
-                "- 你会收到一个规则草稿版 PROFILE 和对应证据。\n"
-                "- 你的职责是把深层人格字段、阶段弧光字段、表达特征字段提炼得更具体、更多样化。\n"
-                "- 只能基于给定证据修订，不得脑补剧情外设定。\n"
+                "- 你会收到一份规则草稿 PROFILE 和对应证据。\n"
+                "- 你的职责是把深层人格字段、阶段弧光字段、表达特征字段提炼得更具体、更有区分度。\n"
+                "- 只能基于给定证据修订，不得脑补原文之外的设定。\n"
                 "- 输出必须仍然是可解析的 Markdown，每行使用 `- key: value`。\n"
                 "- 请输出完整 `# PROFILE` 文档，而不是解释。\n"
             ),
@@ -85,9 +85,9 @@ def render_peer_profile_contrasts(
             else list(peer.get("key_bonds", []))
         )
         if decision_rules:
-            lines.append(f"- decision_rules: {'；'.join(decision_rules[:3])}")
+            lines.append(f"- decision_rules: {'，'.join(decision_rules[:3])}")
         if key_bonds:
-            lines.append(f"- key_bonds: {'；'.join(key_bonds[:3])}")
+            lines.append(f"- key_bonds: {'，'.join(key_bonds[:3])}")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -109,7 +109,7 @@ def parse_markdown_kv(text: str) -> Dict[str, str]:
         if not key_text or not value_text:
             continue
         if key_text in parsed and parsed[key_text]:
-            parsed[key_text] = f"{parsed[key_text]}；{value_text}"
+            parsed[key_text] = f"{parsed[key_text]}，{value_text}"
         else:
             parsed[key_text] = value_text
     return parsed

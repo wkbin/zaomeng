@@ -120,6 +120,7 @@ py -3 tools/prepare_novel_excerpt.py --novel <路径> [--max-sentences 80] [--ma
 py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B]
 py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
 py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
+py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [--relations-file <关系结果.md>]
 ```
 
 ## 推荐使用方式

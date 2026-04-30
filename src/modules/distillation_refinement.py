@@ -17,6 +17,22 @@ from src.modules.distillation_second_pass import (
 
 
 class DistillationRefinementMixin:
+    _CRITICAL_SCALAR_FIELDS = (
+        "identity_anchor",
+        "soul_goal",
+        "temperament_type",
+        "background_imprint",
+        "social_mode",
+        "reward_logic",
+        "belief_anchor",
+        "moral_bottom_line",
+        "stress_response",
+        "story_role",
+        "others_impression",
+        "restraint_threshold",
+    )
+    _OVERLAP_LIST_FIELDS = ("decision_rules", "key_bonds", "core_traits")
+
     def _refine_profile_with_llm(
         self,
         profile: Dict[str, Any],
@@ -42,10 +58,10 @@ class DistillationRefinementMixin:
             )
             messages[0]["content"] = (
                 f"{messages[0]['content']}\n\n"
-                "宸垎淇瑕佹眰:\n"
-                "- 蹇呴』鍒╃敤鍚岀粍鍏朵粬瑙掕壊鐨勫姣旀憳瑕侊紝鎷夊紑褰撳墠瑙掕壊涓庝粬浠殑鍖哄埆銆俓n"
-                "- 濡傛灉褰撳墠鑽夌涓庡叾浠栬鑹插瓨鍦ㄩ珮搴﹂噸鍚堝瓧娈碉紝浼樺厛鏀瑰啓杩欎簺瀛楁銆俓n"
-                "- 杈撳嚭鏃朵繚鐣欒瘉鎹敮鎸侊紝绂佹涓轰簡宸紓鑰岀‖缂栬瀹氥€?"
+                "额外要求：\n"
+                "- 如果关键字段与同批角色重合，请优先改写成更能体现该角色差异的表述。\n"
+                "- 若证据无法支持明显区分，就直接写“证据不足”，不要保留通用空话。\n"
+                "- 输出仍需严格遵守 `- key: value` 的 Markdown 结构。\n"
             )
             messages[1]["content"] = "\n\n".join(
                 [
@@ -65,14 +81,26 @@ class DistillationRefinementMixin:
             )
             content = str(response.get("content", "")).strip()
             if not content:
-                return local_refined
+                return self._enforce_profile_distinction(
+                    local_refined,
+                    bucket=bucket,
+                    peer_profiles=peer_profiles or {},
+                )
             parsed = self._parse_markdown_kv(content)
             if not parsed:
-                return local_refined
+                return self._enforce_profile_distinction(
+                    local_refined,
+                    bucket=bucket,
+                    peer_profiles=peer_profiles or {},
+                )
             refined = self._apply_profile_refinement(local_refined, parsed)
             refined["arc_summary"] = self._infer_arc_summary(refined.get("arc", {}))
             refined["arc_confidence"] = self._safe_int(parsed.get("arc_confidence", refined.get("arc_confidence", 0)))
-            return refined
+            return self._enforce_profile_distinction(
+                refined,
+                bucket=bucket,
+                peer_profiles=peer_profiles or {},
+            )
         except ZaomengError as exc:
             self.logger.warning("Skipping LLM second pass for %s: %s", profile.get("name", "unknown"), exc)
             return local_refined
@@ -108,13 +136,13 @@ class DistillationRefinementMixin:
             "prompt_file",
             "distill_prompt.md",
             fallback=(
-                "# 浜虹墿妗ｆ钂搁\n"
-                "浣犻渶瑕佸湪鐜版湁瑙勫垯鑽夌鍩虹涓婂仛绗簩娆℃彁鐐硷紝寮哄寲娣卞眰浜烘牸銆侀樁娈靛姬鍏変笌宸紓鍖栬〃杈俱€?"
+                "# 人物二次蒸馏\n"
+                "请在不脱离原文证据的前提下，把人物档案修订得更具体、更稳定、更有差异化。"
             ),
         )
-        schema_text = self._load_auxiliary_markdown("reference_file", "output_schema.md", fallback="# 杈撳嚭瑙勮寖")
-        style_text = self._load_auxiliary_markdown("reference_file", "style_differ.md", fallback="# 椋庢牸宸紓鍖?")
-        logic_text = self._load_auxiliary_markdown("reference_file", "logic_constraint.md", fallback="# 閫昏緫绾︽潫")
+        schema_text = self._load_auxiliary_markdown("reference_file", "output_schema.md", fallback="# 输出规则")
+        style_text = self._load_auxiliary_markdown("reference_file", "style_differ.md", fallback="# 风格差异")
+        logic_text = self._load_auxiliary_markdown("reference_file", "logic_constraint.md", fallback="# 逻辑约束")
         draft_markdown = self._render_profile_md(profile)
         evidence_markdown = self._render_second_pass_evidence(profile["name"], bucket, arc_values)
         hint_markdown = self._render_character_hint(str(profile.get("name", "")), character_hint or {})
@@ -284,7 +312,7 @@ class DistillationRefinementMixin:
 
     @staticmethod
     def _split_persona_scalar(value: str) -> List[str]:
-        return [item.strip() for item in re.split(r"[；;]\s*", str(value or "").strip()) if item.strip()]
+        return [item.strip() for item in re.split(r"[，,;；/\n]\s*", str(value or "").strip()) if item.strip()]
 
     def _collect_profile_overlap(
         self,
@@ -293,30 +321,15 @@ class DistillationRefinementMixin:
     ) -> List[str]:
         current_name = str(profile.get("name", "")).strip()
         alerts: List[str] = []
-        scalar_fields = (
-            "identity_anchor",
-            "soul_goal",
-            "temperament_type",
-            "background_imprint",
-            "social_mode",
-            "reward_logic",
-            "belief_anchor",
-            "moral_bottom_line",
-            "stress_response",
-            "story_role",
-            "others_impression",
-            "restraint_threshold",
-        )
-        list_fields = ("decision_rules", "key_bonds", "core_traits")
         for peer_name, peer in all_profiles.items():
             if peer_name == current_name:
                 continue
-            for field in scalar_fields:
+            for field in self._CRITICAL_SCALAR_FIELDS:
                 current_value = self._normalize_overlap_text(profile.get(field, ""))
                 peer_value = self._normalize_overlap_text(peer.get(field, ""))
                 if current_value and current_value == peer_value:
                     alerts.append(f"{field} is identical to {peer_name}")
-            for field in list_fields:
+            for field in self._OVERLAP_LIST_FIELDS:
                 current_items = self._normalize_overlap_items(profile.get(field, []))
                 peer_items = self._normalize_overlap_items(peer.get(field, []))
                 if current_items and current_items == peer_items:
@@ -341,7 +354,7 @@ class DistillationRefinementMixin:
     @staticmethod
     def _split_metric_map(value: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
-        for item in re.split(r"[；;]\s*", str(value or "").strip()):
+        for item in DistillationRefinementMixin._split_metric_entries(value):
             if not item or "=" not in item:
                 continue
             key, raw = item.split("=", 1)
@@ -356,8 +369,156 @@ class DistillationRefinementMixin:
         return result
 
     @staticmethod
+    def _split_metric_entries(value: str) -> List[str]:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        pattern = r"(?:[;；/\n]\s*|锛\?\s*|(?<=[^=])[，,]\s*(?=[^=，,;；/\n]+?=))"
+        return [item.strip() for item in re.split(pattern, text) if item.strip()]
+
+    @staticmethod
     def _safe_int(value: Any) -> int:
         try:
             return int(value)
         except (TypeError, ValueError):
             return 0
+
+    def _enforce_profile_distinction(
+        self,
+        profile: Dict[str, Any],
+        *,
+        bucket: Dict[str, List[str]],
+        peer_profiles: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        refined = dict(profile)
+        for field in self._CRITICAL_SCALAR_FIELDS:
+            if not self._field_overlaps_with_peer(refined, field, peer_profiles):
+                continue
+            refined[field] = self._pick_distinct_scalar(field, refined, bucket, peer_profiles)
+        for field in self._OVERLAP_LIST_FIELDS:
+            current_items = self._normalize_overlap_items(refined.get(field, []))
+            if not current_items:
+                continue
+            filtered = self._filter_distinct_list_items(refined.get(field, []), field, peer_profiles)
+            if filtered:
+                refined[field] = filtered
+        return refined
+
+    def _field_overlaps_with_peer(
+        self,
+        profile: Dict[str, Any],
+        field: str,
+        peer_profiles: Dict[str, Dict[str, Any]],
+    ) -> bool:
+        current_value = self._normalize_overlap_text(profile.get(field, ""))
+        if not current_value:
+            return False
+        for peer in peer_profiles.values():
+            if current_value == self._normalize_overlap_text(peer.get(field, "")):
+                return True
+        return False
+
+    def _pick_distinct_scalar(
+        self,
+        field: str,
+        profile: Dict[str, Any],
+        bucket: Dict[str, List[str]],
+        peer_profiles: Dict[str, Dict[str, Any]],
+    ) -> str:
+        peer_values = {
+            self._normalize_overlap_text(peer.get(field, ""))
+            for peer in peer_profiles.values()
+            if self._normalize_overlap_text(peer.get(field, ""))
+        }
+        for candidate in self._field_candidate_values(field, profile, bucket):
+            normalized = self._normalize_overlap_text(candidate)
+            if not normalized or normalized in peer_values:
+                continue
+            return str(candidate).strip()
+        return "证据不足"
+
+    def _field_candidate_values(
+        self,
+        field: str,
+        profile: Dict[str, Any],
+        bucket: Dict[str, List[str]],
+    ) -> List[str]:
+        descriptions = self._dedupe_texts(bucket.get("descriptions", []), 10)
+        dialogues = self._dedupe_texts(bucket.get("dialogues", []), 10)
+        thoughts = self._dedupe_texts(bucket.get("thoughts", []), 10)
+        decision_rules = (
+            list(profile.get("decision_rules", []))
+            if isinstance(profile.get("decision_rules"), list)
+            else self._split_persona_scalar(str(profile.get("decision_rules", "")))
+        )
+        forbidden_behaviors = (
+            list(profile.get("forbidden_behaviors", []))
+            if isinstance(profile.get("forbidden_behaviors"), list)
+            else self._split_persona_scalar(str(profile.get("forbidden_behaviors", "")))
+        )
+        life_experience = (
+            list(profile.get("life_experience", []))
+            if isinstance(profile.get("life_experience"), list)
+            else self._split_persona_scalar(str(profile.get("life_experience", "")))
+        )
+        candidates_by_field = {
+            "identity_anchor": [*descriptions, *thoughts, str(profile.get("core_identity", "")), str(profile.get("name", ""))],
+            "soul_goal": [*thoughts, *decision_rules, str(profile.get("hidden_desire", ""))],
+            "temperament_type": [
+                str(profile.get("temperament_type", "")),
+                self._infer_temperament_type(
+                    list(profile.get("core_traits", [])),
+                    str(profile.get("speech_style", "")),
+                    dict(profile.get("values", {})) if isinstance(profile.get("values", {}), dict) else {},
+                    str(profile.get("archetype", "")),
+                ),
+            ],
+            "background_imprint": [*life_experience, *descriptions],
+            "social_mode": [*dialogues, *descriptions, str(profile.get("speech_style", "")), str(profile.get("action_style", ""))],
+            "reward_logic": [*decision_rules, *thoughts, str(profile.get("worldview", ""))],
+            "belief_anchor": [str(profile.get("worldview", "")), str(profile.get("soul_goal", "")), str(profile.get("moral_bottom_line", ""))],
+            "moral_bottom_line": [*forbidden_behaviors, str(profile.get("belief_anchor", ""))],
+            "stress_response": [
+                self._infer_stress_response(
+                    dict(profile.get("emotion_profile", {})) if isinstance(profile.get("emotion_profile", {}), dict) else {},
+                    decision_rules,
+                    str(profile.get("speech_style", "")),
+                    forbidden_behaviors,
+                    str(profile.get("archetype", "")),
+                ),
+                *thoughts,
+            ],
+            "story_role": [str(profile.get("core_identity", "")), *descriptions, str(profile.get("action_style", ""))],
+            "others_impression": [*descriptions, str(profile.get("speech_style", "")), str(profile.get("identity_anchor", ""))],
+            "restraint_threshold": [*forbidden_behaviors, *thoughts, str(profile.get("hidden_desire", ""))],
+        }
+        seen = set()
+        candidates: List[str] = []
+        for raw in candidates_by_field.get(field, [str(profile.get(field, ""))]):
+            candidate = str(raw or "").strip()
+            normalized = self._normalize_overlap_text(candidate)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            candidates.append(candidate)
+        return candidates
+
+    def _filter_distinct_list_items(
+        self,
+        value: Any,
+        field: str,
+        peer_profiles: Dict[str, Dict[str, Any]],
+    ) -> List[str]:
+        items = list(value) if isinstance(value, list) else self._split_persona_scalar(str(value or ""))
+        peer_items = set()
+        for peer in peer_profiles.values():
+            peer_items.update(self._normalize_overlap_items(peer.get(field, [])))
+        distinct: List[str] = []
+        seen = set()
+        for item in items:
+            normalized = self._normalize_overlap_text(item)
+            if not normalized or normalized in peer_items or normalized in seen:
+                continue
+            seen.add(normalized)
+            distinct.append(str(item).strip())
+        return distinct

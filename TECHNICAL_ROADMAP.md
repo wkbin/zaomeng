@@ -150,6 +150,155 @@ Tasks:
 4. Validate that skill docs, release docs, and packaging docs all describe the
    same architecture.
 
+## Next Focus: Productization Priorities
+
+The architecture reset is largely done. The next phase is no longer about
+separating skill and CLI boundaries; it is about making the host-driven flow
+stable, high-quality, and release-ready.
+
+The highest-value work now is:
+
+1. make the host execution path complete by default
+2. keep multi-character distillation differentiated
+3. make exported artifacts stable and easy to inspect
+4. turn regression coverage into true workflow coverage
+5. reduce manual release and version drift
+
+## P6: Host Workflow Completion
+
+Status: completed
+
+Goals:
+- Make the host-driven path succeed end-to-end without manual glue steps.
+- Ensure a completed distillation run leaves a complete, usable artifact set.
+
+Tasks:
+1. Make the expected host sequence explicit:
+   - excerpt
+   - prompt payload
+   - host generation
+   - persona bundle materialization
+   - relation graph export
+   - chat-ready state
+2. Add clear success and failure markers for each stage so users do not confuse
+   partial output with completion.
+3. Ensure `PROFILE.generated.md` is never treated as the final state when split
+   persona files are expected.
+4. Tighten host-facing docs so persona materialization and graph export are
+   described as standard post-process steps, not optional cleanup.
+5. Add workflow checks that verify the complete artifact set after a host run.
+
+## P7: Distillation Quality And Differentiation
+
+Status: completed
+
+Goals:
+- Reduce cross-character homogenization.
+- Improve character uniqueness without drifting away from source evidence.
+
+Tasks:
+1. Keep multi-character distillation isolated per character rather than sharing
+   a blended generation context.
+2. Strengthen differentiation checks for:
+   - identity anchor
+   - soul goal
+   - background imprint
+   - social mode
+   - reward logic
+   - belief anchor
+   - temperament type
+   - stress response
+3. Add post-generation overlap warnings when multiple characters converge on
+   near-identical descriptions.
+4. Prefer empty / evidence-insufficient outputs over generic filler text when
+   character-specific support is weak.
+5. Add fixed regression fixtures for a few known novels and character sets to
+   catch quality collapse early.
+
+## P8: Graph Export Stability And UX
+
+Status: completed
+
+Goals:
+- Make relationship graph outputs reliable when opened directly by users.
+- Keep the visualization useful even when local browser policies are strict.
+
+Tasks:
+1. Treat static SVG as the preferred display artifact when available.
+2. Keep Mermaid source as a reference/debug artifact rather than the only
+   rendering path.
+3. Continue hardening HTML output for `file://` opening, browser script
+   restrictions, and local rendering differences.
+4. Keep graph layout readable:
+   - no table/card horizontal squeeze
+   - predictable mobile fallback
+   - graceful empty/error states
+5. Add regression coverage for exported HTML/SVG structure and artifact paths.
+
+## P9: End-To-End Regression Coverage
+
+Status: completed
+
+Goals:
+- Test the product the way users actually use it.
+- Catch workflow regressions instead of only local helper regressions.
+
+Tasks:
+1. Add end-to-end regression cases that cover:
+   - excerpt generation
+   - payload generation
+   - host output ingestion
+   - persona bundle completion
+   - relation graph export
+   - chat-ready persona loading
+2. Keep at least one fixture focused on profile completeness.
+3. Keep at least one fixture focused on relationship graph generation.
+4. Keep at least one fixture focused on persona fidelity in `act` / `observe`
+   flows.
+5. Prefer stable fixture assertions over brittle wording checks where possible.
+
+## P10: Versioning, Metadata, And Release Discipline
+
+Status: completed
+
+Goals:
+- Reduce manual drift across docs, metadata, examples, and release assets.
+- Make the skill package look and behave like a polished published artifact.
+
+Tasks:
+1. Keep machine-readable metadata as a first-class part of the skill package.
+2. Reduce version drift between:
+   - `SKILL.md`
+   - `README.md`
+   - `README_EN.md`
+   - `PUBLISH.md`
+   - examples
+   - metadata
+3. Consider introducing a single version source plus a sync step for release
+   files.
+4. Keep packaging docs, install docs, and skill metadata aligned.
+5. Keep release packaging deterministic and easy to validate before publish.
+
+## P11: Further Code Thinning
+
+Status: in progress
+
+Goals:
+- Keep implementation weight proportional to what the product truly needs.
+- Let LLM-driven behavior handle expression while code handles structure.
+
+Tasks:
+1. Continue trimming authored fallback prose where the host LLM should be doing
+   the real expressive work.
+2. Keep rules structural and boundary-oriented rather than writing large
+   hand-authored response bodies.
+3. Revisit overly large modules and split only where it improves clarity and
+   ownership.
+4. Prefer small, composable helpers over broad orchestration files when adding
+   new behavior.
+5. Treat unnecessary compatibility scaffolding as debt once the new path is the
+   only supported path.
+
 ## Non-Goals For Now
 
 - No heavy DI framework.

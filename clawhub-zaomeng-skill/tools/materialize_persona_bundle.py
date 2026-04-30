@@ -49,6 +49,7 @@ def main() -> int:
         "novel_id": profile.get("novel_id", ""),
         "profile_source": str(source.resolve()),
         "persona_dir": str(target_dir.resolve()),
+        "status_path": str((target_dir / "ARTIFACT_STATUS.generated.json").resolve()),
         "generated_files": sorted(path.name for path in target_dir.glob("*.generated.md")),
         "editable_files": sorted(path.name for path in target_dir.glob("*.md") if not path.name.endswith(".generated.md")),
     }

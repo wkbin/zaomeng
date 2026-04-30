@@ -3,25 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import re
+import importlib
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-try:
-    from .install_skill import iter_skill_entries
-except ImportError:
-    from install_skill import iter_skill_entries
-
-
-VERSION_PATTERN = re.compile(r"^- Version:\s*(?P<version>[^\s]+)\s*$", re.MULTILINE)
-
-
-def read_skill_version(publish_path: Path) -> str:
-    text = publish_path.read_text(encoding="utf-8")
-    match = VERSION_PATTERN.search(text)
-    if not match:
-        raise ValueError(f"Could not find skill version in {publish_path}")
-    return match.group("version")
+_PACKAGE_PREFIX = f"{__package__}." if __package__ else ""
+_install_skill = importlib.import_module(f"{_PACKAGE_PREFIX}install_skill")
+_skill_metadata = importlib.import_module(f"{_PACKAGE_PREFIX}skill_metadata")
 
 
 def iter_files(root: Path):
@@ -43,7 +31,7 @@ def build_archive(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as zf:
-        for entry_name in iter_skill_entries():
+        for entry_name in _install_skill.iter_skill_entries():
             source = skill_dir / entry_name
             if not source.exists():
                 continue
@@ -74,7 +62,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--version",
-        help="Optional version override. Defaults to the Version value in clawhub-zaomeng-skill/PUBLISH.md.",
+        help="Optional version override. Defaults to the version in clawhub-zaomeng-skill/.metadata.json.",
     )
     parser.add_argument(
         "--package-name",
@@ -95,7 +83,7 @@ def main() -> int:
     if not skill_dir.exists():
         raise FileNotFoundError(f"Missing skill directory: {skill_dir}")
 
-    version = args.version or read_skill_version(skill_dir / "PUBLISH.md")
+    version = args.version or _skill_metadata.read_skill_version(skill_dir)
     archive_path = build_archive(
         skill_dir,
         output_dir,

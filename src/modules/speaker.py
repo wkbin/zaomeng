@@ -84,7 +84,6 @@ class Speaker:
         self.rest_tokens = tuple(str(item) for item in speaker_rules.get("rest_tokens", []))
         self.view_tokens = tuple(str(item) for item in speaker_rules.get("view_tokens", []))
         self.care_tokens = tuple(str(item) for item in speaker_rules.get("care_tokens", []))
-        self.generic_fillers = tuple(str(item) for item in speaker_rules.get("generic_fillers", []))
         self.trait_priority_map = {
             str(key).strip(): str(value).strip()
             for key, value in speaker_rules.get("trait_priority_map", {}).items()
@@ -127,8 +126,7 @@ class Speaker:
     ) -> Dict[str, Any]:
         relation_state = relation_state or {}
         name = str(character_profile.get("name", "角色")).strip() or "角色"
-        recent = history[-6:]
-        recent_text = "\n".join(f"{item.get('speaker', '')}: {item.get('message', '')}" for item in recent)
+        recent_text = "\n".join(f"{item.get('speaker', '')}: {item.get('message', '')}" for item in history[-6:])
         similar = self.correction_service.search_similar_corrections(
             recent_text,
             character=name,
@@ -145,7 +143,7 @@ class Speaker:
             "target_display": target_display,
             "topic": topic,
             "voice": voice,
-            "fallback_reply": self._fallback_reply(context, target_display, voice, relation_state),
+            "fallback_reply": self._fallback_reply(topic, context, target_display, voice, relation_state),
             "style_rules": self._summarize_style_rules(voice),
             "behavior_rules": self._summarize_behavior_rules(character_profile, voice),
             "relation_rules": self._summarize_relation_rules(target_display, relation_state, relation_hint),
@@ -176,7 +174,6 @@ class Speaker:
         user_edits = self._clean_list(profile.get("user_edits", []))
         notable_interactions = self._clean_list(profile.get("notable_interactions", []))
         relationship_updates = self._clean_list(profile.get("relationship_updates", []))
-        role_tags = self._clean_list(profile.get("role_tags", []))
         speech_style = str(profile.get("speech_style", "")).strip()
         speech_habits = dict(profile.get("speech_habits", {})) if isinstance(profile.get("speech_habits", {}), dict) else {}
 
@@ -187,7 +184,6 @@ class Speaker:
                 priority_scores[mapped] = priority_scores.get(mapped, 5) + 2
         ordered = sorted(self.priority_order, key=lambda item: priority_scores.get(item, 5), reverse=True)
         primary = ordered[0] if ordered else "责任"
-        secondary = ordered[1] if len(ordered) > 1 else primary
 
         cadence = str(speech_habits.get("cadence", "")).strip() or self._infer_cadence(speech_style, user_edits, typical_lines)
         signature_phrases = self._clean_list(speech_habits.get("signature_phrases", []))[:4]
@@ -229,13 +225,11 @@ class Speaker:
             "notable_interactions": notable_interactions[:4],
             "relationship_updates": relationship_updates[:4],
             "primary_priority": primary,
-            "secondary_priority": secondary,
             "direct": direct,
             "restrained": restrained,
             "worldview": worldview,
             "goal": goal,
             "hidden_desire": hidden_desire,
-            "role_tags": role_tags[:4],
         }
         for key in self.VOICE_SCALAR_FIELDS:
             voice[key] = str(profile.get(key, "")).strip()
@@ -318,14 +312,14 @@ class Speaker:
 
     def _fallback_reply(
         self,
+        topic: str,
         context: str,
         target_display: str,
         voice: Dict[str, Any],
         relation_state: Dict[str, Any],
     ) -> str:
-        topic = self._classify_topic(context)
         prefix = self._opening(target_display, voice, relation_state)
-        core = self._topic_reply(topic, context, target_display, voice, relation_state)
+        core = self._topic_reply(topic, context, voice, relation_state)
         drive = self._drive_line(voice, topic)
         parts = [part.strip() for part in (prefix, core, drive) if str(part).strip()]
         reply = "。".join(parts)
@@ -345,7 +339,6 @@ class Speaker:
         self,
         topic: str,
         context: str,
-        target_display: str,
         voice: Dict[str, Any],
         relation_state: Dict[str, Any],
     ) -> str:
@@ -355,8 +348,6 @@ class Speaker:
             return f"像“{taboo}”这种话，不能当作寻常话随口一提"
 
         if topic in {"question", "war", "view"}:
-            stance = str(voice.get("thinking_style", "")).strip() or str(voice.get("worldview", "")).strip()
-            action = str(voice.get("action_style", "")).strip() or str(voice.get("goal", "")).strip()
             if voice.get("primary_priority") == "责任":
                 return f"依我看，先得把众人和后路安顿住，再定夺怎么往前走"
             if voice.get("primary_priority") == "勇气":
@@ -364,7 +355,7 @@ class Speaker:
             return f"依我看，先看局势轻重，再决定这一步能不能做"
 
         if topic == "care":
-            bond = self._first_nonempty(voice.get("key_bonds", []), target_display)
+            bond = next(iter(self._clean_list(voice.get("key_bonds", []))), target_display)
             return f"人心不安的时候，最要紧的是先把该护住的护住。{bond}这层分量，我心里有数"
 
         if topic == "rest":
@@ -488,13 +479,6 @@ class Speaker:
             merged.append(text)
             seen.add(text)
         return merged
-
-    @staticmethod
-    def _first_nonempty(values: Any, fallback: str = "") -> str:
-        for item in Speaker._clean_list(values):
-            if item:
-                return item
-        return fallback
 
     @staticmethod
     def _safe_int(value: Any, default: int = 0) -> int:

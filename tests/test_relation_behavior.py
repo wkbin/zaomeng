@@ -1013,6 +1013,133 @@ class RelationBehaviorTests(unittest.TestCase):
             self.assertEqual(second, [("\u6797\u9edb\u7389", "\u56de\u5e94")])
             self.assertEqual(session["state"]["focus_targets"]["\u8d3e\u5b9d\u7389"], "\u6797\u9edb\u7389")
 
+    def test_act_once_passes_persona_bundle_and_relation_overlay_into_llm_messages(self):
+        class CaptureLLM:
+            def __init__(self):
+                self.calls = []
+
+            def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, stream=False):
+                self.calls.append(messages)
+                return {"content": "宝玉，我今日还好。"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            config.update({"chat_engine": {"generation_mode": "llm-only"}})
+
+            self.write_profile(
+                root,
+                "hongloumeng",
+                "\u6797\u9edb\u7389",
+                speech_style="\u514b\u5236",
+                soul_goal="\u5b88\u4f4f\u4e0d\u80af\u660e\u8bf4\u7684\u771f\u5fc3",
+                thinking_style="\u5148\u8bd5\u63a2\u518d\u56de\u5e94",
+                values={"\u5584\u826f": 8},
+            )
+            self.write_profile(
+                root,
+                "hongloumeng",
+                "\u8d3e\u5b9d\u7389",
+                speech_style="\u76f4\u767d",
+                soul_goal="\u628a\u5728\u610f\u7684\u4eba\u7559\u5728\u8eab\u8fb9",
+                values={"\u81ea\u7531": 8},
+            )
+
+            persona_dir = root / "characters" / "hongloumeng" / "\u6797\u9edb\u7389"
+            (persona_dir / "STYLE.md").write_text(
+                "# STYLE\n\n"
+                "- speech_style: \u8f7b\u58f0\u7ec6\u8bed\uff0c\u8bdd\u91cc\u85cf\u950b\n"
+                "- signature_phrases: \u4e5f\u7f62\uff1b\u5012\u4e5f\u672a\u5fc5\n",
+                encoding="utf-8",
+            )
+            (persona_dir / "MEMORY.md").write_text(
+                "# MEMORY\n\n"
+                "- user_edits: \u8bb0\u4f4f\uff1a\u6797\u9edb\u7389\u8bf4\u8bdd\u8981\u66f4\u77ed\uff0c\u4e0d\u8981\u8bf4\u6559\n"
+                "- notable_interactions: \u8fd1\u6765\u548c\u5b9d\u7389\u591a\u534a\u5148\u8bd5\u63a2\uff0c\u518d\u6162\u6162\u8f6f\u4e0b\u6765\n",
+                encoding="utf-8",
+            )
+            (persona_dir / "RELATIONS.md").write_text(
+                "# RELATIONS\n\n"
+                "## \u8d3e\u5b9d\u7389\n"
+                "- trust: 9\n"
+                "- affection: 10\n"
+                "- appellation_to_target: \u5b9d\u7389\n"
+                "- typical_interaction: \u5148\u8bd5\u63a2\uff0c\u518d\u77ed\u6682\u7f13\u548c\n"
+                "- hidden_attitude: \u5634\u4e0a\u85cf\u523a\uff0c\u5fc3\u91cc\u5176\u5b9e\u5728\u610f\n",
+                encoding="utf-8",
+            )
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            capture_llm = CaptureLLM()
+            engine.llm = capture_llm
+            session = engine.create_session("hongloumeng.txt", "act")
+
+            replies = engine.act_once(session, "\u8d3e\u5b9d\u7389", "\u6797\u59b9\u59b9\uff0c\u4eca\u65e5\u53ef\u5927\u5b89\u4e86\uff1f")
+
+            self.assertEqual(replies, [("\u6797\u9edb\u7389", "宝玉，我今日还好。")])
+            self.assertEqual(len(capture_llm.calls), 1)
+            system_prompt = capture_llm.calls[0][0]["content"]
+            user_prompt = capture_llm.calls[0][1]["content"]
+            self.assertIn("\u5b88\u4f4f\u4e0d\u80af\u660e\u8bf4\u7684\u771f\u5fc3", system_prompt)
+            self.assertIn("\u8f7b\u58f0\u7ec6\u8bed\uff0c\u8bdd\u91cc\u85cf\u950b", system_prompt)
+            self.assertIn("\u8bb0\u4f4f\uff1a\u6797\u9edb\u7389\u8bf4\u8bdd\u8981\u66f4\u77ed\uff0c\u4e0d\u8981\u8bf4\u6559", system_prompt)
+            self.assertIn("\u5f53\u524d\u4e3b\u8981\u5bf9\u8c61: \u5b9d\u7389", system_prompt)
+            self.assertIn("trust=9, affection=10", system_prompt)
+            self.assertIn("\u5148\u8bd5\u63a2\uff0c\u518d\u77ed\u6682\u7f13\u548c", system_prompt)
+            self.assertIn("\u5f53\u524d\u4e3b\u8981\u56de\u5e94\u5bf9\u8c61: \u8d3e\u5b9d\u7389", user_prompt)
+            self.assertIn("\u8d3e\u5b9d\u7389: \u6797\u59b9\u59b9\uff0c\u4eca\u65e5\u53ef\u5927\u5b89\u4e86\uff1f", user_prompt)
+
+    def test_observe_once_passes_group_relation_overview_into_llm_messages(self):
+        class CaptureLLM:
+            def __init__(self):
+                self.calls = []
+
+            def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, stream=False):
+                self.calls.append(messages)
+                return {"content": "我先听明白，再接这句话。"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.make_config(root)
+            config.update({"chat_engine": {"generation_mode": "llm-only", "max_speakers_per_turn": 1}})
+
+            self.write_profile(root, "sanguo", "\u5218\u5907", speech_style="\u514b\u5236", values={"\u8d23\u4efb": 9})
+            self.write_profile(
+                root,
+                "sanguo",
+                "\u5173\u7fbd",
+                speech_style="\u51b7\u9759\u7b80\u77ed",
+                soul_goal="\u628a\u8ba4\u4e0b\u7684\u60c5\u5206\u5b88\u5230\u5e95",
+                values={"\u5fe0\u8bda": 9},
+            )
+            self.write_profile(root, "sanguo", "\u5f20\u98de", speech_style="\u76f4\u767d", values={"\u52c7\u6c14": 9})
+            self.write_relations(
+                root,
+                "sanguo",
+                {
+                    "\u5218\u5907_\u5173\u7fbd": {"trust": 9, "affection": 8, "hostility": 0, "power_gap": 0},
+                    "\u5f20\u98de_\u5173\u7fbd": {"trust": 7, "affection": 6, "hostility": 1, "power_gap": 0},
+                },
+            )
+
+            engine = self.make_runtime_parts(config)["chat_engine"]
+            capture_llm = CaptureLLM()
+            engine.llm = capture_llm
+            session = engine.create_session("sanguo.txt", "observe")
+
+            replies = engine.observe_once(session, "\u5218\u5907\uff1a\u4e91\u957f\uff0c\u4f60\u770b\u4eca\u65e5\u8fd9\u5c40\u9762\u8be5\u600e\u4e48\u7a33\u4f4f\uff1f")
+
+            self.assertEqual(replies, [("\u5173\u7fbd", "我先听明白，再接这句话。")])
+            self.assertEqual(len(capture_llm.calls), 1)
+            system_prompt = capture_llm.calls[0][0]["content"]
+            user_prompt = capture_llm.calls[0][1]["content"]
+            self.assertIn("\u628a\u8ba4\u4e0b\u7684\u60c5\u5206\u5b88\u5230\u5e95", system_prompt)
+            self.assertIn("\u7fa4\u4f53\u5173\u7cfb\u6982\u89c8", system_prompt)
+            self.assertIn("\u5218\u5907(trust=9,aff=8,host=0)", system_prompt)
+            self.assertIn("\u5f20\u98de(trust=7,aff=6,host=1)", system_prompt)
+            self.assertIn("\u4f1a\u8bdd\u6a21\u5f0f: observe", user_prompt)
+            self.assertIn("\u5f53\u524d\u8f6e\u53d1\u8d77\u8005: \u5218\u5907", user_prompt)
+
     def test_speaker_avoids_dumping_typical_line_as_reply(self):
         speaker = self.make_runtime_parts(Config())["speaker"]
         profile = {
@@ -1848,6 +1975,86 @@ class RelationBehaviorTests(unittest.TestCase):
         self.assertIn("Overlap Alerts", capture_llm.messages[1]["content"])
         self.assertIn("identity_anchor is identical to", capture_llm.messages[1]["content"])
         self.assertIn("\u4e54\u5bb6\u52b2", capture_llm.messages[1]["content"])
+
+    def test_distiller_second_pass_enforces_distinction_when_llm_returns_empty(self):
+        class EmptyLLM:
+            def estimate_cost(self, prompt: str, expected_completion_ratio: float = 0.0) -> float:
+                return 0.0
+
+            def is_generation_enabled(self) -> bool:
+                return True
+
+            def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, stream=False):
+                return {"content": ""}
+
+        config = Config()
+        config.update({"distillation": {"second_pass_mode": "llm-only"}})
+        distiller = self.make_runtime_parts(config)["distiller"]
+        distiller.llm_client = EmptyLLM()
+
+        refined = distiller._refine_profile_with_llm(
+            {
+                "name": "\u9f50\u590f",
+                "identity_anchor": "\u5b88\u89c4\u5219\u7684\u4eba",
+                "soul_goal": "\u628a\u4eba\u62c9\u51fa\u6b7b\u5c40",
+                "speech_style": "\u5148\u89c2\u5bdf\u518d\u4e0b\u7ed3\u8bba",
+                "background_imprint": "\u957f\u671f\u8eab\u5728\u9ad8\u538b\u89c4\u5219\u4e2d",
+                "social_mode": "\u5148\u89c2\u5bdf\u540e\u7ed3\u76df",
+                "reward_logic": "\u8bb0\u6069\u4e5f\u8bb0\u8d26",
+                "belief_anchor": "\u89c4\u5219\u4e5f\u80fd\u7528\u6765\u4fdd\u4eba",
+                "decision_rules": ["\u5148\u62c6\u89c4\u5219", "\u5148\u627e\u9000\u8def", "\u7ed9\u81ea\u5df1\u4eba\u7559\u751f\u8def"],
+                "key_bonds": ["\u5e76\u80a9\u6d3b\u4e0b\u6765\u7684\u4eba", "\u53ef\u4ee5\u4ea4\u80cc\u7684\u4eba"],
+                "core_traits": ["\u51b7\u9759", "\u514b\u5236", "\u8c0b\u5b9a\u540e\u52a8"],
+                "forbidden_behaviors": ["\u62ff\u540c\u4f34\u5f53\u5f03\u5b50"],
+                "life_experience": ["\u957f\u671f\u5728\u89c4\u5219\u4e0e\u6b7b\u5c40\u95f4\u6c42\u751f"],
+                "emotion_profile": {"anger_style": "\u5148\u538b\u4f4f", "joy_style": "", "grievance_style": ""},
+                "worldview": "\u865a\u5b9e\u90fd\u8981\u5148\u7b97\u6e05",
+                "action_style": "\u770b\u6e05\u7834\u7efd\u624d\u51fa\u624b",
+                "story_role": "\u62c6\u89c4\u5219\u7684\u5c40\u5185\u4eba",
+                "others_impression": "\u8868\u9762\u51b7\u9759\u4e0d\u597d\u4eb2\u8fd1",
+                "restraint_threshold": "\u5e73\u65f6\u538b\u5f97\u4f4f\uff0c\u903c\u5230\u5e95\u7ebf\u624d\u4f1a\u7ffb\u8138",
+                "temperament_type": "\u51b7\u9759\u62c6\u5c40\u578b",
+                "stress_response": "\u9ad8\u538b\u4e0b\u5148\u62c6\u89c4\u5219",
+                "arc": {},
+                "arc_summary": "",
+                "arc_confidence": 0,
+            },
+            bucket={
+                "descriptions": ["\u4ed6\u770b\u4eba\u5148\u770b\u5c40\u52bf\u4e0e\u89c4\u5219\u7f3a\u53e3"],
+                "dialogues": ["\u5148\u522b\u6025\uff0c\u628a\u8fd9\u6761\u89c4\u5219\u518d\u8fc7\u4e00\u904d\u3002"],
+                "thoughts": ["\u4ed6\u5fc3\u91cc\u5148\u7b97\u7684\u662f\u4ee3\u4ef7\u548c\u9000\u8def"],
+                "timeline": [],
+            },
+            arc_values=[],
+            peer_profiles={
+                "\u4e54\u5bb6\u52b2": {
+                    "name": "\u4e54\u5bb6\u52b2",
+                    "identity_anchor": "\u5b88\u89c4\u5219\u7684\u4eba",
+                    "soul_goal": "\u628a\u4eba\u62c9\u51fa\u6b7b\u5c40",
+                    "background_imprint": "\u957f\u671f\u8eab\u5728\u9ad8\u538b\u89c4\u5219\u4e2d",
+                    "social_mode": "\u5148\u89c2\u5bdf\u540e\u7ed3\u76df",
+                    "reward_logic": "\u8bb0\u6069\u4e5f\u8bb0\u8d26",
+                    "belief_anchor": "\u89c4\u5219\u4e5f\u80fd\u7528\u6765\u4fdd\u4eba",
+                    "decision_rules": ["\u5148\u62c6\u89c4\u5219", "\u5148\u627e\u9000\u8def"],
+                    "key_bonds": ["\u5e76\u80a9\u6d3b\u4e0b\u6765\u7684\u4eba"],
+                    "core_traits": ["\u51b7\u9759", "\u514b\u5236"],
+                    "moral_bottom_line": "\u62ff\u540c\u4f34\u5f53\u5f03\u5b50",
+                    "stress_response": "\u9ad8\u538b\u4e0b\u5148\u62c6\u89c4\u5219",
+                    "story_role": "\u62c6\u89c4\u5219\u7684\u5c40\u5185\u4eba",
+                    "others_impression": "\u8868\u9762\u51b7\u9759\u4e0d\u597d\u4eb2\u8fd1",
+                    "restraint_threshold": "\u5e73\u65f6\u538b\u5f97\u4f4f\uff0c\u903c\u5230\u5e95\u7ebf\u624d\u4f1a\u7ffb\u8138",
+                    "temperament_type": "\u51b7\u9759\u62c6\u5c40\u578b",
+                }
+            },
+            overlap_report=["identity_anchor is identical to \u4e54\u5bb6\u52b2"],
+        )
+
+        self.assertEqual(refined["identity_anchor"], "\u4ed6\u770b\u4eba\u5148\u770b\u5c40\u52bf\u4e0e\u89c4\u5219\u7f3a\u53e3")
+        self.assertEqual(refined["soul_goal"], "\u4ed6\u5fc3\u91cc\u5148\u7b97\u7684\u662f\u4ee3\u4ef7\u548c\u9000\u8def")
+        self.assertEqual(refined["social_mode"], "\u5148\u522b\u6025\uff0c\u628a\u8fd9\u6761\u89c4\u5219\u518d\u8fc7\u4e00\u904d\u3002")
+        self.assertEqual(refined["decision_rules"], ["\u7ed9\u81ea\u5df1\u4eba\u7559\u751f\u8def"])
+        self.assertEqual(refined["key_bonds"], ["\u53ef\u4ee5\u4ea4\u80cc\u7684\u4eba"])
+        self.assertEqual(refined["core_traits"], ["\u8c0b\u5b9a\u540e\u52a8"])
 
     def test_distiller_local_refine_preserves_profile_when_local_rewrite_is_disabled(self):
         distiller = self.make_runtime_parts(Config())["distiller"]

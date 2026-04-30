@@ -521,19 +521,21 @@ class ChatEngine:
         guidance: Dict[str, Any],
         prior_responses: List[tuple[str, str]],
     ) -> List[Dict[str, str]]:
-        system_lines = self._build_llm_system_lines(responder, guidance)
-        user_lines = self._build_llm_user_lines(
-            session=session,
-            speaker=speaker,
-            responder=responder,
-            message=message,
-            target_name=target_name,
-            prior_responses=prior_responses,
-        )
-
         return [
-            {"role": "system", "content": "\n".join(system_lines)},
-            {"role": "user", "content": "\n".join(user_lines)},
+            {"role": "system", "content": "\n".join(self._build_llm_system_lines(responder, guidance))},
+            {
+                "role": "user",
+                "content": "\n".join(
+                    self._build_llm_user_lines(
+                        session=session,
+                        speaker=speaker,
+                        responder=responder,
+                        message=message,
+                        target_name=target_name,
+                        prior_responses=prior_responses,
+                    )
+                ),
+            },
         ]
 
     def _build_llm_system_lines(self, responder: str, guidance: Dict[str, Any]) -> List[str]:
@@ -582,11 +584,10 @@ class ChatEngine:
         target_name: str,
         prior_responses: List[tuple[str, str]],
     ) -> List[str]:
-        history_lines = self._render_recent_history(session)
-        turn_lines = [f"{speaker}: {message}"]
-        if prior_responses:
-            turn_lines.extend(f"{name}: {reply}" for name, reply in prior_responses)
-
+        history_lines = [
+            f"{item.get('speaker', '')}: {item.get('message', '')}"
+            for item in session["history"][-self.llm_history_messages :]
+        ]
         lines = [
             f"会话模式: {session.get('mode', 'observe')}",
             f"当前轮发起者: {speaker}",
@@ -597,13 +598,10 @@ class ChatEngine:
             lines.append("最近对话:")
             lines.extend(f"- {line}" for line in history_lines)
         lines.append("本轮已发生:")
-        lines.extend(f"- {line}" for line in turn_lines)
+        lines.append(f"- {speaker}: {message}")
+        lines.extend(f"- {name}: {reply}" for name, reply in prior_responses)
         lines.append("请输出 1 到 3 句符合人物个性、关系与场景推进的自然回应。")
         return lines
-
-    def _render_recent_history(self, session: Dict[str, Any]) -> List[str]:
-        recent_window = session["history"][-self.llm_history_messages :]
-        return [f"{item.get('speaker', '')}: {item.get('message', '')}" for item in recent_window]
 
     @staticmethod
     def _sanitize_generated_reply(responder: str, content: str, fallback_reply: str = "") -> str:
@@ -1357,7 +1355,11 @@ class ChatEngine:
         if not target:
             return {}
         matrix = session["state"].setdefault("relation_matrix", {})
-        return matrix.get(self._pair_key(speaker, target), {})
+        state = dict(matrix.get(self._pair_key(speaker, target), {}))
+        novel_id = session.get("novel_id")
+        if novel_id:
+            state = self._merge_relation_overlay(state, speaker, target, novel_id)
+        return state
 
     def _active_characters(
         self,

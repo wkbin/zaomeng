@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
+import json
+import re
 import unittest
 from pathlib import Path
+
+from scripts.skill_metadata import read_skill_version
 
 
 class PackagingDocsTests(unittest.TestCase):
@@ -16,7 +20,7 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertNotIn("runtime/zaomeng_cli.py", manifest_text)
         self.assertNotIn("runtime/src", manifest_text)
         self.assertIn('"name": "zaomeng-skill"', metadata_text)
-        self.assertIn('"version": "4.1.3"', metadata_text)
+        self.assertIn('"version": "', metadata_text)
 
     def test_install_docs_describe_prompt_first_install(self):
         install_text = Path("clawhub-zaomeng-skill/INSTALL.md").read_text(encoding="utf-8")
@@ -99,6 +103,23 @@ class PackagingDocsTests(unittest.TestCase):
         self.assertIn("差分校验", validation_text)
         self.assertIn("evidence_source", validation_text)
         self.assertIn("interest_claim", validation_text)
+
+    def test_skill_version_is_synced_across_metadata_and_release_docs(self):
+        skill_dir = Path("clawhub-zaomeng-skill")
+        version = read_skill_version(skill_dir)
+        metadata = json.loads((skill_dir / ".metadata.json").read_text(encoding="utf-8"))
+        skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        readme_text = (skill_dir / "README.md").read_text(encoding="utf-8")
+        readme_en_text = (skill_dir / "README_EN.md").read_text(encoding="utf-8")
+        publish_text = (skill_dir / "PUBLISH.md").read_text(encoding="utf-8")
+        prompts_payload = json.loads((skill_dir / "examples" / "test-prompts.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(metadata["version"], version)
+        self.assertIn(f"`{version}`", skill_text)
+        self.assertIn(f"`{version}`", readme_text)
+        self.assertIn(f"`{version}`", readme_en_text)
+        self.assertIsNotNone(re.search(rf"^- Version:\s*{re.escape(version)}\s*$", publish_text, re.MULTILINE))
+        self.assertEqual(prompts_payload["version"], version)
 
 
 if __name__ == "__main__":
