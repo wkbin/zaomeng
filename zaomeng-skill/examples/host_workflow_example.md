@@ -13,7 +13,7 @@ This example shows one complete host-side flow:
 ## 1. Initialize The Run
 
 ```bash
-py -3 tools/init_host_run.py --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉,薛宝钗 --output runtime/run_manifest.json
+python tools/init_host_run.py --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉,薛宝钗 --output runtime/run_manifest.json
 ```
 
 Host expectation:
@@ -25,7 +25,7 @@ Host expectation:
 ## 2. Build Distill Payload
 
 ```bash
-py -3 tools/build_prompt_payload.py --mode distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉,薛宝钗 --output runtime/distill_payload.json --run-manifest runtime/run_manifest.json
+python tools/build_prompt_payload.py --mode distill --novel data/hongloumeng.txt --characters 林黛玉,贾宝玉,薛宝钗 --output runtime/distill_payload.json --run-manifest runtime/run_manifest.json
 ```
 
 Host expectation:
@@ -47,8 +47,8 @@ runtime/data/characters/hongloumeng/薛宝钗/PROFILE.generated.md
 Recommended host progress updates during generation:
 
 ```bash
-py -3 tools/update_run_progress.py --run-manifest runtime/run_manifest.json --stage character_started --character 林黛玉 --message "正在蒸馏林黛玉"
-py -3 tools/update_run_progress.py --run-manifest runtime/run_manifest.json --stage character_completed --character 林黛玉 --message "林黛玉已完成"
+python tools/update_run_progress.py --run-manifest runtime/run_manifest.json --stage character_started --character 林黛玉 --message "正在蒸馏林黛玉"
+python tools/update_run_progress.py --run-manifest runtime/run_manifest.json --stage character_completed --character 林黛玉 --message "林黛玉已完成"
 ```
 
 Repeat for each character.
@@ -56,9 +56,9 @@ Repeat for each character.
 ## 4. Materialize Persona Bundles
 
 ```bash
-py -3 tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/林黛玉/PROFILE.generated.md --run-manifest runtime/run_manifest.json
-py -3 tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/贾宝玉/PROFILE.generated.md --run-manifest runtime/run_manifest.json
-py -3 tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/薛宝钗/PROFILE.generated.md --run-manifest runtime/run_manifest.json
+python tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/林黛玉/PROFILE.generated.md --run-manifest runtime/run_manifest.json
+python tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/贾宝玉/PROFILE.generated.md --run-manifest runtime/run_manifest.json
+python tools/materialize_persona_bundle.py --profile-file runtime/data/characters/hongloumeng/薛宝钗/PROFILE.generated.md --run-manifest runtime/run_manifest.json
 ```
 
 Host expectation:
@@ -78,7 +78,7 @@ runtime/data/relations/hongloumeng_relations.md
 Then export the graph:
 
 ```bash
-py -3 tools/export_relation_graph.py --relations-file runtime/data/relations/hongloumeng_relations.md --run-manifest runtime/run_manifest.json
+python tools/export_relation_graph.py --relations-file runtime/data/relations/hongloumeng_relations.md --run-manifest runtime/run_manifest.json
 ```
 
 Host expectation:
@@ -91,7 +91,7 @@ Host expectation:
 ## 6. Verify Workflow
 
 ```bash
-py -3 tools/verify_host_workflow.py --characters-root runtime/data/characters/hongloumeng --relations-file runtime/data/relations/hongloumeng_relations.md --run-manifest runtime/run_manifest.json
+python tools/verify_host_workflow.py --characters-root runtime/data/characters/hongloumeng --relations-file runtime/data/relations/hongloumeng_relations.md --run-manifest runtime/run_manifest.json
 ```
 
 Host expectation:

@@ -24,7 +24,7 @@ Use it as the first stop when the host needs to answer:
 Entry:
 
 ```bash
-py -3 tools/build_prompt_payload.py --mode distill --novel <path> --characters A,B --output <distill_payload.json> --run-manifest <run_manifest.json>
+python tools/build_prompt_payload.py --mode distill --novel <path> --characters A,B --output <distill_payload.json> --run-manifest <run_manifest.json>
 ```
 
 Standard outputs:
@@ -47,7 +47,7 @@ Reference:
 Entry:
 
 ```bash
-py -3 tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md> --run-manifest <run_manifest.json>
+python tools/materialize_persona_bundle.py --profile-file <character-dir/PROFILE.generated.md> --run-manifest <run_manifest.json>
 ```
 
 Standard outputs:
@@ -65,7 +65,7 @@ Reference:
 Entry:
 
 ```bash
-py -3 tools/export_relation_graph.py --relations-file <relations.md> --run-manifest <run_manifest.json>
+python tools/export_relation_graph.py --relations-file <relations.md> --run-manifest <run_manifest.json>
 ```
 
 Standard outputs:
@@ -84,7 +84,7 @@ Reference:
 Entry:
 
 ```bash
-py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> --relations-file <relations.md> --run-manifest <run_manifest.json>
+python tools/verify_host_workflow.py --characters-root <characters/<novel_id>> --relations-file <relations.md> --run-manifest <run_manifest.json>
 ```
 
 Standard outputs:

@@ -158,16 +158,16 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 ## Helper Commands
 
 ```bash
-py -3 tools/init_host_run.py --novel <路径> --characters A,B --output <run_manifest.json>
-py -3 tools/prepare_novel_excerpt.py --novel <路径> [--characters A,B] [--max-sentences 120] [--max-chars 50000]
-py -3 tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B] [--characters-root <data/characters 或 data/characters/<novel_id>>] [--update-mode auto|create|incremental]
-py -3 tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
-py -3 tools/export_relation_graph.py --relations-file <关系结果.md>
-py -3 tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [--relations-file <关系结果.md>]
+python tools/init_host_run.py --novel <路径> --characters A,B --output <run_manifest.json>
+python tools/prepare_novel_excerpt.py --novel <路径> [--characters A,B] [--max-sentences 120] [--max-chars 50000]
+python tools/build_prompt_payload.py --mode distill|relation --novel <路径> [--characters A,B] [--characters-root <data/characters 或 data/characters/<novel_id>>] [--update-mode auto|create|incremental]
+python tools/materialize_persona_bundle.py --profile-file <角色目录/PROFILE.generated.md>
+python tools/export_relation_graph.py --relations-file <关系结果.md>
+python tools/verify_host_workflow.py --characters-root <characters/<novel_id>> [--relations-file <关系结果.md>]
 ```
 
 ```bash
-py -3 tools/prepare_novel_excerpt.py --novel 十日终焉.txt --characters 齐夏,肖冉,章晨泽 --max-chars 50000
+python tools/prepare_novel_excerpt.py --novel 十日终焉.txt --characters 齐夏,肖冉,章晨泽 --max-chars 50000
 ```
 
 ## 推荐使用方式

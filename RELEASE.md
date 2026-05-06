@@ -18,7 +18,7 @@ Everything else should be synchronized from that value.
 Preferred one-command path:
 
 ```bash
-py -3 scripts/release_skill.py --version <version>
+python scripts/release_skill.py --version <version>
 ```
 
 This will:
@@ -32,19 +32,19 @@ Manual equivalent:
 1. Sync the target version:
 
 ```bash
-py -3 scripts/sync_skill_version.py --version <version>
+python scripts/sync_skill_version.py --version <version>
 ```
 
 2. Run release guardrails:
 
 ```bash
-py -3 scripts/dev_checks.py
+python scripts/dev_checks.py
 ```
 
 3. Build the distributable archive:
 
 ```bash
-py -3 scripts/package_skill.py
+python scripts/package_skill.py
 ```
 
 4. Confirm the output archive name matches:
