@@ -102,15 +102,47 @@ class DistillationRefinementMixin:
                 peer_profiles=peer_profiles or {},
             )
         except ZaomengError as exc:
-            self.logger.warning("Skipping LLM second pass for %s: %s", profile.get("name", "unknown"), exc)
+            if self._should_disable_second_pass_after_error(exc):
+                reason = self._summarize_second_pass_disable_reason(exc)
+                self._second_pass_disabled_reason = reason
+                self.logger.warning(
+                    "Disabling LLM second pass for remaining characters in this run after %s: %s",
+                    profile.get("name", "unknown"),
+                    reason,
+                )
+            else:
+                self.logger.warning("Skipping LLM second pass for %s: %s", profile.get("name", "unknown"), exc)
             return local_refined
 
     def _should_use_llm_second_pass(self) -> bool:
+        if getattr(self, "_second_pass_disabled_reason", ""):
+            return False
         if self.second_pass_mode == "rule-only":
             return False
         if self.second_pass_mode == "llm-only":
             return True
         return bool(getattr(self.llm_client, "is_generation_enabled", lambda: False)())
+
+    @staticmethod
+    def _should_disable_second_pass_after_error(exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        return any(
+            token in message
+            for token in (
+                "invalidsubscription",
+                "codingplan",
+                "subscription has expired",
+                "does not have a valid",
+            )
+        )
+
+    @staticmethod
+    def _summarize_second_pass_disable_reason(exc: Exception) -> str:
+        message = str(exc or "")
+        lowered = message.lower()
+        if "invalidsubscription" in lowered or "codingplan" in lowered:
+            return "当前模型供应商账号没有可用的 CodingPlan / 订阅权限，二次精修已自动跳过。"
+        return message
 
     def _refine_profile_locally(
         self,

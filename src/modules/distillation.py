@@ -265,6 +265,7 @@ class NovelDistiller(
         self.refinement_batch_size = max(1, int(self.config.get("distillation.refinement_batch_size", 4) or 4))
         self.stage_window_size = int(self.config.get("distillation.stage_window_size", 6))
         self.llm_evidence_lines_per_stage = int(self.config.get("distillation.llm_evidence_lines_per_stage", 6))
+        self._second_pass_disabled_reason = ""
 
     @classmethod
     def from_runtime_parts(cls, parts: RuntimePartsLike) -> "NovelDistiller":
@@ -366,6 +367,7 @@ class NovelDistiller(
                 draft_profiles[name] = profile
 
             profiles: Dict[str, Dict[str, Any]] = {}
+            second_pass_notice_emitted = False
             for batch in self._character_batches(target_characters):
                 batch_profiles = {name: draft_profiles[name] for name in batch}
                 for name in batch:
@@ -384,6 +386,15 @@ class NovelDistiller(
                         peer_profiles={peer_name: peer for peer_name, peer in batch_profiles.items() if peer_name != name},
                         overlap_report=self._collect_profile_overlap(draft_profiles[name], batch_profiles),
                     )
+                    if self._second_pass_disabled_reason and not second_pass_notice_emitted:
+                        self._emit_progress(
+                            progress_callback,
+                            "second_pass_disabled",
+                            novel_id=novel_id,
+                            character=name,
+                            reason=self._second_pass_disabled_reason,
+                        )
+                        second_pass_notice_emitted = True
                     profile["novel_id"] = novel_id
                     profile["source_path"] = novel_path
                     profiles[name] = profile

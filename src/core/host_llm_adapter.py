@@ -123,12 +123,12 @@ class HostProvidedLLM:
             if isinstance(raw.get("content"), str):
                 content = str(raw.get("content", "")).strip()
             elif isinstance(raw.get("message"), dict):
-                content = str(raw.get("message", {}).get("content", "")).strip()
+                content = self._extract_text_content(raw.get("message", {}))
             else:
                 choices = raw.get("choices", [])
                 first = choices[0] if choices else {}
                 if isinstance(first, dict) and isinstance(first.get("message"), dict):
-                    content = str(first.get("message", {}).get("content", "")).strip()
+                    content = self._extract_text_content(first.get("message", {}))
             usage = raw.get("usage", {}) if isinstance(raw.get("usage", {}), dict) else {}
             return {
                 "content": content,
@@ -153,3 +153,35 @@ class HostProvidedLLM:
             "completion_tokens": 0,
             "raw": {"content": content},
         }
+
+    @staticmethod
+    def _extract_text_content(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        parts.append(text)
+                elif isinstance(item, dict):
+                    text = str(item.get("text", "") or item.get("content", "")).strip()
+                    if text:
+                        parts.append(text)
+            return "\n".join(parts).strip()
+        if isinstance(value, dict):
+            for key in ("content", "text", "output_text"):
+                text = value.get(key)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+                if isinstance(text, list):
+                    nested = _HostLLMAdapter._extract_text_content(text)
+                    if nested:
+                        return nested
+            for key in ("reasoning_content", "reasoning"):
+                text = value.get(key)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+            return ""
+        return str(value or "").strip()

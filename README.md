@@ -58,6 +58,31 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 pip install -r requirements.txt
 ```
 
+### Web UI
+
+如果你不想从 skill 或 CLI 入口开始，现在也可以直接启动 Web UI：
+
+```bash
+python scripts/run_webui.py --reload
+```
+
+启动后打开浏览器访问 `http://127.0.0.1:8000`，就可以直接走这条完整工作流：
+
+1. 先配置模型
+2. 上传小说并锁定角色
+3. 自动蒸馏人物并生成关系图谱
+4. 进入 `act` / `insert` / `observe`
+
+当前 Web UI 已经支持：
+
+- 线性引导式工作流，不需要先理解 skill 生态
+- 保存模型配置后直接开始蒸馏
+- 自动显示人物蒸馏进度与关系图谱产物
+- 在同一页面查看 transcript、继续群聊、删除历史会话
+- 支持增量蒸馏与再次蒸馏入口
+
+如果你想把 `zaomeng` 当成一个真正可以直接使用的产品入口，而不是只当作 skill 附件，Web UI 就是现在最完整的主入口。
+
 ## 你可以拿它做什么
 
 ### 1. 蒸馏人物

@@ -67,7 +67,8 @@ class LLMClient:
 
         try:
             self.encoder = tiktoken.get_encoding("cl100k_base") if tiktoken else None
-        except (AttributeError, ValueError):
+        except Exception as exc:  # pragma: no cover - depends on local tiktoken/network state
+            logger.warning("Failed to initialize tiktoken encoder, falling back to heuristic token counting: %s", exc)
             self.encoder = None
 
     def _load_cost_stats(self):
@@ -314,7 +315,7 @@ class LLMClient:
         message = choices[0].get("message", {}) if choices else {}
         usage = data.get("usage", {})
         return {
-            "content": str(message.get("content", "")).strip(),
+            "content": self._extract_text_content(message),
             "model": data.get("model", model),
             "prompt_tokens": int(usage.get("prompt_tokens", 0)),
             "completion_tokens": int(usage.get("completion_tokens", 0)),
@@ -402,12 +403,44 @@ class LLMClient:
         prompt_tokens = int(data.get("prompt_eval_count", 0))
         completion_tokens = int(data.get("eval_count", 0))
         return {
-            "content": str(message.get("content", "")).strip(),
+            "content": self._extract_text_content(message),
             "model": data.get("model", model),
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "raw": data,
         }
+
+    @staticmethod
+    def _extract_text_content(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        parts.append(text)
+                elif isinstance(item, dict):
+                    text = str(item.get("text", "") or item.get("content", "")).strip()
+                    if text:
+                        parts.append(text)
+            return "\n".join(parts).strip()
+        if isinstance(value, dict):
+            for key in ("content", "text", "output_text"):
+                text = value.get(key)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+                if isinstance(text, list):
+                    nested = LLMClient._extract_text_content(text)
+                    if nested:
+                        return nested
+            for key in ("reasoning_content", "reasoning"):
+                text = value.get(key)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+            return ""
+        return str(value or "").strip()
 
     def _chat_host_bridge(
         self,

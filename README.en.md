@@ -58,6 +58,31 @@ python scripts/install_skill.py --skills-dir <your-skills-root>
 pip install -r requirements.txt
 ```
 
+### Web UI
+
+If you want a direct product entrypoint instead of starting from the skill or CLI, you can run the Web UI:
+
+```bash
+python scripts/run_webui.py --reload
+```
+
+Then open `http://127.0.0.1:8000` and go through the full workflow in one place:
+
+1. configure a model first
+2. upload a novel and lock the cast
+3. automatically distill characters and generate the relationship graph
+4. enter `act` / `insert` / `observe`
+
+The current Web UI already supports:
+
+- a guided linear workflow, without requiring the user to understand the skill ecosystem first
+- saving model settings and launching distillation directly from the UI
+- tracking character distillation progress and graph artifacts in one place
+- viewing transcripts, continuing group chat, and deleting recent sessions in the same interface
+- incremental distillation and re-distillation entrypoints
+
+If you want to use `zaomeng` as an actual product entry instead of only as a skill companion, the Web UI is now the most complete primary surface.
+
 ## What You Can Do With It
 
 ### 1. Distill Characters

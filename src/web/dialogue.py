@@ -1,0 +1,430 @@
+from __future__ import annotations
+
+import json
+import shutil
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from src.web.host_ingest import load_profile_source
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+class DialogueService:
+    def __init__(self, runs_root: str | Path) -> None:
+        self.runs_root = Path(runs_root)
+
+    def list_sessions(self, run_id: str) -> list[dict[str, Any]]:
+        root = self._sessions_root(run_id)
+        items: list[dict[str, Any]] = []
+        if not root.exists():
+            return items
+        for path in sorted(root.glob("*/session.json"), reverse=True):
+            payload = self._read_json(path)
+            items.append(self._serialize_session(run_id, payload))
+        items.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        return items
+
+    def create_session(
+        self,
+        run_manifest: dict[str, Any],
+        *,
+        mode: str,
+        participants: list[str],
+        controlled_character: str = "",
+        self_profile: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        run_id = str(run_manifest.get("run_id", "")).strip()
+        novel_id = str(run_manifest.get("novel_id", "")).strip()
+        available = self._character_index(run_manifest)
+        available_names = [item["name"] for item in available]
+        selected = [name for name in participants if name in available_names]
+        if not selected:
+            selected = available_names
+        if not selected:
+            raise ValueError("No persona bundles available for dialogue.")
+        if mode not in {"act", "insert", "observe"}:
+            raise ValueError("Unsupported dialogue mode.")
+        if mode == "act" and controlled_character not in selected:
+            raise ValueError("Controlled character must be one of the selected participants.")
+
+        session_id = f"dlg-{uuid4().hex[:10]}"
+        root = self._session_dir(run_id, session_id)
+        root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "kind": "zaomeng_dialogue_session",
+            "session_id": session_id,
+            "run_id": run_id,
+            "novel_id": novel_id,
+            "mode": mode,
+            "participants": selected,
+            "controlled_character": controlled_character if mode == "act" else "",
+            "self_insert": dict(self_profile or {}) if mode == "insert" else {},
+            "history": [],
+            "pending_turn": {},
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+            "status": "ready",
+        }
+        self._write_json(root / "session.json", payload)
+        return self._serialize_session(run_id, payload)
+
+    def get_session(self, run_id: str, session_id: str) -> dict[str, Any]:
+        payload = self._read_json(self._session_file(run_id, session_id))
+        return self._serialize_session(run_id, payload)
+
+    def delete_session(self, run_id: str, session_id: str) -> None:
+        session_dir = self._session_dir(run_id, session_id)
+        if not session_dir.exists():
+            raise FileNotFoundError(str(session_dir))
+        shutil.rmtree(session_dir)
+
+    def prepare_turn(
+        self,
+        run_manifest: dict[str, Any],
+        *,
+        session_id: str,
+        message: str,
+        speaker_override: str = "",
+        transcript_message: str | None = None,
+    ) -> dict[str, Any]:
+        run_id = str(run_manifest.get("run_id", "")).strip()
+        session = self._read_json(self._session_file(run_id, session_id))
+        turn_id = f"turn-{uuid4().hex[:8]}"
+        payload = self._build_turn_payload(
+            run_manifest,
+            session,
+            turn_id=turn_id,
+            message=message,
+            speaker_override=speaker_override,
+        )
+        turn_dir = self._session_dir(run_id, session_id) / "turns"
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        turn_payload_path = turn_dir / f"{turn_id}.payload.json"
+        self._write_json(turn_payload_path, payload)
+        session["pending_turn"] = {
+            "turn_id": turn_id,
+            "user_message": message,
+            "transcript_message": message if transcript_message is None else transcript_message,
+            "speaker": payload["input"]["speaker"],
+            "mode": payload["mode"],
+            "participants": list(payload["input"]["participants"]),
+            "response_limit_hint": payload["host_action"]["response_limit_hint"],
+            "payload_path": str(turn_payload_path.resolve()),
+            "created_at": _utc_now(),
+        }
+        session["updated_at"] = _utc_now()
+        session["status"] = "waiting_for_host_reply"
+        self._write_json(self._session_file(run_id, session_id), session)
+        return self._serialize_session(run_id, session)
+
+    def ingest_turn_responses(
+        self,
+        run_id: str,
+        *,
+        session_id: str,
+        responses: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        session = self._read_json(self._session_file(run_id, session_id))
+        pending = dict(session.get("pending_turn", {}) or {})
+        if not pending:
+            raise ValueError("No pending turn to ingest.")
+        clean_responses = []
+        for item in responses:
+            speaker = str(item.get("speaker", "")).strip()
+            message = str(item.get("message", "")).strip()
+            if not speaker or not message:
+                continue
+            clean_responses.append({"speaker": speaker, "message": message, "ts": _utc_now()})
+        if not clean_responses:
+            raise ValueError("No valid responses provided.")
+        transcript_message = str(pending.get("transcript_message", pending.get("user_message", ""))).strip()
+        if transcript_message:
+            session.setdefault("history", []).append(
+                {
+                    "speaker": pending.get("speaker", "User"),
+                    "message": transcript_message,
+                    "target": "",
+                    "ts": pending.get("created_at", _utc_now()),
+                }
+            )
+        session["history"].extend(clean_responses)
+        session["pending_turn"] = {}
+        session["updated_at"] = _utc_now()
+        session["status"] = "ready"
+        result_path = self._session_dir(run_id, session_id) / "turns" / f"{pending.get('turn_id', 'turn')}.result.json"
+        self._write_json(
+            result_path,
+            {
+                "kind": "zaomeng_dialogue_result",
+                "session_id": session_id,
+                "turn_id": pending.get("turn_id", ""),
+                "responses": clean_responses,
+                "updated_at": _utc_now(),
+            },
+        )
+        self._write_json(self._session_file(run_id, session_id), session)
+        return self._serialize_session(run_id, session)
+
+    def _build_turn_payload(
+        self,
+        run_manifest: dict[str, Any],
+        session: dict[str, Any],
+        *,
+        turn_id: str,
+        message: str,
+        speaker_override: str = "",
+    ) -> dict[str, Any]:
+        participants = list(session.get("participants", []))
+        mode = str(session.get("mode", "observe")).strip() or "observe"
+        speaker = str(speaker_override or "").strip() or (
+            session.get("controlled_character", "")
+            if mode == "act"
+            else session.get("self_insert", {}).get("display_name", "你")
+            if mode == "insert"
+            else "User"
+        )
+        character_index = self._character_index(run_manifest)
+        persona_map = {item["name"]: item for item in character_index}
+        relation_graph = dict(run_manifest.get("artifact_index", {}).get("relation_graph", {}) or {})
+        relation_excerpt = self._load_text_excerpt(relation_graph.get("relations_file", ""), limit=8000)
+
+        persona_contexts: list[dict[str, Any]] = []
+        for name in participants:
+            meta = persona_map.get(name, {})
+            profile_path = Path(str(meta.get("profile_file", "")))
+            normalized = {}
+            if profile_path.exists():
+                normalized = load_profile_source(profile_path)
+            persona_contexts.append(
+                {
+                    "name": name,
+                    "profile_file": str(profile_path.resolve()) if profile_path.exists() else "",
+                    "persona_dir": str(meta.get("persona_dir", "")),
+                    "preview": meta.get("preview", {}),
+                    "profile": {
+                        "core_identity": normalized.get("core_identity", ""),
+                        "story_role": normalized.get("story_role", ""),
+                        "soul_goal": normalized.get("soul_goal", ""),
+                        "speech_style": normalized.get("speech_style", ""),
+                        "temperament_type": normalized.get("temperament_type", ""),
+                        "social_mode": normalized.get("social_mode", ""),
+                        "reward_logic": normalized.get("reward_logic", ""),
+                        "stress_response": normalized.get("stress_response", ""),
+                        "key_bonds": normalized.get("key_bonds", []),
+                    },
+                }
+            )
+
+        latest_history = list(session.get("history", []))[-8:]
+        instructions = {
+            "mode": mode,
+            "generation_goal": "Keep every reply faithful to the persona bundle, relationship context, and scene mode.",
+            "mode_rule": self._mode_rule(mode),
+            "speaker_rule": self._speaker_rule(mode, session),
+            "response_style": self._response_style_rule(mode),
+        }
+        responder_hints = self._responder_hints(mode, participants, speaker)
+
+        return {
+            "kind": "zaomeng_dialogue_turn",
+            "run_id": run_manifest.get("run_id", ""),
+            "session_id": session.get("session_id", ""),
+            "turn_id": turn_id,
+            "novel_id": run_manifest.get("novel_id", ""),
+            "mode": mode,
+            "input": {
+                "speaker": speaker,
+                "message": message,
+                "participants": participants,
+                "controlled_character": session.get("controlled_character", ""),
+                "self_insert": dict(session.get("self_insert", {})),
+            },
+            "history": latest_history,
+            "persona_contexts": persona_contexts,
+            "relation_context": {
+                "graph": relation_graph,
+                "relations_excerpt": relation_excerpt,
+            },
+            "instructions": instructions,
+            "responder_hints": responder_hints,
+            "host_action": {
+                "expected_output": [
+                    {"speaker": "CharacterName", "message": "..."}
+                ],
+                "response_limit_hint": 3 if mode == "observe" else 2,
+                "output_rule": "Return only in-world character replies. Do not explain the workflow or mention prompts.",
+            },
+            "host_prompt_brief": self._host_prompt_brief(mode, speaker, participants),
+            "updated_at": _utc_now(),
+        }
+
+    @staticmethod
+    def _mode_rule(mode: str) -> str:
+        if mode == "act":
+            return "The user is speaking as one existing character. Other characters should reply to that role naturally."
+        if mode == "insert":
+            return "The user enters the scene as themselves. Characters should react to the self-insert identity consistently."
+        return "The user is observing. Characters should continue the scene among themselves."
+
+    @staticmethod
+    def _speaker_rule(mode: str, session: dict[str, Any]) -> str:
+        if mode == "act":
+            return f"Treat the user message as spoken by {session.get('controlled_character', '')}."
+        if mode == "insert":
+            card = session.get("self_insert", {})
+            return (
+                f"Treat the user message as spoken by {card.get('display_name', '你')} "
+                f"who enters the scene as {card.get('scene_identity', '访客')}."
+            )
+        return "Treat the user message as a scene steering hint. Characters reply in-world."
+
+    @staticmethod
+    def _response_style_rule(mode: str) -> str:
+        if mode == "observe":
+            return "Prefer 2-3 short in-character replies that move the scene forward naturally."
+        if mode == "act":
+            return "Reply as the other characters addressing the controlled role directly."
+        return "Reply as the cast addressing the self-insert user naturally inside the scene."
+
+    @staticmethod
+    def _responder_hints(mode: str, participants: list[str], speaker: str) -> list[dict[str, str]]:
+        hints: list[dict[str, str]] = []
+        for name in participants:
+            if mode == "act" and name == speaker:
+                continue
+            hints.append(
+                {
+                    "name": name,
+                    "should_reply": "yes",
+                    "priority": "high" if len(hints) == 0 else "normal",
+                }
+            )
+        return hints
+
+    @staticmethod
+    def _host_prompt_brief(mode: str, speaker: str, participants: list[str]) -> str:
+        if mode == "act":
+            return f"The user speaks as {speaker}. Let the other participants answer in character."
+        if mode == "insert":
+            return f"The user enters the scene as {speaker}. Let the cast react in character."
+        return f"The user is observing. Let {', '.join(participants)} continue the scene in character."
+
+    @staticmethod
+    def _load_text_excerpt(path_text: str, *, limit: int) -> str:
+        path = Path(str(path_text or ""))
+        if not path.exists() or not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8")[:limit].strip()
+
+    @staticmethod
+    def _character_index(run_manifest: dict[str, Any]) -> list[dict[str, Any]]:
+        return list(run_manifest.get("artifact_index", {}).get("characters", []) or [])
+
+    def _serialize_session(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = dict(payload)
+        session["file_urls"] = self._build_file_urls(run_id, session)
+        session["mode_display"] = self._mode_display(str(session.get("mode", "")).strip())
+        session["transcript"] = self._serialize_transcript(session)
+        session["session_card"] = self._build_session_card(session)
+        session["pending_turn_summary"] = self._build_pending_turn_summary(session)
+        return session
+
+    def _serialize_transcript(self, session: dict[str, Any]) -> list[dict[str, Any]]:
+        controlled = str(session.get("controlled_character", "")).strip()
+        self_insert_name = str(session.get("self_insert", {}).get("display_name", "")).strip()
+        mode = str(session.get("mode", "observe")).strip() or "observe"
+        items: list[dict[str, Any]] = []
+        for entry in session.get("history", []):
+            speaker = str(entry.get("speaker", "")).strip()
+            role = "character"
+            if speaker in {"旁白", "场景提示"}:
+                role = "scene"
+            elif mode == "act" and speaker == controlled:
+                role = "user"
+            elif mode == "insert" and speaker == self_insert_name:
+                role = "user"
+            elif mode == "observe" and speaker == "User":
+                role = "director"
+            items.append(
+                {
+                    "speaker": speaker,
+                    "message": str(entry.get("message", "")).strip(),
+                    "role": role,
+                }
+            )
+        return items
+
+    @staticmethod
+    def _mode_display(mode: str) -> str:
+        mapping = {
+            "act": "act · 代入角色",
+            "insert": "insert · 你进入场景",
+            "observe": "observe · 旁观群聊",
+        }
+        return mapping.get(mode, mode)
+
+    def _build_session_card(self, session: dict[str, Any]) -> dict[str, Any]:
+        mode = str(session.get("mode", "observe")).strip() or "observe"
+        card = {
+            "mode": mode,
+            "mode_display": self._mode_display(mode),
+            "participants": list(session.get("participants", [])),
+            "controlled_character": str(session.get("controlled_character", "")).strip(),
+            "self_insert": dict(session.get("self_insert", {})),
+        }
+        return card
+
+    def _build_pending_turn_summary(self, session: dict[str, Any]) -> dict[str, Any]:
+        pending = dict(session.get("pending_turn", {}) or {})
+        if not pending:
+            return {}
+        return {
+            "turn_id": str(pending.get("turn_id", "")).strip(),
+            "speaker": str(pending.get("speaker", "")).strip(),
+            "message": str(pending.get("user_message", "")).strip(),
+            "mode": str(pending.get("mode", "")).strip(),
+            "participants": list(pending.get("participants", [])),
+            "response_limit_hint": int(pending.get("response_limit_hint", 0) or 0),
+        }
+
+    def _build_file_urls(self, run_id: str, session: dict[str, Any]) -> dict[str, str]:
+        session_id = str(session.get("session_id", "")).strip()
+        urls = {
+            "session": self._file_url(run_id, self._session_file(run_id, session_id).relative_to(self.runs_root / run_id)),
+        }
+        pending_path_text = str(session.get("pending_turn", {}).get("payload_path", "")).strip()
+        if pending_path_text:
+            pending_path = Path(pending_path_text)
+        else:
+            pending_path = None
+        if pending_path and pending_path.exists():
+            urls["pending_turn_payload"] = self._file_url(run_id, pending_path.relative_to(self.runs_root / run_id))
+        return urls
+
+    def _sessions_root(self, run_id: str) -> Path:
+        return self.runs_root / run_id / "dialogue"
+
+    def _session_dir(self, run_id: str, session_id: str) -> Path:
+        return self._sessions_root(run_id) / session_id
+
+    def _session_file(self, run_id: str, session_id: str) -> Path:
+        return self._session_dir(run_id, session_id) / "session.json"
+
+    def _file_url(self, run_id: str, relative_path: Path) -> str:
+        return f"/api/web/runs/{run_id}/files/{relative_path.as_posix()}"
+
+    @staticmethod
+    def _read_json(path: Path) -> dict[str, Any]:
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _write_json(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

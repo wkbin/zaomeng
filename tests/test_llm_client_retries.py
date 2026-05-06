@@ -169,5 +169,31 @@ class LLMRetryTests(unittest.TestCase):
         self.assertEqual(result["model"], "host-llm")
 
 
+    def test_openai_like_extracts_text_from_content_parts(self):
+        client = self._make_client()
+        with patch(
+            "src.core.llm_client.request.urlopen",
+            return_value=_Response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": [
+                                    {"type": "text", "text": "???"},
+                                    {"type": "text", "text": "???"},
+                                ]
+                            }
+                        }
+                    ],
+                    "model": "gpt-test",
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 5},
+                }
+            ),
+        ):
+            result = client.chat_completion([{"role": "user", "content": "??"}])
+
+        self.assertEqual(result["content"], "???\n???")
+
+
 if __name__ == "__main__":
     unittest.main()

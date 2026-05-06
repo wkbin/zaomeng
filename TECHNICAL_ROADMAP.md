@@ -341,3 +341,169 @@ Tasks:
 - No Git submodule split.
 - No plugin system redesign in this phase.
 - No service-style metrics stack while the project is still CLI/skill oriented.
+
+## Product Reset: Web UI First
+
+The next bottleneck is no longer model quality alone. It is product shape.
+
+Right now the project can be impressive in a demo while still being hard to
+adopt:
+
+- CLI-only use still assumes a developer user
+- skill-first use still assumes the user understands the host ecosystem
+- no native Web UI means there is no obvious mainstream entrypoint
+
+That leaves three product questions under-answered:
+
+1. who the product is for
+2. how they start using it
+3. why this product is worth using instead of a generic chat UI
+
+The next direction is to answer those questions through an explicit Web product
+layer rather than more hidden capability inside the skill alone.
+
+### Primary Users
+
+1. novel fans and fan creators
+   - want to upload a novel and wake characters back up quickly
+   - care about fidelity, relationship visibility, and scene replay
+2. roleplay creators / scenario authors
+   - want reusable character cards, graph context, and multi-character scenes
+   - need a visual workflow rather than helper-script chaining
+3. AI product tinkerers and prompt builders
+   - want inspectable prompts, artifacts, and incremental refinement
+   - may still use the skill or CLI, but should not be the only target user
+
+### Product Promise
+
+`zaomeng` should feel like:
+
+- upload a novel
+- choose the characters
+- generate character cards and relationship graph
+- step into the scene and talk
+
+It should not feel like:
+
+- install a niche host first
+- guess which helper script runs next
+- manually discover where the artifacts were written
+
+### Web UI Core Workflow
+
+The Web UI should cover one continuous path:
+
+1. Upload novel
+2. Start distillation run
+3. Watch progress in plain language
+4. View persona cards
+5. View relationship graph
+6. Enter role dialogue:
+   - `act`
+   - `insert`
+   - `observe`
+
+### Web UI Product Principles
+
+1. The Web UI becomes the default product surface for non-developers.
+2. The skill remains valuable as a host integration package, not the only
+   usable interface.
+3. The CLI remains useful for local automation, debugging, and maintainers.
+4. Every step in the Web UI must map to a visible artifact and a visible state.
+5. Users should never need to guess whether a run is waiting, generating,
+   partially complete, or ready for chat.
+
+## P13: Web Product Foundation
+
+Status: completed
+
+Goals:
+- Establish a first-party Web entrypoint.
+- Make the core workflow visible through a browser before polishing advanced
+  generation behavior.
+
+Tasks:
+1. Introduce a lightweight web application layer built on the current Python
+   stack.
+2. Add a Web run store that records:
+   - uploaded novel path
+   - selected characters
+   - run manifest path
+   - payload artifacts
+   - workflow status
+3. Expose initial HTTP endpoints for:
+   - health
+   - create run
+   - get run status
+   - list artifacts
+4. Ship a simple browser shell that can:
+   - upload a novel
+   - choose characters
+   - create a run
+   - display progress and artifact links
+5. Keep the implementation thin by reusing existing prompt payload and manifest
+   helpers rather than rewriting the workflow.
+
+## P14: Distill Workspace UX
+
+Status: in progress
+
+Goals:
+- Turn distillation into a clear, guided workspace instead of a hidden helper
+  chain.
+
+Tasks:
+1. Design a run page with these sections:
+   - source novel
+   - locked characters
+   - stage progress
+   - generated payloads
+   - final artifact index
+2. Surface progress in user language instead of helper-script language.
+3. Show per-character progress:
+   - queued
+   - generating
+   - completed
+   - needs review
+4. Show incremental-update context when a character already exists.
+5. Keep run summaries shareable and debuggable through the same manifest data.
+
+## P15: Persona And Graph Review Surface
+
+Status: pending
+
+Goals:
+- Let users inspect output quality without leaving the product.
+
+Tasks:
+1. Render persona bundles as readable character cards in the browser.
+2. Make relationship graph SVG/HTML directly viewable from the run page.
+3. Add obvious entry points to:
+   - raw markdown bundle
+   - graph HTML
+   - graph SVG
+   - workflow verification status
+4. Flag incomplete bundles or missing graph assets clearly.
+5. Prepare room for lightweight review actions:
+   - regenerate
+   - continue incremental distill
+   - mark for correction
+
+## P16: Dialogue Studio
+
+Status: in progress
+
+Goals:
+- Make chat modes feel like product features rather than hidden host-only
+  conventions.
+
+Tasks:
+1. Add Web UI entrypoints for:
+   - `act`
+   - `insert`
+   - `observe`
+2. Let users choose scene participants and mode from the browser.
+3. Make first-time `insert` onboarding explicit with a lightweight self-profile
+   card.
+4. Surface persona and relationship context next to the chat pane.
+5. Persist session summaries so runs stay reusable after the first conversation.

@@ -19,8 +19,8 @@ class TokenCounter:
             import tiktoken
 
             self._encoder = tiktoken.get_encoding("cl100k_base")
-        except (ImportError, AttributeError, ValueError):
-            logger.debug("tiktoken unavailable, falling back to heuristic token counting")
+        except Exception as exc:  # pragma: no cover - depends on local tiktoken/network state
+            logger.warning("Failed to initialize tiktoken encoder, falling back to heuristic token counting: %s", exc)
             self._encoder = None
 
     def count(self, text: str) -> int:
