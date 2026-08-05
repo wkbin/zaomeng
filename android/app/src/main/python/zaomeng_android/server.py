@@ -183,6 +183,17 @@ def status() -> dict[str, Any]:
         }
 
 
+def startup_error() -> str:
+    """Return the exception raised by the server thread, if any."""
+    with _lock:
+        error = str(_error or "").strip()
+        if error:
+            return error
+        if _thread is not None and not _thread.is_alive() and not bool(_server and _server.started):
+            return "Uvicorn server thread exited before startup completed."
+        return ""
+
+
 def stop() -> None:
     with _lock:
         if _server is not None:

@@ -65,7 +65,9 @@ class EmbeddedBackendController(
                     .toInt()
                 val baseUrl = "http://127.0.0.1:$port"
                 val api = apiFactory.create(baseUrl, token)
-                awaitHealthy(api)
+                awaitHealthy(api) {
+                    serverModule.callAttr("startup_error").toString().trim()
+                }
                 activeApi = api
                 mutableState.value = BackendState.Ready(baseUrl)
             } catch (error: Throwable) {
@@ -91,7 +93,7 @@ class EmbeddedBackendController(
         return checkNotNull(activeApi) { "本地接口尚未就绪。" }
     }
 
-    private suspend fun awaitHealthy(api: ZaomengApi) {
+    private suspend fun awaitHealthy(api: ZaomengApi, serverError: () -> String) {
         var lastError: Throwable? = null
         repeat(STARTUP_ATTEMPTS) {
             try {
@@ -99,6 +101,10 @@ class EmbeddedBackendController(
                 return
             } catch (error: Throwable) {
                 lastError = error
+                val startupError = serverError()
+                if (startupError.isNotEmpty()) {
+                    throw IllegalStateException("手机内的 Python 服务启动失败：$startupError", error)
+                }
                 delay(STARTUP_RETRY_DELAY_MS.milliseconds)
             }
         }
