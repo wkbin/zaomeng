@@ -448,32 +448,23 @@
 
   function buildWorkSessionPreviewState(run) {
     const novelTitle = runNovelTitle(run);
-    const characterNames = typeof getRunCharacterNames === "function" ? getRunCharacterNames(run) : [];
     const allSessions = (window.recentSessionsCache || [])
       .filter((item) => normalizeNovelTitle(item?.novel_id || "") === novelTitle)
       .sort((left, right) => String(right?.updated_at || "").localeCompare(String(left?.updated_at || "")));
-    const rankedSessions = [...allSessions].sort((left, right) => {
-      const rightMatch = Boolean(findMatchedSessionCharacter(getSessionPreviewSnippet(right), characterNames).character);
-      const leftMatch = Boolean(findMatchedSessionCharacter(getSessionPreviewSnippet(left), characterNames).character);
-      if (rightMatch !== leftMatch) return Number(rightMatch) - Number(leftMatch);
-      return String(right?.updated_at || "").localeCompare(String(left?.updated_at || ""));
-    });
+    const rankedSessions = [...allSessions];
     const expanded = Boolean(window.workSessionPreviewExpanded);
     return {
       canExpand: rankedSessions.length > 3,
       expanded,
       toggleLabel: expanded ? "收起部分" : "展开全部",
-      latest: allSessions[0] ? { label: `继续：${(typeof joinCharacters === "function" ? joinCharacters(allSessions[0].participants || []) : "") || "最近会话"}`, raw: allSessions[0] } : null,
+      latest: allSessions[0] ? { label: `继续：${allSessions[0].title || "最近会话"}`, raw: allSessions[0] } : null,
       items: (expanded ? rankedSessions : rankedSessions.slice(0, 3)).map((item) => {
-        const snippet = getSessionPreviewSnippet(item);
-        const matchInfo = findMatchedSessionCharacter(snippet, characterNames);
         return {
-          label: (typeof joinCharacters === "function" ? joinCharacters(item?.participants || []) : "") || "未命名会话",
+          label: item?.title || "未命名会话",
           modeLabel: item?.mode_display || (typeof humanizeMode === "function" ? humanizeMode(item?.mode) : item?.mode) || "这一幕",
           participantCount: Array.isArray(item?.participants) ? item.participants.length : 0,
-          hasMatch: Boolean(matchInfo.character),
-          matchText: matchInfo.character ? `命中 ${matchInfo.character} · ${matchInfo.reason}` : "",
-          snippet,
+          hasMatch: false,
+          matchText: "",
           updatedText: (typeof formatWeakTime === "function" ? formatWeakTime(item?.updated_at) : "") || "刚刚",
           statusText: typeof humanizeSessionStatus === "function" ? humanizeSessionStatus(item?.status) : (item?.status || "未知"),
           raw: item,

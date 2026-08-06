@@ -1,4 +1,3 @@
-import com.android.tools.r8.graph.fa
 import java.util.Properties
 
 plugins {
@@ -78,6 +77,7 @@ android {
             )
         }
         debug {
+            applicationIdSuffix = ".test"
             isMinifyEnabled = false
             isShrinkResources = false
         }

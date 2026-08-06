@@ -71,6 +71,7 @@ import top.wkbin.zaomeng.data.api.SwitchDialogueSceneRequest
 import top.wkbin.zaomeng.data.api.UpdateRelationDetailRequest
 import top.wkbin.zaomeng.data.api.UpdateDialogueBranchMetaRequest
 import top.wkbin.zaomeng.data.api.UpdateDialogueRelationLockRequest
+import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
 import top.wkbin.zaomeng.data.api.WorldFactDto
@@ -733,6 +734,18 @@ class ZaomengRepository(
 
     suspend fun getSession(runId: String, sessionId: String): DialogueSessionDto = request {
         backend.requireApi().getDialogueSession(runId, sessionId)
+    }
+
+    suspend fun updateSessionTitle(
+        runId: String,
+        sessionId: String,
+        title: String,
+    ): DialogueSessionDto = request {
+        backend.requireApi().updateDialogueSessionTitle(
+            runId,
+            sessionId,
+            UpdateDialogueSessionTitleRequest(title = title),
+        )
     }
 
     suspend fun searchSession(

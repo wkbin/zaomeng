@@ -169,6 +169,37 @@ class SessionsViewModel(
         load(state.value.scopedRunId, force = true)
     }
 
+    fun renameSession(session: DialogueSessionDto, title: String) {
+        val normalizedTitle = title.trim().take(80)
+        if (normalizedTitle.isBlank()) {
+            mutableState.update { it.copy(error = "会话标题不能为空。") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val updated = repository.updateSessionTitle(
+                    runId = session.runId,
+                    sessionId = session.sessionId,
+                    title = normalizedTitle,
+                )
+                mutableState.update { current ->
+                    current.copy(
+                        sessions = current.sessions.map { item ->
+                            if (item.key == updated.key) updated else item
+                        },
+                        error = "",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update {
+                    it.copy(error = error.readableMessage("会话标题更新失败，请稍后重试。"))
+                }
+            }
+        }
+    }
+
     fun updateSearchQuery(value: String) {
         mutableState.update { current ->
             val updated = current.copy(searchQuery = value.take(120))

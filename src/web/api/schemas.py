@@ -209,6 +209,10 @@ class CreateDialogueSessionRequest(BaseModel):
     self_profile: dict[str, str] = Field(default_factory=dict)
 
 
+class UpdateDialogueSessionTitleRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=80)
+
+
 class SaveSceneCardRequest(BaseModel):
     title: str = Field(default="")
     time_hint: str = Field(default="")

@@ -333,8 +333,65 @@ class WebAppRouteTests(unittest.TestCase):
             self.assertEqual(sessions_response.status_code, 200)
             self.assertEqual(len(sessions_response.json()["items"]), 1)
             first = sessions_response.json()["items"][0]
-            self.assertIn("last_entry_preview", first)
-            self.assertTrue(str(first["last_entry_preview"]).strip())
+            self.assertEqual(first["title"], "开场")
+
+    def test_dialogue_session_title_comes_from_opening_scene_and_can_be_renamed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app(WebRunService(tmp))
+            client = TestClient(app)
+            client.put(
+                "/api/web/settings/model",
+                json={
+                    "provider": "openai-compatible",
+                    "model": "deepseek-chat",
+                    "base_url": "https://example.com/v1",
+                    "api_key": "sk-test",
+                },
+            )
+            run = client.post(
+                "/api/web/runs",
+                json={
+                    "novel_name": "hongloumeng.txt",
+                    "novel_content_base64": base64.b64encode(
+                        "林黛玉见了贾宝玉。".encode("utf-8")
+                    ).decode("ascii"),
+                    "characters": ["林黛玉", "贾宝玉"],
+                    "defer_run": True,
+                },
+            ).json()
+            for name in ("林黛玉", "贾宝玉"):
+                client.post(
+                    f"/api/web/runs/{run['run_id']}/ingest/character",
+                    json={
+                        "character": name,
+                        "content_base64": base64.b64encode(
+                            f"- name: {name}\n- novel_id: hongloumeng\n".encode("utf-8")
+                        ).decode("ascii"),
+                    },
+                )
+            with patch.object(
+                WebRunService,
+                "_generate_dialogue_responses",
+                return_value=[{"speaker": "场景提示", "message": "潇湘馆夜话悄然开始。"}],
+            ):
+                created = client.post(
+                    f"/api/web/runs/{run['run_id']}/dialogue/sessions",
+                    json={
+                        "mode": "observe",
+                        "participants": ["林黛玉", "贾宝玉"],
+                        "scene_profile": {"title": "潇湘馆夜话"},
+                    },
+                ).json()
+
+            self.assertEqual(created["title"], "潇湘馆夜话悄然开始")
+            renamed = client.patch(
+                f"/api/web/runs/{run['run_id']}/dialogue/sessions/{created['session_id']}/title",
+                json={"title": "月下重逢"},
+            )
+            self.assertEqual(renamed.status_code, 200)
+            self.assertEqual(renamed.json()["title"], "月下重逢")
+            listed = client.get(f"/api/web/runs/{run['run_id']}/dialogue/sessions").json()
+            self.assertEqual(listed["items"][0]["title"], "月下重逢")
 
     def test_delete_dialogue_session_route_removes_session(self):
         with tempfile.TemporaryDirectory() as tmp:

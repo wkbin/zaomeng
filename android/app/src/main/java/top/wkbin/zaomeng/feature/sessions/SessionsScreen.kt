@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -101,6 +102,8 @@ fun SessionsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDeletion by remember { mutableStateOf<DialogueSessionDto?>(null) }
+    var pendingRename by remember { mutableStateOf<DialogueSessionDto?>(null) }
+    var renameTitle by remember { mutableStateOf("") }
     var pendingBatchDeletion by remember { mutableStateOf(false) }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
@@ -276,6 +279,10 @@ fun SessionsScreen(
                 visibleSessions = visibleSessions,
                 onOpenChat = onOpenChat,
                 onDelete = { pendingDeletion = it },
+                onRename = {
+                    pendingRename = it
+                    renameTitle = it.title
+                },
                 onToggleSelection = viewModel::toggleSessionSelection,
                 onSearchQueryChange = viewModel::updateSearchQuery,
                 onSelectSort = viewModel::selectSort,
@@ -326,6 +333,33 @@ fun SessionsScreen(
         )
     }
 
+    pendingRename?.let { session ->
+        AlertDialog(
+            onDismissRequest = { pendingRename = null },
+            title = { Text("修改会话标题") },
+            text = {
+                OutlinedTextField(
+                    value = renameTitle,
+                    onValueChange = { renameTitle = it.take(80) },
+                    label = { Text("会话标题") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameSession(session, renameTitle)
+                        pendingRename = null
+                    },
+                    enabled = renameTitle.isNotBlank(),
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRename = null }) { Text("取消") }
+            },
+        )
+    }
+
     if (pendingBatchDeletion && state.selectedSessionKeys.isNotEmpty()) {
         val selectedCount = state.selectedSessionKeys.size
         AlertDialog(
@@ -370,6 +404,7 @@ private fun LoadingSessions(
             }
         }
     }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -421,6 +456,7 @@ private fun SessionsContent(
     visibleSessions: List<DialogueSessionDto>,
     onOpenChat: (String, String) -> Unit,
     onDelete: (DialogueSessionDto) -> Unit,
+    onRename: (DialogueSessionDto) -> Unit,
     onToggleSelection: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onSelectSort: (SessionsSort) -> Unit,
@@ -511,6 +547,7 @@ private fun SessionsContent(
                         selected = session.key in state.selectedSessionKeys,
                         onOpen = { onOpenChat(session.runId, session.sessionId) },
                         onDelete = { onDelete(session) },
+                        onRename = { onRename(session) },
                         onToggleSelection = { onToggleSelection(session.key) },
                     )
                 }
@@ -592,6 +629,7 @@ private fun SessionCard(
     selected: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
     onToggleSelection: () -> Unit,
 ) {
     Card(
@@ -608,16 +646,59 @@ private fun SessionCard(
             },
         ),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = { onToggleSelection() },
-                        enabled = !deleting,
-                        modifier = Modifier.padding(end = 8.dp),
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.heightIn(min = 34.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = session.title.ifBlank { session.participants.joinToString("、") },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (selectionMode && selected) {
+                    Text(
+                        text = "已选择",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
+                if (!selectionMode) {
+                    IconButton(
+                        onClick = onRename,
+                        enabled = !deleting,
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "修改会话标题",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        enabled = !deleting,
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        if (deleting) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "删除会话",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 ParticipantAvatarStack(
                     participants = session.participants,
                     runId = session.runId,
@@ -638,44 +719,17 @@ private fun SessionCard(
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
-                if (!selectionMode) {
-                    IconButton(onClick = onDelete, enabled = !deleting) {
-                        if (deleting) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "删除会话",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
             }
-
-            Text(
-                text = session.lastEntryPreview.ifBlank { "这一幕刚刚开始，进去说第一句话吧。" },
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "${session.mode.chineseMode()} · 最近活跃 · ${session.updatedAt.toLocalDateTimeDisplay()}",
-                    modifier = Modifier.weight(1f),
+                    text = "${session.mode.chineseMode()} · ${session.updatedAt.toLocalDateTimeDisplay()}",
+                    modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (selectionMode) {
-                    Text(
-                        text = if (selected) "已选择" else "点击选择",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
             }
         }
     }
@@ -688,7 +742,7 @@ private fun ParticipantAvatarStack(
     avatarBytes: Map<String, ByteArray>,
     modifier: Modifier = Modifier,
 ) {
-    val visibleParticipants = participants.filter(String::isNotBlank).take(3)
+    val visibleParticipants = participants.filter(String::isNotBlank).take(5)
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(4.dp),

@@ -20,6 +20,7 @@ from src.web.api.schemas import (
     SwitchDialogueSceneCardRequest,
     UpdateDialogueBranchMetaRequest,
     UpdateDialogueRelationLockRequest,
+    UpdateDialogueSessionTitleRequest,
     UpsertDialogueMemoryRequest,
 )
 from src.web.workflow import WebRunService
@@ -88,6 +89,23 @@ def get_dialogue_session(
         return run_service.get_dialogue_session(run_id, session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session not found.") from exc
+
+
+@router.patch("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/title")
+def update_dialogue_session_title(
+    run_id: str,
+    session_id: str,
+    payload: UpdateDialogueSessionTitleRequest,
+    run_service: WebRunService = Depends(get_run_service),
+) -> dict[str, Any]:
+    try:
+        return run_service.update_dialogue_session_title(
+            run_id, session_id=session_id, title=payload.title
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Session not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/search")

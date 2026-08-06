@@ -254,6 +254,18 @@
     );
   }
 
+  async function updateDialogueSessionTitle(runId, sessionId, title) {
+    return requireApiJson()(
+      `/api/web/runs/${encodeURIComponent(runId)}/dialogue/sessions/${encodeURIComponent(sessionId)}/title`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: String(title || "") }),
+      },
+      "会话标题更新失败。"
+    );
+  }
+
   async function updateDialogueRelationLock(runId, sessionId, pairKey, locked) {
     return requireApiJson()(
       `/api/web/runs/${encodeURIComponent(runId)}/dialogue/sessions/${encodeURIComponent(sessionId)}/relation-lock`,
@@ -377,6 +389,7 @@
     branchDialogueSession,
     branchDialogueSessionFromTurn,
     updateDialogueBranchMeta,
+    updateDialogueSessionTitle,
     updateDialogueRelationLock,
     createDialogueMemory,
     updateDialogueMemory,

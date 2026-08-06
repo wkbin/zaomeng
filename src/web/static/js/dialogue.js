@@ -2674,7 +2674,7 @@ async function renderDialogueSession(session) {
     renderObserveQuickReplies(session);
   }
   const statusLine = buildDialogueSessionStatusLine(session);
-  setSessionBadge("对话中");
+  setSessionBadge(session.title || "对话中");
   if (typeof setStatus === "function") {
     setStatus("dialogue-session-status", statusLine || "这一幕已经铺好，你可以继续说下去。");
   }
@@ -2948,7 +2948,7 @@ async function loadRecentSessions() {
       button.style.overflow = "hidden";
       const title = document.createElement("span");
       title.className = "session-title";
-      title.textContent = joinCharacters(item.participants || []) || "未命名会话";
+      title.textContent = item.title || "未命名会话";
       title.style.display = "block";
       title.style.width = "100%";
       title.style.maxWidth = "100%";
@@ -3140,15 +3140,61 @@ async function loadRecentSessions() {
         }
       });
 
+      const renameButton = document.createElement("button");
+      renameButton.type = "button";
+      renameButton.className = "session-rename-button";
+      renameButton.textContent = "编辑";
+      renameButton.title = "修改会话标题";
+      renameButton.setAttribute("aria-label", "修改会话标题");
+      renameButton.style.position = "absolute";
+      renameButton.style.top = "0.55rem";
+      renameButton.style.right = "2.45rem";
+      renameButton.style.minHeight = "28px";
+      renameButton.style.padding = "0 0.35rem";
+      renameButton.style.opacity = "0";
+      renameButton.style.pointerEvents = "none";
+      renameButton.style.transform = "translateY(-2px)";
+      renameButton.style.transition = "opacity 160ms ease, transform 160ms ease";
+      renameButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const titleValue = window.prompt("会话标题", String(item.title || "").trim());
+        if (titleValue === null) return;
+        const nextTitle = titleValue.trim();
+        if (!nextTitle) {
+          window.alert("会话标题不能为空。");
+          return;
+        }
+        try {
+          const updated = await window.__ZAOMENG_WEBUI_API__.updateDialogueSessionTitle(
+            item.run_id,
+            item.session_id,
+            nextTitle
+          );
+          if (currentRunId === item.run_id && currentDialogueSessionId === item.session_id) {
+            currentDialogueSession = updated;
+            setSessionBadge(updated.title || "对话中");
+          }
+          await loadRecentSessions();
+        } catch (error) {
+          window.alert(error.message || "会话标题更新失败。");
+        }
+      });
+
       const revealDelete = () => {
         removeButton.style.opacity = "1";
         removeButton.style.pointerEvents = "auto";
         removeButton.style.transform = "translateY(0)";
+        renameButton.style.opacity = "1";
+        renameButton.style.pointerEvents = "auto";
+        renameButton.style.transform = "translateY(0)";
       };
       const hideDelete = () => {
         removeButton.style.opacity = "0";
         removeButton.style.pointerEvents = "none";
         removeButton.style.transform = "translateY(-2px)";
+        renameButton.style.opacity = "0";
+        renameButton.style.pointerEvents = "none";
+        renameButton.style.transform = "translateY(-2px)";
       };
       row.addEventListener("mouseenter", revealDelete);
       row.addEventListener("mouseleave", hideDelete);
@@ -3156,6 +3202,7 @@ async function loadRecentSessions() {
       row.addEventListener("focusout", hideDelete);
 
       row.appendChild(button);
+      row.appendChild(renameButton);
       row.appendChild(removeButton);
       section.appendChild(row);
     });

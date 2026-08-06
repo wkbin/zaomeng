@@ -21,6 +21,7 @@ class ApiModelsTest {
             {
               "session_id": "dlg-branch",
               "run_id": "run-1",
+              "title": "雨夜车站",
               "participants": ["甲", "乙"],
               "status": "ready",
               "pending_turn_summary": {},
@@ -59,6 +60,7 @@ class ApiModelsTest {
         )
 
         assertEquals("dlg-branch", session.sessionId)
+        assertEquals("雨夜车站", session.title)
         assertTrue(session.pendingTurnSummary.turnId.isBlank())
         assertEquals(
             7,
@@ -152,6 +154,16 @@ class ApiModelsTest {
 
         val payload = json.parseToJsonElement(encoded).jsonObject
         assertEquals("observe", payload["mode"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun updateSessionTitleUsesBackendFieldName() {
+        val encoded = json.encodeToString(UpdateDialogueSessionTitleRequest(title = "月下重逢"))
+
+        assertEquals(
+            "月下重逢",
+            json.parseToJsonElement(encoded).jsonObject["title"]!!.jsonPrimitive.content,
+        )
     }
 
     @Test

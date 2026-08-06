@@ -385,6 +385,13 @@ interface ZaomengApi {
         @Path("sessionId") sessionId: String,
     ): DialogueSessionDto
 
+    @PATCH("api/web/runs/{runId}/dialogue/sessions/{sessionId}/title")
+    suspend fun updateDialogueSessionTitle(
+        @Path("runId") runId: String,
+        @Path("sessionId") sessionId: String,
+        @Body request: UpdateDialogueSessionTitleRequest,
+    ): DialogueSessionDto
+
     @GET("api/web/runs/{runId}/dialogue/sessions/{sessionId}/search")
     suspend fun searchDialogueSession(
         @Path("runId") runId: String,

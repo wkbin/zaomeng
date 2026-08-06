@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -309,6 +310,62 @@ class DialogueService:
         scene_title = str(dict(session.get("scene_card", {}) or {}).get("title", "")).strip()
         return scene_title or "主剧情"
 
+    @staticmethod
+    def _default_session_title(session: dict[str, Any]) -> str:
+        """Provide a temporary title until the first opening turn is complete."""
+
+        scene = dict(session.get("scene_card", {}) or {})
+        scene_history = list(session.get("scene_history", []) or [])
+        opening_scene = scene_history[0] if scene_history else {}
+        if isinstance(opening_scene, dict):
+            scene = {
+                **scene,
+                **dict(opening_scene.get("scene_card", {}) or {}),
+                **{
+                    key: opening_scene[key]
+                    for key in ("title", "location", "opening_situation")
+                    if str(opening_scene.get(key, "")).strip()
+                },
+            }
+        scene_title = str(scene.get("title", "")).strip()
+        if scene_title:
+            return _text_utils.trim_summary_text(scene_title, 80)
+        location = str(scene.get("location", "")).strip()
+        if location:
+            return _text_utils.trim_summary_text(f"{location}的一幕", 80)
+        opening = str(scene.get("opening_situation", "")).strip()
+        if opening:
+            return _text_utils.trim_summary_text(opening, 80)
+        participants = [
+            str(name).strip()
+            for name in list(session.get("participants", []) or [])
+            if str(name).strip()
+        ]
+        if participants:
+            return _text_utils.trim_summary_text("、".join(participants[:3]), 80)
+        return "未命名会话"
+
+    @staticmethod
+    def _title_from_opening_content(
+        responses: list[dict[str, Any]], *, fallback: str
+    ) -> str:
+        """Turn the opening scene into a compact, stable session label."""
+
+        ordered = sorted(
+            responses,
+            key=lambda item: 0
+            if str(item.get("speaker", "")).strip() in {"场景提示", "旁白"}
+            else 1,
+        )
+        for item in ordered:
+            text = " ".join(str(item.get("message", "")).split()).strip()
+            text = re.sub(r"^[【\[][^】\]]+[】\]]\s*", "", text)
+            text = re.sub(r"^[（(][^）)]{0,30}[）)]\s*", "", text)
+            text = re.split(r"[。！？!?；;]\s*", text, maxsplit=1)[0].strip(" \"'“”")
+            if len(text) >= 2:
+                return _text_utils.trim_summary_text(text, 28)
+        return _text_utils.trim_summary_text(fallback, 80)
+
     def _turn_file(
         self,
         run_id: str,
@@ -533,6 +590,9 @@ class DialogueService:
             "run_id": run_id,
             "novel_id": novel_id,
             "mode": mode,
+            "title": self._default_session_title({"scene_card": scene_profile or {}, "participants": selected}),
+            "title_origin": "auto",
+            "title_finalized": False,
             "participants": selected,
             "controlled_character": controlled_character if mode == "act" else "",
             "scene_card": dict(scene_profile or {}),
@@ -601,6 +661,21 @@ class DialogueService:
     def get_session(self, run_id: str, session_id: str) -> dict[str, Any]:
         payload = self._read_json(self._session_file(run_id, session_id))
         return self._serialize_session(run_id, payload)
+
+    @with_session_lock
+    def update_session_title(
+        self, run_id: str, session_id: str, *, title: str
+    ) -> dict[str, Any]:
+        normalized = _text_utils.trim_summary_text(str(title).strip(), 80)
+        if not normalized:
+            raise ValueError("会话标题不能为空。")
+        session = self._read_json(self._session_file(run_id, session_id))
+        session["title"] = normalized
+        session["title_origin"] = "manual"
+        session["title_finalized"] = True
+        session["updated_at"] = _utc_now()
+        self._write_json(self._session_file(run_id, session_id), session)
+        return self._serialize_session(run_id, session)
 
     @with_session_lock
     def set_plugin_enhancer_state(
@@ -2327,6 +2402,17 @@ class DialogueService:
         session["pending_turn"] = {}
         session["latest_context_usage"] = context_usage
         completed_at = _utc_now()
+        if (
+            str(session.get("title_origin", "")).strip() == "auto"
+            and not bool(session.get("title_finalized", False))
+        ):
+            session["title"] = self._title_from_opening_content(
+                clean_responses,
+                fallback=self._default_session_title(session),
+            )
+            session["title_origin"] = "auto"
+            session["title_finalized"] = True
+            session["title_generated_at"] = completed_at
         session["updated_at"] = completed_at
         session["status"] = "ready"
         if generation_cache is not None:
@@ -3442,6 +3528,7 @@ class DialogueService:
         self, run_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         session = dict(payload)
+        session["title"] = str(session.get("title", "")).strip() or self._default_session_title(session)
         session_id = str(session.get("session_id", "")).strip()
         turn_records = self._completed_turn_records(run_id, session_id)
         session["file_urls"] = self._build_file_urls(run_id, session)

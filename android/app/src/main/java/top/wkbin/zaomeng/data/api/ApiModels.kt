@@ -601,6 +601,7 @@ data class DialogueSessionDto(
     @SerialName("session_id") val sessionId: String = "",
     @SerialName("run_id") val runId: String = "",
     @SerialName("novel_id") val novelId: String = "",
+    val title: String = "",
     val mode: String = "observe",
     @SerialName("mode_display") val modeDisplay: String = "",
     val participants: List<String> = emptyList(),
@@ -856,6 +857,11 @@ data class UpdateDialogueBranchMetaRequest(
     val label: String? = null,
     @SerialName("is_mainline") val isMainline: Boolean? = null,
     @SerialName("locked_event_ids") val lockedEventIds: List<String>? = null,
+)
+
+@Serializable
+data class UpdateDialogueSessionTitleRequest(
+    val title: String,
 )
 
 @Serializable

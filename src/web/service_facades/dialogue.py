@@ -110,6 +110,12 @@ class DialogueServiceMixin:
         self._ensure_run_exists(run_id)
         return self.dialogue.list_sessions(run_id)
 
+    def update_dialogue_session_title(
+        self, run_id: str, *, session_id: str, title: str
+    ) -> dict[str, Any]:
+        self._ensure_run_exists(run_id)
+        return self.dialogue.update_session_title(run_id, session_id, title=title)
+
     def create_dialogue_session(
         self,
         run_id: str,
