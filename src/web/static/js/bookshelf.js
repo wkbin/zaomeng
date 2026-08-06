@@ -178,7 +178,7 @@ function renderBookshelfDetail(run) {
     const exportPackageAction = actionState.secondaryButtons.find((entry) => entry.key === "export_package");
     exportPackageButton.classList.remove("hidden");
     exportPackageButton.disabled = Boolean(exportPackageAction?.disabled);
-    exportPackageButton.textContent = exportPackageAction?.label || "导出小说包";
+    exportPackageButton.textContent = exportPackageAction?.label || "分享小说包";
     exportPackageButton.classList.toggle("is-busy", Boolean(exportPackageAction?.busy));
   }
   const graphButton = el("detail-view-graph-button");

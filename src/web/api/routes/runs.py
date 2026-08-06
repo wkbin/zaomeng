@@ -17,6 +17,7 @@ from src.web.api.schemas import (
     IngestRelationRequest,
     RestartRunRequest,
     SavePersonaReviewRequest,
+    ShareRunPackageRequest,
     SuggestRedistillSegmentsRequest,
     SuggestPersonaFieldRequest,
     UpdateRelationDetailRequest,
@@ -155,10 +156,37 @@ def get_run(run_id: str, run_service: WebRunService = Depends(get_run_service)) 
 def export_run_package_route(
     run_id: str,
     builtin: bool = False,
+    include_dialogue: bool | None = None,
     run_service: WebRunService = Depends(get_run_service),
 ) -> FileResponse:
     try:
-        exported = run_service.export_run_package(run_id, builtin=builtin)
+        exported = run_service.export_run_package(
+            run_id,
+            builtin=builtin,
+            include_dialogue=include_dialogue,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Run not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return FileResponse(
+        exported["path"],
+        media_type="application/zip",
+        filename=str(exported.get("filename", "")).strip() or None,
+    )
+
+
+@router.post("/api/web/runs/{run_id}/share")
+def share_run_package_route(
+    run_id: str,
+    payload: ShareRunPackageRequest,
+    run_service: WebRunService = Depends(get_run_service),
+) -> FileResponse:
+    try:
+        exported = run_service.export_run_package(
+            run_id,
+            include_dialogue=payload.include_dialogue,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Run not found.") from exc
     except ValueError as exc:

@@ -1,10 +1,12 @@
 import base64
+import io
 import json
 import os
 import shutil
 import tempfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -99,6 +101,70 @@ class RunPackageTests(unittest.TestCase):
             self.assertEqual(imported["status"], "ready")
             self.assertEqual(len(imported["artifact_index"]["characters"]), 2)
             self.assertTrue((Path(imported["webui"]["run_dir"]) / "dialogue").exists())
+
+    def test_export_package_can_exclude_dialogue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = WebRunService(tmp)
+            run = self._build_ready_run(service)
+            run_dir = Path(run["webui"]["run_dir"])
+            session_dir = run_dir / "dialogue" / "session-1"
+            session_dir.mkdir(parents=True)
+            (session_dir / "session.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run["run_id"],
+                        "session_id": "session-1",
+                        "participants": ["林黛玉"],
+                        "transcript": [{"speaker": "林黛玉", "message": "旧会话内容。"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            exported = service.export_run_package(
+                run["run_id"],
+                include_dialogue=False,
+            )
+            with zipfile.ZipFile(exported["path"]) as archive:
+                names = archive.namelist()
+                self.assertFalse(any(name.startswith("run/dialogue/") for name in names))
+                manifest = json.loads(
+                    archive.read("package_manifest.json").decode("utf-8")
+                )
+                self.assertFalse(manifest["includes_dialogue"])
+
+    def test_export_package_can_include_dialogue_explicitly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = WebRunService(tmp)
+            run = self._build_ready_run(service)
+            run_dir = Path(run["webui"]["run_dir"])
+            session_dir = run_dir / "dialogue" / "session-1"
+            session_dir.mkdir(parents=True)
+            (session_dir / "session.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run["run_id"],
+                        "session_id": "session-1",
+                        "participants": ["林黛玉"],
+                        "transcript": [{"speaker": "林黛玉", "message": "旧会话内容。"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            exported = service.export_run_package(
+                run["run_id"],
+                include_dialogue=True,
+            )
+            with zipfile.ZipFile(exported["path"]) as archive:
+                names = archive.namelist()
+                self.assertTrue(any(name.startswith("run/dialogue/") for name in names))
+                manifest = json.loads(
+                    archive.read("package_manifest.json").decode("utf-8")
+                )
+                self.assertTrue(manifest["includes_dialogue"])
 
     def test_export_does_not_require_permission_to_copy_file_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -248,3 +314,53 @@ class RunPackageTests(unittest.TestCase):
             )
             self.assertEqual(publish_response.status_code, 200)
             self.assertTrue(Path(publish_response.json()["package_path"]).exists())
+
+            run_dir = Path(run["webui"]["run_dir"])
+            session_dir = run_dir / "dialogue" / "session-1"
+            session_dir.mkdir(parents=True)
+            (session_dir / "session.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run["run_id"],
+                        "session_id": "session-1",
+                        "participants": ["林黛玉"],
+                        "transcript": [{"speaker": "林黛玉", "message": "旧会话内容。"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            export_without_dialogue = client.get(
+                f"/api/web/runs/{run['run_id']}/export",
+                params={"include_dialogue": False},
+            )
+            self.assertEqual(export_without_dialogue.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(export_without_dialogue.content)) as archive:
+                self.assertFalse(
+                    any(name.startswith("run/dialogue/") for name in archive.namelist())
+                )
+
+            share_without_dialogue = client.post(
+                f"/api/web/runs/{run['run_id']}/share",
+                json={"include_dialogue": False},
+            )
+            self.assertEqual(share_without_dialogue.status_code, 200)
+            self.assertEqual(
+                share_without_dialogue.headers["content-type"],
+                "application/zip",
+            )
+            with zipfile.ZipFile(io.BytesIO(share_without_dialogue.content)) as archive:
+                self.assertFalse(
+                    any(name.startswith("run/dialogue/") for name in archive.namelist())
+                )
+
+            share_with_dialogue = client.post(
+                f"/api/web/runs/{run['run_id']}/share",
+                json={"include_dialogue": True},
+            )
+            self.assertEqual(share_with_dialogue.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(share_with_dialogue.content)) as archive:
+                self.assertTrue(
+                    any(name.startswith("run/dialogue/") for name in archive.namelist())
+                )

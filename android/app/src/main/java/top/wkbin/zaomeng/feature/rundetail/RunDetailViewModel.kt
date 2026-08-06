@@ -186,7 +186,7 @@ class RunDetailViewModel(
         }
     }
 
-    fun exportRun() {
+    fun exportRun(includeDialogue: Boolean = true) {
         if (state.value.exporting) return
         viewModelScope.launch {
             val staleExport = state.value.exportedPackage
@@ -196,7 +196,11 @@ class RunDetailViewModel(
             withContext(Dispatchers.IO) { staleExport?.file?.delete() }
             var pendingExport: ExportedRunPackage? = null
             try {
-                val exported = repository.exportRun(runId, applicationContext.cacheDir)
+                val exported = repository.exportRun(
+                    runId,
+                    applicationContext.cacheDir,
+                    includeDialogue = includeDialogue,
+                )
                 pendingExport = exported
                 mutableState.update {
                     it.copy(

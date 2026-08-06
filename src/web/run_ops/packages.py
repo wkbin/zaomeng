@@ -58,10 +58,16 @@ def export_run_package(
     manifest: dict[str, Any],
     builtin: bool,
     utc_now: Callable[[], str],
+    include_dialogue: bool | None = None,
 ) -> tuple[Path, str]:
     status = str(manifest.get("status", "")).strip()
     if status == "running":
         raise ValueError("这本书还在整理中，等这一轮结束后再导出小说包。")
+
+    dialogue_exists = (run_dir / "dialogue").exists()
+    includes_dialogue = (
+        include_dialogue if include_dialogue is not None else (not builtin and dialogue_exists)
+    )
 
     exports_dir = run_dir / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
@@ -79,14 +85,17 @@ def export_run_package(
         _copy_tree_without_metadata(
             run_dir,
             staged_run_dir,
-            ignore=lambda relative: _is_export_copy_ignored(relative, include_dialogue=not builtin),
+            ignore=lambda relative: _is_export_copy_ignored(
+                relative,
+                include_dialogue=includes_dialogue,
+            ),
         )
-        _strip_export_only_paths(staged_run_dir, include_dialogue=not builtin)
+        _strip_export_only_paths(staged_run_dir, include_dialogue=includes_dialogue)
         package_manifest = _build_package_manifest(
             manifest=manifest,
             builtin=builtin,
             exported_at=utc_now(),
-            includes_dialogue=not builtin and (run_dir / "dialogue").exists(),
+            includes_dialogue=includes_dialogue and dialogue_exists,
             includes_chapters=(run_dir / "chapters").exists(),
         )
         (staging_root / PACKAGE_MANIFEST_NAME).write_text(
@@ -140,6 +149,8 @@ def read_run_package_metadata(package_path: Path) -> dict[str, Any] | None:
         "status": str(manifest.get("status", "")).strip(),
         "character_count": int(manifest.get("character_count", 0) or 0),
         "has_relation_graph": bool(manifest.get("has_relation_graph", False)),
+        "includes_dialogue": bool(manifest.get("includes_dialogue", False)),
+        "includes_chapters": bool(manifest.get("includes_chapters", False)),
         "updated_at": str(manifest.get("exported_at", "")).strip() or str(manifest.get("updated_at", "")).strip(),
         "filename": package_path.name,
         "package_path": str(package_path.resolve()),
@@ -505,6 +516,8 @@ def _normalize_package_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     normalized["builtin"] = bool(normalized.get("builtin", False))
     normalized["character_count"] = _coerce_non_negative_int(normalized.get("character_count"), default=0)
     normalized["has_relation_graph"] = bool(normalized.get("has_relation_graph", False))
+    normalized["includes_dialogue"] = bool(normalized.get("includes_dialogue", False))
+    normalized["includes_chapters"] = bool(normalized.get("includes_chapters", False))
     normalized["schema_version"] = PACKAGE_SCHEMA_VERSION
     return normalized
 

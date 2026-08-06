@@ -6,6 +6,21 @@ from pathlib import Path
 
 
 class RuntimeRequirementsTests(unittest.TestCase):
+    def test_all_web_requirement_sets_include_multipart_parser(self):
+        repo_root = Path(__file__).resolve().parents[1]
+
+        for filename in (
+            "requirements.txt",
+            "requirements.runtime.txt",
+            "requirements.termux.txt",
+        ):
+            with self.subTest(filename=filename):
+                requirements = (repo_root / filename).read_text(encoding="utf-8")
+                self.assertRegex(
+                    requirements,
+                    r"(?im)^\s*python-multipart==0\.0\.20\s*$",
+                )
+
     def test_full_requirements_include_testclient_compat_dependency(self):
         repo_root = Path(__file__).resolve().parents[1]
         requirements = (repo_root / "requirements.txt").read_text(encoding="utf-8")

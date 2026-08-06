@@ -140,7 +140,7 @@ The current Web UI already supports:
 - a guided linear workflow, without requiring the user to understand the skill ecosystem first
 - saving model settings and launching distillation directly from the UI
 - trying ready-made built-in novels from `builtin_novels/` right after model setup, without distilling one manually first
-- importing and exporting a unified “novel package” so a playable run can move between machines
+- importing and sharing a unified “novel package” with optional dialogue history so a playable run can move between machines
 - publishing the current run into `builtin_novels/` with one click, so it can become a built-in playable sample
 - volume-aware excerpt suggestions, including estimated chunk count, model calls, rough token cost, and time range
 - tracking character distillation progress and graph artifacts in one place

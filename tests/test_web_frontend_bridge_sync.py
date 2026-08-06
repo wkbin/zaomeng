@@ -494,6 +494,17 @@ class WebFrontendBridgeSyncTests(unittest.TestCase):
         self.assertIn('hint: "只写他怎么看自己，可与他人观感形成反差。"', content)
         self.assertIn('hint: "写不对外展示的一面，不要重复内在冲突。"', content)
 
+    def test_run_package_share_modal_exposes_include_dialogue_option(self):
+        fragment = read_fragment("settings-modal.html")
+        main_content = read_js("main.js")
+        self.assertIn('id="run-package-share-modal"', fragment)
+        self.assertIn('id="run-package-share-include-dialogue"', fragment)
+        self.assertIn("function openRunPackageShareModal()", main_content)
+        self.assertIn("function closeRunPackageShareModal()", main_content)
+        self.assertIn("function handleConfirmRunPackageShare()", main_content)
+        self.assertIn("/api/web/runs/${encodeURIComponent(runId)}/share", main_content)
+        self.assertIn("JSON.stringify({ include_dialogue: includeDialogue })", main_content)
+
     def test_core_exposes_shared_bridge_sync_helper(self):
         content = read_js("core.js")
         self.assertIn("function syncLegacyUiState(source = \"legacy\", overrides = {}) {", content)

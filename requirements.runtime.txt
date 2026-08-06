@@ -19,4 +19,5 @@ jieba>=0.42.1
 # Web UI runtime
 fastapi>=0.104.0,<1.0.0
 pydantic>=2.0.0,<3.0.0
+python-multipart==0.0.20
 uvicorn>=0.24.0

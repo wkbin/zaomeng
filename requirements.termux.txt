@@ -15,4 +15,5 @@ jieba>=0.42.1
 fastapi>=0.104.0,<0.120.0
 # Pydantic 1.10.20+ supports Python 3.13 and publishes a pure-Python wheel.
 pydantic>=1.10.20,<2.0.0
+python-multipart==0.0.20
 uvicorn>=0.24.0

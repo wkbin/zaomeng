@@ -268,7 +268,7 @@
       ],
       secondaryButtons: [
         { key: "relations", label: "关系明细", disabled: !hasRelation },
-        { key: "export_package", label: exportPackagePending ? "正在打包..." : "导出小说包", disabled: !canExportPackage, busy: exportPackagePending },
+        { key: "export_package", label: exportPackagePending ? "正在打包..." : "分享小说包", disabled: !canExportPackage, busy: exportPackagePending },
         { key: "export", label: "导出摘要", disabled: !hasExport },
         { key: "graph", label: "查看关系图", disabled: !hasGraphLink },
         { key: "timeline", label: "查看时间线", disabled: false },

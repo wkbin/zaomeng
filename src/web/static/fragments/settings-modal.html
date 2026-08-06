@@ -575,6 +575,40 @@
   </div>
 </div>
 
+<div id="run-package-share-modal" class="modal hidden">
+  <div
+    id="run-package-share-modal-backdrop"
+    class="modal-backdrop"
+    data-close-modal="true"
+    data-modal-id="run-package-share-modal"
+  ></div>
+  <div class="modal-card inspector-modal-card">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">小说包</p>
+        <h3 id="run-package-share-modal-title">分享小说包</h3>
+        <p class="panel-copy">把这一卷的人物、关系、正文和可选会话打包，别人导入后可以直接续用。</p>
+      </div>
+      <button id="close-run-package-share-button" type="button" class="soft-button">先放一放</button>
+    </div>
+    <div class="modal-scroll">
+      <div class="field-card run-package-share-option">
+        <span>是否携带会话</span>
+        <div class="run-package-share-check-row">
+          <input id="run-package-share-include-dialogue" type="checkbox" checked />
+          <span>把已有聊天记录一起放进小说包</span>
+        </div>
+        <small>不勾选时只分享正文、人物、关系和场景素材，适合作为公开试玩包。</small>
+      </div>
+      <div class="card-actions">
+        <button id="run-package-share-cancel-button" type="button" class="soft-button">取消</button>
+        <button id="run-package-share-confirm-button" type="button" class="primary-button">生成分享包</button>
+      </div>
+      <p id="run-package-share-status" class="card-note"></p>
+    </div>
+  </div>
+</div>
+
 <div id="app-confirm-modal" class="modal hidden app-confirm-modal">
   <div
     id="app-confirm-modal-backdrop"

@@ -1,3 +1,4 @@
+import com.android.tools.r8.graph.fa
 import java.util.Properties
 
 plugins {
@@ -75,6 +76,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        debug {
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
     compileOptions {

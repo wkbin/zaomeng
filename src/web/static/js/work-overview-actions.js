@@ -47,7 +47,7 @@
       handleExportRunPackage();
       return true;
     }
-    setStatus("bookshelf-status", "导出小说包能力暂时没有载入。");
+    setStatus("bookshelf-status", "分享小说包能力暂时没有载入。");
     return false;
   }
 

@@ -175,7 +175,10 @@ interface ZaomengApi {
 
     @Streaming
     @GET("api/web/runs/{runId}/export")
-    suspend fun exportRun(@Path("runId") runId: String): Response<ResponseBody>
+    suspend fun exportRun(
+        @Path("runId") runId: String,
+        @Query("include_dialogue") includeDialogue: Boolean = true,
+    ): Response<ResponseBody>
 
     @GET("api/web/runs/{runId}/chapters")
     suspend fun listChapters(@Path("runId") runId: String): ChaptersResponse

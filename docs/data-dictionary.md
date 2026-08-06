@@ -137,6 +137,10 @@ source of truth（已落地）：
   - 导出时角色数
 - `has_relation_graph`
   - 导出时是否带关系图谱
+- `includes_dialogue`
+  - 分享/导出时是否包含 `dialogue/` 会话记录
+- `includes_chapters`
+  - 导出时是否包含章节草稿
 - `summary.status_text`
   - 导出时运行态投影（由 run 真相字段推导）
 - `summary.graph_status`

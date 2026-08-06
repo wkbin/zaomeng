@@ -2189,62 +2189,100 @@ async function handleImportRunPackage(event) {
   }
 }
 
-async function handleExportRunPackage() {
+function openRunPackageShareModal() {
   if (!currentRunId) {
     setFlowStatusMessage("bookshelf-status", {
-      message: "先选中一卷书，再导出小说包。",
-      nextStep: "进入某一卷详情后，这里就可以直接导出。",
+      message: "先选中一卷书，再分享小说包。",
+      nextStep: "进入某一卷详情后，这里就可以直接分享。",
     });
-    return;
+    return false;
   }
   const run = currentRun || findRunById(currentRunId);
   if (String(run?.status || "").trim() === "running") {
     setFlowStatusMessage("bookshelf-status", {
-      message: "这本书还在整理中，等这一轮结束后再导出。",
+      message: "这本书还在整理中，等这一轮结束后再分享。",
       impact: "这不会影响你继续看进度或直接聊天。",
-      nextStep: "等整理结束后再导出即可。",
+      nextStep: "等整理结束后再分享即可。",
     });
+    return false;
+  }
+  const includeDialogue = el("run-package-share-include-dialogue");
+  if (includeDialogue) {
+    includeDialogue.checked = true;
+  }
+  const status = el("run-package-share-status");
+  if (status) {
+    status.textContent = "";
+  }
+  toggle("run-package-share-modal", true);
+  syncModalScrollLock();
+  return true;
+}
+
+function closeRunPackageShareModal() {
+  toggle("run-package-share-modal", false);
+  syncModalScrollLock();
+}
+
+function handleExportRunPackage() {
+  openRunPackageShareModal();
+}
+
+async function handleConfirmRunPackageShare() {
+  if (!currentRunId) {
+    closeRunPackageShareModal();
     return;
   }
   const runId = String(currentRunId || "").trim();
   if (isRunPackageExportPending(runId)) {
     return;
   }
+  const run = currentRun || findRunById(runId);
+  const includeDialogue = Boolean(el("run-package-share-include-dialogue")?.checked);
   const title = runNovelTitle(run);
   setRunPackageExportPending(runId, true);
-  setButtonBusyState("detail-export-package-button", true, { idleText: "导出小说包", busyText: "导出中..." });
-  setFlowLoadingStatus(
-    "bookshelf-status",
-    `正在打包《${title}》的小说包...`,
-    "打包完成后会自动开始下载。"
-  );
+  setButtonBusyState("run-package-share-confirm-button", true, {
+    idleText: "生成分享包",
+    busyText: "生成中...",
+  });
+  const statusNode = el("run-package-share-status");
+  if (statusNode) {
+    statusNode.textContent = `正在打包《${title}》...`;
+  }
   try {
     const response = await fetch(
-      `/api/web/runs/${encodeURIComponent(runId)}/export`,
-      webAuthFetchOptions()
+      `/api/web/runs/${encodeURIComponent(runId)}/share`,
+      webAuthFetchOptions({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_dialogue: includeDialogue }),
+      })
     );
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.detail || "导出小说包失败。");
+      throw new Error(payload.detail || "分享小说包失败。");
     }
     const blob = await response.blob();
     const fallbackName = `${String(run?.novel_id || title || "zaomeng-run").trim() || "zaomeng-run"}.zaomeng-run.zip`;
     downloadBlobFile(blob, resolveDownloadFilename(response, fallbackName));
+    closeRunPackageShareModal();
     setFlowSuccessStatus(
       "bookshelf-status",
-      `《${title}》的小说包已经准备好，正在开始下载。`,
-      "你可以把它导入到别的设备，或放进内置小说目录。"
+      `《${title}》的分享包已经准备好，正在开始下载。`,
+      includeDialogue
+        ? "包里已包含现有聊天记录，可以直接导入续用。"
+        : "这次只分享素材，不包含聊天记录，适合公开试玩。"
     );
   } catch (error) {
-    setFlowFailureStatus(
-      "bookshelf-status",
-      error.message || "这次导出没有接上。",
-      "可以稍后重试；如果书还在整理中，等结束后再导出更稳。",
-      { impact: "这不会影响这卷继续聊天或继续校对。", affectsChatFlow: false }
-    );
+    if (statusNode) {
+      statusNode.textContent = error.message || "这次分享没有接上。";
+    }
   } finally {
     setRunPackageExportPending(runId, false);
-    setButtonBusyState("detail-export-package-button", false, { idleText: "导出小说包", busyText: "导出中..." });
+    setButtonBusyState("run-package-share-confirm-button", false, {
+      idleText: "生成分享包",
+      busyText: "生成中...",
+    });
   }
 }
 
@@ -3658,6 +3696,9 @@ function bindEvents() {
     openWorkSummaryExportFallback();
   });
   bind("detail-export-package-button", "click", handleExportRunPackage);
+  bind("close-run-package-share-button", "click", closeRunPackageShareModal);
+  bind("run-package-share-cancel-button", "click", closeRunPackageShareModal);
+  bind("run-package-share-confirm-button", "click", handleConfirmRunPackageShare);
   bind("detail-view-timeline-button", "click", () => {
     if (typeof openWorkTimeline === "function") {
       openWorkTimeline();
@@ -3950,6 +3991,8 @@ function bindEvents() {
         closeBuiltinNovelModal();
       } else if (modalId === "app-update-modal") {
         dismissAppUpdateModal();
+      } else if (modalId === "run-package-share-modal") {
+        closeRunPackageShareModal();
       } else {
         closeSettingsModal();
       }
@@ -4192,6 +4235,9 @@ window.triggerImportRunPackage = triggerImportRunPackage;
 window.handleImportRunPackage = handleImportRunPackage;
 window.isRunPackageExportPending = isRunPackageExportPending;
 window.handleExportRunPackage = handleExportRunPackage;
+window.openRunPackageShareModal = openRunPackageShareModal;
+window.closeRunPackageShareModal = closeRunPackageShareModal;
+window.handleConfirmRunPackageShare = handleConfirmRunPackageShare;
 window.buildComposerUiState = buildComposerUiState;
 window.publishComposerUiState = publishComposerUiState;
 window.normalizeDialogueMessageKind = normalizeDialogueMessageKind;

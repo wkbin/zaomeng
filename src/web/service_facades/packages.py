@@ -56,7 +56,13 @@ class PackageServiceMixin:
                 library_package=library_package,
             )
 
-    def export_run_package(self, run_id: str, *, builtin: bool = False) -> dict[str, Any]:
+    def export_run_package(
+        self,
+        run_id: str,
+        *,
+        builtin: bool = False,
+        include_dialogue: bool | None = None,
+    ) -> dict[str, Any]:
         manifest = self._require_manifest(run_id)
         package_path, filename = export_run_package(
             run_id=run_id,
@@ -64,11 +70,15 @@ class PackageServiceMixin:
             manifest=manifest,
             builtin=builtin,
             utc_now=_utc_now,
+            include_dialogue=include_dialogue,
         )
         return {
             "run_id": run_id,
             "filename": filename,
             "path": package_path,
+            "include_dialogue": (
+                include_dialogue if include_dialogue is not None else (not builtin and (self.runs_root / run_id / "dialogue").exists())
+            ),
         }
 
     def publish_run_as_builtin(self, run_id: str) -> dict[str, Any]:

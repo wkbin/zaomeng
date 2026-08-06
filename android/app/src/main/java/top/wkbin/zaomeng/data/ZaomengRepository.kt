@@ -441,8 +441,12 @@ class ZaomengRepository(
         )
     }
 
-    suspend fun exportRun(runId: String, cacheDirectory: File): ExportedRunPackage = request {
-        val response = backend.requireApi().exportRun(runId)
+    suspend fun exportRun(
+        runId: String,
+        cacheDirectory: File,
+        includeDialogue: Boolean = true,
+    ): ExportedRunPackage = request {
+        val response = backend.requireApi().exportRun(runId, includeDialogue)
         if (!response.isSuccessful) {
             throw ApiRequestException(errorDetail(response.errorBody()?.string(), response.code()))
         }

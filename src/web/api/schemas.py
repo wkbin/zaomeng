@@ -101,6 +101,10 @@ class ImportRunPackageRequest(BaseModel):
     library_package: dict[str, str] = Field(default_factory=dict)
 
 
+class ShareRunPackageRequest(BaseModel):
+    include_dialogue: bool = Field(default=True)
+
+
 class CrossoverParticipantRequest(BaseModel):
     run_id: str = Field(..., min_length=1)
     character: str = Field(..., min_length=1)

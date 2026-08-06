@@ -42,6 +42,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -111,6 +112,7 @@ fun RunDetailScreen(
     var confirmRedistill by rememberSaveable { mutableStateOf(false) }
     var confirmResume by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var confirmExport by rememberSaveable { mutableStateOf(false) }
     var selectedAvatarPersona by remember { mutableStateOf<PersonaIndexDto?>(null) }
     var avatarCropUri by remember { mutableStateOf<Uri?>(null) }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -208,6 +210,16 @@ fun RunDetailScreen(
         )
     }
 
+    if (confirmExport) {
+        ExportRunPackageDialog(
+            onDismiss = { confirmExport = false },
+            onConfirm = { includeDialogue ->
+                confirmExport = false
+                viewModel.exportRun(includeDialogue)
+            },
+        )
+    }
+
 
     if (confirmDelete) {
         AlertDialog(
@@ -296,7 +308,7 @@ fun RunDetailScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "刷新详情")
                         }
                     }
-                    IconButton(onClick = viewModel::exportRun, enabled = state.run != null && !state.exporting) {
+                    IconButton(onClick = { confirmExport = true }, enabled = state.run != null && !state.exporting) {
                         Icon(Icons.Default.Download, contentDescription = "导出书卷")
                     }
                 },
@@ -320,7 +332,7 @@ fun RunDetailScreen(
                 onStop = { confirmStop = true },
                 onResume = { confirmResume = true },
                 onRedistill = { confirmRedistill = true },
-                onExport = viewModel::exportRun,
+                onExport = { confirmExport = true },
                 onOpenPersona = { character -> onOpenPersona(viewModel.runId, character) },
                 onAvatarClick = { selectedAvatarPersona = it },
                 onOpenSessions = { onOpenSessions(viewModel.runId) },
@@ -789,6 +801,43 @@ private fun Metric(label: String, value: String, modifier: Modifier = Modifier) 
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+@Composable
+private fun ExportRunPackageDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (Boolean) -> Unit,
+) {
+    var includeDialogue by rememberSaveable { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出书卷包") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("选择是否把已有聊天会话一起写入小说包。")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = includeDialogue,
+                        onCheckedChange = { includeDialogue = it },
+                    )
+                    Text("携带会话记录")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(includeDialogue) }) {
+                Text("生成分享包")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
 }
 
 @Composable

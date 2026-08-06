@@ -964,6 +964,28 @@
   border-color: rgba(154, 63, 45, 0.28);
 }
 
+.run-package-share-option {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.run-package-share-check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.2rem;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.run-package-share-check-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  accent-color: var(--accent-strong, #a5644f);
+}
+
 .plugin-manager-modal-card {
   width: min(720px, calc(100vw - 32px));
 }
