@@ -32,6 +32,9 @@ import top.wkbin.zaomeng.feature.chapters.ChaptersViewModel
 import top.wkbin.zaomeng.feature.chat.ChatViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 import top.wkbin.zaomeng.feature.settings.SettingsViewModel
+import top.wkbin.zaomeng.feature.settings.ModelProfileEditorViewModel
+import top.wkbin.zaomeng.feature.settings.ModelProfilesViewModel
+import top.wkbin.zaomeng.feature.settings.PluginsViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
@@ -100,4 +103,7 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     }
     viewModel { ChatViewModel(get(), get()) }
     viewModel { SettingsViewModel(get()) }
+    viewModel { ModelProfilesViewModel(get()) }
+    viewModel { PluginsViewModel(get()) }
+    viewModel { parameters -> ModelProfileEditorViewModel(get(), parameters.get()) }
 }

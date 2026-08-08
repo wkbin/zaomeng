@@ -27,6 +27,13 @@ import top.wkbin.zaomeng.feature.sessions.SessionsScreen
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 import top.wkbin.zaomeng.feature.settings.AppearanceSettingsScreen
 import top.wkbin.zaomeng.feature.settings.ChatDisplaySettingsScreen
+import top.wkbin.zaomeng.feature.settings.AppSupportSettingsScreen
+import top.wkbin.zaomeng.feature.settings.ModelProfileEditorScreen
+import top.wkbin.zaomeng.feature.settings.ModelProfileEditorViewModel
+import top.wkbin.zaomeng.feature.settings.ModelProfilesViewModel
+import top.wkbin.zaomeng.feature.settings.ModelSettingsScreen
+import top.wkbin.zaomeng.feature.settings.PluginsScreen
+import top.wkbin.zaomeng.feature.settings.SettingsViewModel
 import top.wkbin.zaomeng.feature.settings.SettingsHomeScreen
 import top.wkbin.zaomeng.feature.settings.StartupRecoverySettingsScreen
 
@@ -78,9 +85,35 @@ fun ZaomengNavHost() {
             entry(StartupRecoverySettingsDestination) {
                 StartupRecoverySettingsScreen(onBack = { backStack.removeLastOrNull() })
             }
-            entry(ModelConfigurationDestination) { PlaceholderScreen("模型配置（迁移中）") }
-            entry(PluginsDestination) { PlaceholderScreen("插件（迁移中）") }
-            entry(AppSupportSettingsDestination) { PlaceholderScreen("支持（迁移中）") }
+            entry(ModelConfigurationDestination) {
+                val viewModel: ModelProfilesViewModel = koinViewModel()
+                ModelSettingsScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onAddProfile = { backStack.add(ModelProfileEditorDestination("")) },
+                    onEditProfile = { profileId ->
+                        backStack.add(ModelProfileEditorDestination(profileId))
+                    },
+                )
+            }
+            addEntryProvider(clazz = ModelProfileEditorDestination::class) { destination ->
+                val viewModel: ModelProfileEditorViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.profileId) })
+                ModelProfileEditorScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+            entry(PluginsDestination) {
+                PluginsScreen(onBack = { backStack.removeLastOrNull() })
+            }
+            entry(AppSupportSettingsDestination) {
+                val viewModel: SettingsViewModel = koinViewModel()
+                AppSupportSettingsScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
             entry(AppUpdateDestination) { PlaceholderScreen("更新（迁移中）") }
             entry(CardLibraryDestination) { PlaceholderScreen("卡库（迁移中）") }
             entry(CrossoverDestination) { PlaceholderScreen("联动（迁移中）") }
