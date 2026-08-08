@@ -1,0 +1,38 @@
+# 统一仓库行尾符为 LF（Git 推荐约定）；Windows 工作区 checkout 时由 Git 按需转换。
+# 此前仓库文件为 LF、工作区被 Windows 工具写成 CRLF，导致大量"假修改"——本文件配合
+# `git add --renormalize .` 一次性把暂存区规范化为 LF（真实改动保留，行尾符噪音消除）。
+
+* text=auto
+
+# 代码/文本文件显式 LF
+*.kt text eol=lf
+*.java text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.xml text eol=lf
+*.gradle text eol=lf
+*.kts text eol=lf
+*.properties text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+*.bat text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+
+# 二进制文件（禁止行尾符转换/合并）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.jar binary
+*.aar binary
+*.keystore binary
+*.db binary
+*.sqlite binary
+*.pdf binary
