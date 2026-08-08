@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 import java.nio.file.Files
+import okio.Path.Companion.toPath
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import top.wkbin.zaomeng.ktor.services.DialoguePayloadBuilder
@@ -23,8 +24,9 @@ class DialoguePayloadBuilderPerformanceTest {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private fun makeStorage(): Pair<StorageService, java.io.File> {
-        val root = Files.createTempDirectory("zaomeng-perf-").toFile()
-        val storage = StorageService(root)
+        val rootFile = Files.createTempDirectory("zaomeng-perf-").toFile()
+        val storage = StorageService(rootFile.absolutePath.toPath())
+        val root = rootFile
         val runDir = java.io.File(root, "runs/test-run")
         runDir.mkdirs()
         java.io.File(runDir, "run_manifest.json").writeText(
@@ -51,14 +53,14 @@ class DialoguePayloadBuilderPerformanceTest {
         val (storage, _) = makeStorage()
         val builder = DialoguePayloadBuilder(storage)
         val runManifest = json.parseToJsonElement(
-            java.io.File(storage.getRunDirectory("test-run"), "run_manifest.json").readText(),
+            storage.readText(storage.getRunDirectory("test-run") / "run_manifest.json"),
         ).jsonObject
         val session = json.parseToJsonElement(
-            java.io.File(storage.getRunDirectory("test-run"), "sessions/test-session/session_manifest.json").readText(),
+            storage.readText(storage.getRunDirectory("test-run") / "sessions/test-session/session_manifest.json"),
         ).jsonObject
 
         // 关键：turns/ 目录根本不存在——统计必须来自 transcript（旧实现扫描 turns 目录会得到空数据）
-        val turnsDir = java.io.File(storage.getRunDirectory("test-run"), "sessions/test-session/turns")
+        val turnsDir = java.io.File(storage.getRunDirectory("test-run").toString(), "sessions/test-session/turns")
         assertTrue(!turnsDir.exists(), "fixture 不应包含 turns 目录")
 
         val payload = builder.buildTurnPayload(
@@ -89,10 +91,10 @@ class DialoguePayloadBuilderPerformanceTest {
         val (storage, _) = makeStorage()
         val builder = DialoguePayloadBuilder(storage)
         val runManifest = json.parseToJsonElement(
-            java.io.File(storage.getRunDirectory("test-run"), "run_manifest.json").readText(),
+            storage.readText(storage.getRunDirectory("test-run") / "run_manifest.json"),
         ).jsonObject
         val session = json.parseToJsonElement(
-            java.io.File(storage.getRunDirectory("test-run"), "sessions/test-session/session_manifest.json").readText(),
+            storage.readText(storage.getRunDirectory("test-run") / "sessions/test-session/session_manifest.json"),
         ).jsonObject
 
         val payload = builder.buildTurnPayload(

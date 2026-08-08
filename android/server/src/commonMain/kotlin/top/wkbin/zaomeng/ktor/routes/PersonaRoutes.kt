@@ -1,0 +1,67 @@
+package top.wkbin.zaomeng.ktor.routes
+
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.*
+import io.ktor.server.application.*
+import io.ktor.server.request.receive
+import io.ktor.server.request.receiveMultipart
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondFile
+import io.ktor.server.routing.*
+import io.ktor.utils.io.jvm.javaio.toInputStream
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import top.wkbin.zaomeng.ktor.models.SuggestPersonaFieldRequest
+import top.wkbin.zaomeng.ktor.services.PersonaService
+
+fun Route.personaRoutes(service: PersonaService) {
+    route("/api/web/runs/{run_id}/personas/{character}") {
+        get {
+            personaCall { runId, character -> call.respond(service.getReview(runId, character)) }
+        }
+        put {
+            personaCall { runId, character ->
+                val payload = call.receive<JsonObject>()
+                val fields = payload.mapValues { it.value.jsonPrimitive.content }
+                call.respond(service.saveReview(runId, character, fields))
+            }
+        }
+        get("/quality-report") {
+            personaCall { runId, character -> call.respond(service.getQualityReport(runId, character)) }
+        }
+        post("/avatar") {
+            personaCall { runId, character ->
+                var bytes: ByteArray? = null
+                call.receiveMultipart().forEachPart { part ->
+                    if (part is PartData.FileItem && part.name == "file") bytes = part.provider().toInputStream().readBytes()
+                    part.release()
+                }
+                call.respond(service.saveAvatar(runId, character, requireNotNull(bytes) { "Avatar file is required." }))
+            }
+        }
+        get("/avatar") {
+            personaCall { runId, character ->
+                call.respondBytes(service.getAvatarBytes(runId, character), io.ktor.http.ContentType.Image.PNG)
+            }
+        }
+        post("/suggest-field") {
+            personaCall { runId, character ->
+                val request = call.receive<SuggestPersonaFieldRequest>()
+                call.respond(service.suggestField(runId, character, request.field, request.currentFields))
+            }
+        }
+    }
+}
+
+private suspend fun RoutingContext.personaCall(block: suspend (String, String) -> Unit) {
+    val runId = call.parameters["run_id"] ?: return call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
+    val character = call.parameters["character"] ?: return call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing character"))
+    try {
+        block(runId, character)
+    } catch (error: NoSuchElementException) {
+        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (error.message ?: "Not found")))
+    } catch (error: IllegalArgumentException) {
+        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "Invalid request")))
+    }
+}

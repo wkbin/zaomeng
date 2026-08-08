@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.data
 
 import android.util.Base64
 import java.io.File
+import okio.Path.Companion.toPath
 import java.io.OutputStream
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.backend.BackendManager
@@ -465,7 +466,7 @@ class ZaomengRepository(
         }
         ExportedRunPackage(
             filename = filename,
-            file = streamed.file,
+            file = streamed.file.absolutePath.toPath(),
             byteCount = streamed.byteCount,
         )
     }
@@ -556,7 +557,7 @@ class ZaomengRepository(
         }
         ExportedChapterManuscript(
             filename = "$runId-manuscript.${if (normalizedFormat == "text") "txt" else "md"}",
-            file = streamed.file,
+            file = streamed.file.absolutePath.toPath(),
         )
     }
 

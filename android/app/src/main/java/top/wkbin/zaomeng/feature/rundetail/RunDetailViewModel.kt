@@ -193,7 +193,7 @@ class RunDetailViewModel(
             mutableState.update {
                 it.copy(exporting = true, exportedPackage = null, error = "", message = "")
             }
-            withContext(Dispatchers.IO) { staleExport?.file?.delete() }
+            withContext(Dispatchers.IO) { staleExport?.file?.let { java.io.File(it.toString()).delete() } }
             var pendingExport: ExportedRunPackage? = null
             try {
                 val exported = repository.exportRun(
@@ -218,7 +218,7 @@ class RunDetailViewModel(
                     it.copy(exporting = false, error = error.message ?: "导出书卷失败。")
                 }
             } finally {
-                withContext(NonCancellable + Dispatchers.IO) { pendingExport?.file?.delete() }
+                withContext(NonCancellable + Dispatchers.IO) { pendingExport?.file?.let { java.io.File(it.toString()).delete() } }
             }
         }
     }
@@ -226,7 +226,7 @@ class RunDetailViewModel(
     fun consumeExportedPackage() {
         val exported = state.value.exportedPackage
         mutableState.update { it.copy(exportedPackage = null, message = "") }
-        exported?.file?.delete()
+        exported?.file?.let { java.io.File(it.toString()).delete() }
     }
 
     fun saveExportedPackage(uri: Uri) {
@@ -234,13 +234,13 @@ class RunDetailViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    exported.file.inputStream().buffered().use { source ->
+                    java.io.File(exported.file.toString()).inputStream().buffered().use { source ->
                         applicationContext.contentResolver.openOutputStream(uri, "w")?.use { destination ->
                             copyStream(source, destination)
                         } ?: error("无法写入所选位置。")
                     }
                 }
-                withContext(Dispatchers.IO) { exported.file.delete() }
+                withContext(Dispatchers.IO) { java.io.File(exported.file.toString()).delete() }
                 mutableState.update {
                     it.copy(
                         exportedPackage = null,
@@ -496,7 +496,7 @@ class RunDetailViewModel(
     override fun onCleared() {
         pollingJob?.cancel()
         reviewJob?.cancel()
-        state.value.exportedPackage?.file?.delete()
+        state.value.exportedPackage?.file?.let { java.io.File(it.toString()).delete() }
         super.onCleared()
     }
 

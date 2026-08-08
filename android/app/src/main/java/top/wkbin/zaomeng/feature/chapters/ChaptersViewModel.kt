@@ -270,7 +270,7 @@ class ChaptersViewModel(
             try {
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.buffered()?.use { destination ->
-                        exported.file.inputStream().buffered().use { copyStream(it, destination) }
+                        java.io.File(exported.file.toString()).inputStream().buffered().use { copyStream(it, destination) }
                     } ?: error("无法打开导出位置。")
                 }
                 mutableState.update { it.copy(exported = null, message = "全书草稿已导出。") }
@@ -279,7 +279,7 @@ class ChaptersViewModel(
             } catch (error: Throwable) {
                 mutableState.update { it.copy(error = error.message ?: "写入导出文件失败。") }
             } finally {
-                withContext(Dispatchers.IO) { exported.file.delete() }
+                withContext(Dispatchers.IO) { java.io.File(exported.file.toString()).delete() }
             }
         }
     }
@@ -287,6 +287,6 @@ class ChaptersViewModel(
     fun discardExport() {
         val file = state.value.exported?.file ?: return
         mutableState.update { it.copy(exported = null) }
-        file.delete()
+        java.io.File(file.toString()).delete()
     }
 }

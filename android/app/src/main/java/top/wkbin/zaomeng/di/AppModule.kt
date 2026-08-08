@@ -8,6 +8,7 @@ import top.wkbin.zaomeng.backend.BackendManager
 import top.wkbin.zaomeng.backend.InstallationTokenStore
 import top.wkbin.zaomeng.backend.ModelApiKeyStore
 import top.wkbin.zaomeng.ktor.KtorServiceGraph
+import top.wkbin.zaomeng.platform.AndroidServerPlatform
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.KtorHttpClientProvider
 import top.wkbin.zaomeng.data.api.KtorModelSettingsClient
@@ -59,7 +60,7 @@ val appModule = module {
     }
     single { InstallationTokenStore(androidContext()) }
     single { ModelApiKeyStore(androidContext()) }
-    single { KtorServiceGraph(androidContext()) }
+    single { KtorServiceGraph(AndroidServerPlatform(androidContext())) }
     single { KtorHttpClientProvider(get()) }
 
     // Ktor 后端管理器

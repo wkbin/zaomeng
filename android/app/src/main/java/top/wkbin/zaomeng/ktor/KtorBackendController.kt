@@ -53,7 +53,6 @@ import top.wkbin.zaomeng.ktor.services.ChapterService
 import top.wkbin.zaomeng.ktor.services.CardsService
 import top.wkbin.zaomeng.ktor.services.PersonaService
 import top.wkbin.zaomeng.ktor.services.PluginService
-import java.io.File
 import java.net.ServerSocket
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -87,12 +86,13 @@ class KtorBackendController(
                 mutableState.value = BackendState.Starting("正在启动 Ktor 服务…")
 
                 val token = tokenStore.getOrCreate()
-                val storageRoot = services.storage.getStorageRoot().apply { mkdirs() }
+                val storageRoot = services.storage.getStorageRoot()
+                services.storage.mkdirs(storageRoot)
                 val port = findAvailablePort()
 
                 // 创建 Ktor 服务器
                 server = embeddedServer(CIO, port = port, host = "127.0.0.1") {
-                    configureKtorApp(token, storageRoot, applicationContext)
+                    configureKtorApp(token)
                 }
 
                 server?.start(wait = false)
@@ -117,7 +117,7 @@ class KtorBackendController(
         start()
     }
 
-    private fun Application.configureKtorApp(token: String, storageRoot: File, androidContext: Context) {
+    private fun Application.configureKtorApp(token: String) {
         // 配置 JSON 序列化
         install(ContentNegotiation) {
             json(Json {

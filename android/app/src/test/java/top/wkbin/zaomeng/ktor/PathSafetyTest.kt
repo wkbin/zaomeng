@@ -3,7 +3,8 @@ package top.wkbin.zaomeng.ktor
 import org.junit.Test
 import top.wkbin.zaomeng.ktor.services.InvalidStorageIdentifierException
 import top.wkbin.zaomeng.ktor.services.PathSafety
-import java.io.File
+import okio.Path
+import okio.Path.Companion.toPath
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -58,12 +59,12 @@ class PathSafetyTest {
 
     @Test
     fun `resolveStorageChild prevents directory traversal`() {
-        val tempDir = java.nio.file.Files.createTempDirectory("path-safety-test").toFile()
+        val tempDir: Path = java.nio.file.Files.createTempDirectory("path-safety-test").toString().toPath()
         try {
             // Valid child path
             val validChild = PathSafety.resolveStorageChild(tempDir, "child", "test")
-            assertTrue(validChild.startsWith(tempDir), "Valid child should be under root")
-            assertEquals(File(tempDir, "child"), validChild)
+            assertTrue(validChild.toString().startsWith(tempDir.toString()), "Valid child should be under root")
+            assertEquals(tempDir / "child", validChild)
 
             // Invalid attempts should throw
             assertFailsWith<InvalidStorageIdentifierException> {
@@ -78,7 +79,7 @@ class PathSafetyTest {
                 PathSafety.resolveStorageChild(tempDir, "..", "test")
             }
         } finally {
-            tempDir.deleteRecursively()
+            java.io.File(tempDir.toString()).deleteRecursively()
         }
     }
 

@@ -14,6 +14,8 @@ import io.ktor.server.testing.*
 import java.nio.file.Files
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import okio.Path
+import okio.Path.Companion.toPath
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -249,8 +251,8 @@ class KtorApiIntegrationTest {
                   "artifact_index": {
                     "characters": [{
                       "name": "林黛玉",
-                      "profile_file": ${JsonPrimitive(profile.absolutePath)},
-                      "persona_dir": ${JsonPrimitive(requireNotNull(profile.parentFile).absolutePath)},
+                      "profile_file": ${JsonPrimitive(profile.toString())},
+                      "persona_dir": ${JsonPrimitive(requireNotNull(profile.parent).toString())},
                       "avatar_version": ""
                     }]
                   }
@@ -297,7 +299,7 @@ class KtorApiIntegrationTest {
     fun `persona without yaml frontmatter is tolerated not 400`() = testZaomengApplication(
         setup = { storage ->
             val profileDir = storage.getRunDirectory("persona-run").resolve("artifacts/characters/book/林黛玉")
-            profileDir.mkdirs()
+            storage.mkdirs(profileDir)
             // 纯 Markdown 档案，无 YAML frontmatter（此前会 400）
             storage.writeTextAtomically(
                 profileDir.resolve("PROFILE.md"),
@@ -311,8 +313,8 @@ class KtorApiIntegrationTest {
                   "artifact_index": {
                     "characters": [{
                       "name": "林黛玉",
-                      "profile_file": ${JsonPrimitive(profileDir.resolve("PROFILE.md").absolutePath)},
-                      "persona_dir": ${JsonPrimitive(profileDir.absolutePath)},
+                      "profile_file": ${JsonPrimitive(profileDir.resolve("PROFILE.md").toString())},
+                      "persona_dir": ${JsonPrimitive(profileDir.toString())},
                       "avatar_version": ""
                     }]
                   }
@@ -331,7 +333,7 @@ class KtorApiIntegrationTest {
 
     @Test
     fun `app dialogue modes fail cleanly without llm and preset sessions are readable`() {
-        var sessionsDir: java.io.File? = null
+        var sessionsDir: Path? = null
         testZaomengApplication(
             setup = { storage ->
                 storage.writeTextAtomically(
@@ -340,7 +342,7 @@ class KtorApiIntegrationTest {
                 )
                 // 预置一个已开场会话（对齐 openDialogueSession 成功后的状态）
                 val sessionDir = storage.getDialogueSessionsDirectory("dialogue-run").resolve("preset-session")
-                sessionDir.mkdirs()
+                storage.mkdirs(sessionDir)
                 storage.writeTextAtomically(
                     sessionDir.resolve("session_manifest.json"),
                     """{"session_id":"preset-session","run_id":"dialogue-run","mode":"observe","participants":["林黛玉"],"controlled_character":"","scene_card_id":"","scene_profile":{},"self_card_id":"","self_profile":{},"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","title":"","status":"ready","transcript":[],"turns":[],"turn_count":0,"current_turn_id":""}""",
@@ -358,7 +360,7 @@ class KtorApiIntegrationTest {
                 }
                 assertTrue(created.status != HttpStatusCode.Created, created.bodyAsText())
             }
-            val leftovers = sessionsDir!!.listFiles()?.map { it.name }.orEmpty()
+            val leftovers = java.io.File(sessionsDir!!.toString()).listFiles()?.map { it.name }.orEmpty()
             assertEquals(listOf("preset-session"), leftovers, "开场失败的会话应被清理，预置会话应保留")
 
             // 预置会话可读取
@@ -383,11 +385,11 @@ class KtorApiIntegrationTest {
                 .digest("林黛玉".toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             val avatarFile = storage.getRunDirectory("avatar-run").resolve("avatars/$digest.png")
-            avatarFile.parentFile?.mkdirs()
-            avatarFile.writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
+            storage.mkdirs(avatarFile.parent!!)
+            storage.writeBytes(avatarFile, byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
             // 预置会话（对齐 openDialogueSession 成功后的状态）
             val sessionDir = storage.getDialogueSessionsDirectory("avatar-run").resolve("avatar-session")
-            sessionDir.mkdirs()
+            storage.mkdirs(sessionDir)
             storage.writeTextAtomically(
                 sessionDir.resolve("session_manifest.json"),
                 """{"session_id":"avatar-session","run_id":"avatar-run","mode":"observe","participants":["林黛玉"],"controlled_character":"","scene_card_id":"","scene_profile":{},"self_card_id":"","self_profile":{},"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","title":"","status":"ready","transcript":[],"turns":[],"turn_count":0,"current_turn_id":""}""",
@@ -453,8 +455,8 @@ class KtorApiIntegrationTest {
                   "artifact_index": {
                     "characters": [{
                       "name": "史湘云",
-                      "profile_file": ${JsonPrimitive(profile.absolutePath)},
-                      "persona_dir": ${JsonPrimitive(requireNotNull(profile.parentFile).absolutePath)},
+                      "profile_file": ${JsonPrimitive(profile.toString())},
+                      "persona_dir": ${JsonPrimitive(requireNotNull(profile.parent).toString())},
                       "avatar_version": ""
                     }]
                   }
@@ -1055,7 +1057,7 @@ class KtorApiIntegrationTest {
                   "status": "ready",
                   "locked_characters": ["贾宝玉", "林黛玉"],
                   "progress": {"completed_characters": ["贾宝玉"], "total_characters": 2, "completed_count": 1, "stage": "completed"},
-                  "novel_sources": [{"source_name": "novel.txt", "source_path": ${JsonPrimitive(storage.getRunDirectory("ops-run").resolve("novel.txt").absolutePath)}, "kind": "initial"}],
+                  "novel_sources": [{"source_name": "novel.txt", "source_path": ${JsonPrimitive(storage.getRunDirectory("ops-run").resolve("novel.txt").toString())}, "kind": "initial"}],
                   "artifact_index": {"characters": []}
                 }
                 """.trimIndent(),
@@ -1260,7 +1262,7 @@ class KtorApiIntegrationTest {
         includePluginOps: Boolean = false,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) = testApplication {
-        val root = Files.createTempDirectory("zaomeng-api-").toFile()
+        val root: Path = Files.createTempDirectory("zaomeng-api-").toString().toPath()
         val storage = StorageService(root)
         setup(storage)
         application {
@@ -1306,7 +1308,7 @@ class KtorApiIntegrationTest {
                             storage,
                             RunManagementService(storage, distillExecutor = null),
                             RunPackageService(storage),
-                            DistillExecutor(context = null, storage = storage, llm = null, promptLoader = null),
+                            DistillExecutor(storage = storage, llm = null, promptLoader = null),
                         ),
                     )
                 }
@@ -1318,7 +1320,7 @@ class KtorApiIntegrationTest {
         try {
             block()
         } finally {
-            root.deleteRecursively()
+            java.io.File(root.toString()).deleteRecursively()
         }
     }
 }

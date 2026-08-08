@@ -3,6 +3,8 @@ package top.wkbin.zaomeng.ktor
 import java.nio.file.Files
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okio.Path
+import okio.Path.Companion.toPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -11,48 +13,48 @@ import top.wkbin.zaomeng.ktor.services.StorageService
 class StorageServiceTest {
     @Test
     fun `atomic write leaves complete content and no temporary files`() {
-        val root = Files.createTempDirectory("zaomeng-storage-").toFile()
+        val root: Path = Files.createTempDirectory("zaomeng-storage-").toString().toPath()
         try {
             val storage = StorageService(root)
             val target = root.resolve("nested/data.json")
             storage.writeTextAtomically(target, "{\"ok\":true}")
-            assertEquals("{\"ok\":true}", target.readText())
-            assertFalse(target.parentFile.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+            assertEquals("{\"ok\":true}", storage.readText(target))
+            assertFalse(storage.listFiles(target.parent!!).any { it.name.endsWith(".tmp") })
         } finally {
-            root.deleteRecursively()
+            java.io.File(root.toString()).deleteRecursively()
         }
     }
 
     @Test
     fun `dialogue session manifest uses the sessions directory`() {
-        val root = Files.createTempDirectory("zaomeng-storage-").toFile()
+        val root: Path = Files.createTempDirectory("zaomeng-storage-").toString().toPath()
         try {
             val storage = StorageService(root)
             assertEquals(
-                root.resolve("runs/run-1/dialogue/sessions/session-1/session_manifest.json").canonicalPath,
-                storage.getDialogueSessionManifestFile("run-1", "session-1").canonicalPath
+                root.resolve("runs/run-1/dialogue/sessions/session-1/session_manifest.json").toString(),
+                storage.getDialogueSessionManifestFile("run-1", "session-1").toString()
             )
         } finally {
-            root.deleteRecursively()
+            java.io.File(root.toString()).deleteRecursively()
         }
     }
 
     @Test
     fun `chapter listing preserves chapter metadata`() {
-        val root = Files.createTempDirectory("zaomeng-storage-").toFile()
+        val root: Path = Files.createTempDirectory("zaomeng-storage-").toString().toPath()
         try {
             val storage = StorageService(root)
             val chapter = storage.getChapterFile("run-1", "chapter-1")
             storage.writeTextAtomically(chapter, "{\"title\":\"Opening\",\"content\":\"Text\"}")
             assertEquals("Opening", storage.listChapters("run-1").single()["title"]?.toString()?.trim('"'))
         } finally {
-            root.deleteRecursively()
+            java.io.File(root.toString()).deleteRecursively()
         }
     }
 
     @Test
     fun `imported run manifest preserves structured progress and metadata`() {
-        val root = Files.createTempDirectory("zaomeng-storage-").toFile()
+        val root: Path = Files.createTempDirectory("zaomeng-storage-").toString().toPath()
         try {
             val storage = StorageService(root)
             val manifest = storage.getRunManifestPath("imported-run")
@@ -75,7 +77,7 @@ class StorageServiceTest {
                 loaded["imported_from"]?.jsonObject?.get("package_filename")?.jsonPrimitive?.content,
             )
         } finally {
-            root.deleteRecursively()
+            java.io.File(root.toString()).deleteRecursively()
         }
     }
 }
