@@ -31,6 +31,7 @@ import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
 import top.wkbin.zaomeng.feature.chapters.ChaptersViewModel
 import top.wkbin.zaomeng.feature.chat.ChatViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
+import top.wkbin.zaomeng.feature.settings.SettingsViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
@@ -98,4 +99,5 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
         )
     }
     viewModel { ChatViewModel(get(), get()) }
+    viewModel { SettingsViewModel(get()) }
 }

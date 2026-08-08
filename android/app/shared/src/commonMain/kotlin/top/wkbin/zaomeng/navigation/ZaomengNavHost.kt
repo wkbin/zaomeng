@@ -25,6 +25,10 @@ import top.wkbin.zaomeng.feature.chat.ChatScreen
 import top.wkbin.zaomeng.feature.chat.ChatViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsScreen
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
+import top.wkbin.zaomeng.feature.settings.AppearanceSettingsScreen
+import top.wkbin.zaomeng.feature.settings.ChatDisplaySettingsScreen
+import top.wkbin.zaomeng.feature.settings.SettingsHomeScreen
+import top.wkbin.zaomeng.feature.settings.StartupRecoverySettingsScreen
 
 /**
  * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
@@ -53,7 +57,31 @@ fun ZaomengNavHost() {
                 )
             }
             entry(ImportBookDestination) { PlaceholderScreen("导入书（迁移中）") }
-            entry(ModelSettingsDestination) { PlaceholderScreen("模型设置（迁移中）") }
+            entry(ModelSettingsDestination) {
+                SettingsHomeScreen(
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenModelSettings = { backStack.add(ModelConfigurationDestination) },
+                    onOpenChatDisplay = { backStack.add(ChatDisplaySettingsDestination) },
+                    onOpenPlugins = { backStack.add(PluginsDestination) },
+                    onOpenAppearance = { backStack.add(AppearanceSettingsDestination) },
+                    onOpenStartupRecovery = { backStack.add(StartupRecoverySettingsDestination) },
+                    onOpenAppSupport = { backStack.add(AppSupportSettingsDestination) },
+                    onOpenAppUpdate = { backStack.add(AppUpdateDestination) },
+                )
+            }
+            entry(ChatDisplaySettingsDestination) {
+                ChatDisplaySettingsScreen(onBack = { backStack.removeLastOrNull() })
+            }
+            entry(AppearanceSettingsDestination) {
+                AppearanceSettingsScreen(onBack = { backStack.removeLastOrNull() })
+            }
+            entry(StartupRecoverySettingsDestination) {
+                StartupRecoverySettingsScreen(onBack = { backStack.removeLastOrNull() })
+            }
+            entry(ModelConfigurationDestination) { PlaceholderScreen("模型配置（迁移中）") }
+            entry(PluginsDestination) { PlaceholderScreen("插件（迁移中）") }
+            entry(AppSupportSettingsDestination) { PlaceholderScreen("支持（迁移中）") }
+            entry(AppUpdateDestination) { PlaceholderScreen("更新（迁移中）") }
             entry(CardLibraryDestination) { PlaceholderScreen("卡库（迁移中）") }
             entry(CrossoverDestination) { PlaceholderScreen("联动（迁移中）") }
             addEntryProvider(clazz = SessionsDestination::class) { destination ->
