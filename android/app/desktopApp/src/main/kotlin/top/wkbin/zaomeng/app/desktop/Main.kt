@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.app.shared.App
+import top.wkbin.zaomeng.app.shared.ResPromptSource
 import top.wkbin.zaomeng.ktor.KtorServiceGraph
 import top.wkbin.zaomeng.ktor.plugins.configureObservability
 import top.wkbin.zaomeng.ktor.plugins.configureSecurity
@@ -73,9 +74,9 @@ private fun startBackend() {
 
     val services = KtorServiceGraph(
         if (dataRoot != null) {
-            JvmServerPlatform(dataRoot = dataRoot)
+            JvmServerPlatform(dataRoot = dataRoot, promptSource = ResPromptSource())
         } else {
-            JvmServerPlatform()
+            JvmServerPlatform(promptSource = ResPromptSource())
         },
     )
 

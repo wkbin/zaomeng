@@ -38,6 +38,7 @@ kotlin {
             implementation(libs.compose.lifecycle.runtime)
             implementation(libs.compose.lifecycle.viewmodel)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.okio)
             implementation(project(":server"))
         }
         androidMain.dependencies {
