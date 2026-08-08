@@ -6,6 +6,10 @@ import it.krzeminski.snakeyaml.engine.kmp.api.Dump
 import it.krzeminski.snakeyaml.engine.kmp.api.DumpSettings
 import it.krzeminski.snakeyaml.engine.kmp.api.Load
 import it.krzeminski.snakeyaml.engine.kmp.common.FlowStyle
+import io.github.yuroyami.kitearchive.KiteArchive
+import io.github.yuroyami.kitearchive.archive.ByteArrayRandomAccessSource
+import io.github.yuroyami.kitearchive.archive.zip.ZipWriter
+import io.github.yuroyami.kitearchive.codec.CodecId
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,14 +51,18 @@ actual fun dumpYaml(value: Any?): String =
 
 actual fun randomUuid(): String = NSUUID().UUIDString.lowercase()
 
-// ------------------------------------------------------------------
-// ZIP：jvm/android 用 java.util.zip；iOS 待接入 KMP zip 实现（iOS 阶段 TODO）
-// ------------------------------------------------------------------
-actual fun readZipEntries(bytes: ByteArray): List<ZipEntryData> =
-    throw NotImplementedError("iOS ZIP 读取待接入 KMP zip 实现（iOS 阶段 TODO）")
+// ZIP：jvm/android 用 java.util.zip；iOS 用 KiteArchive（纯 Kotlin KMP，STORE/DEFLATE/ZIP64）。
+actual fun readZipEntries(bytes: ByteArray): List<ZipEntryData> {
+    val reader = KiteArchive.open(ByteArrayRandomAccessSource(bytes))
+    return reader.entries()
+        .filterNot { it.isDirectory || it.name.endsWith("/") }
+        .map { ZipEntryData(it.name, reader.read(it)) }
+}
 
 actual fun writeZipEntries(entries: List<ZipEntryData>): ByteArray =
-    throw NotImplementedError("iOS ZIP 写入待接入 KMP zip 实现（iOS 阶段 TODO）")
+    ZipWriter.write(
+        entries.map { ZipWriter.FileSpec(it.name, it.content, CodecId.DEFLATE) },
+    )
 
 actual fun diskSpaceOf(path: Path): DiskSpaceInfo? = try {
     val attributes = NSFileManager.defaultManager.attributesOfFileSystemForPath(path.toString(), null)

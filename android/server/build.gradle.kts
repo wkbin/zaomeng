@@ -78,11 +78,13 @@ kotlin {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
                     implementation(libs.snakeyaml.engine.kmp)
+                    implementation(libs.kitearchive)
                 }
             }
         }
         jvmTest.dependencies {
             implementation(libs.snakeyaml.engine.kmp)
+            implementation(libs.kitearchive)
         }
     }
 }
