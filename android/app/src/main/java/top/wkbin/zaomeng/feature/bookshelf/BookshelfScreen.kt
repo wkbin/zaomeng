@@ -616,7 +616,7 @@ private fun BackendLoading(message: String, modifier: Modifier = Modifier) {
             Text(message, style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.height(6.dp))
             Text(
-                "首次启动需要准备内置 Python 环境",
+                "首次启动需要准备本地 Ktor 服务",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

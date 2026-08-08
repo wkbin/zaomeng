@@ -58,7 +58,7 @@ data class ChatGenerationEnhancer(
     val stateKey: String get() = "$pluginId/$enhancerId"
 
     fun isActive(session: DialogueSessionDto?): Boolean =
-        session?.pluginEnhancerStates?.get(stateKey) ?: defaultActive
+        session?.pluginEnhancerStates?.get(pluginId)?.get(enhancerId) ?: defaultActive
 }
 
 private data class LoadedChatPlugins(

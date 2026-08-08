@@ -4,7 +4,7 @@ import android.util.Base64
 import java.io.File
 import java.io.OutputStream
 import top.wkbin.zaomeng.backend.BackendState
-import top.wkbin.zaomeng.backend.EmbeddedBackendController
+import top.wkbin.zaomeng.backend.BackendManager
 import top.wkbin.zaomeng.backend.ModelApiKeyStore
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.CreateRunRequest
@@ -61,6 +61,19 @@ import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
 import top.wkbin.zaomeng.data.api.SetGenerationEnhancerStateRequest
 import top.wkbin.zaomeng.data.api.TestModelSettingsRequest
+import top.wkbin.zaomeng.data.api.KtorModelSettingsClient
+import top.wkbin.zaomeng.data.api.KtorPluginClient
+import top.wkbin.zaomeng.data.api.KtorRunsClient
+import top.wkbin.zaomeng.data.api.KtorRunManagementClient
+import top.wkbin.zaomeng.data.api.KtorSessionClient
+import top.wkbin.zaomeng.data.api.KtorChapterClient
+import top.wkbin.zaomeng.data.api.KtorDiagnosticsClient
+import top.wkbin.zaomeng.data.api.KtorCardsClient
+import top.wkbin.zaomeng.data.api.KtorPersonaClient
+import top.wkbin.zaomeng.data.api.KtorDialogueClient
+import top.wkbin.zaomeng.data.api.KtorWorldMemoryClient
+import top.wkbin.zaomeng.data.api.KtorRelationsClient
+import top.wkbin.zaomeng.data.api.KtorRunOpsClient
 import top.wkbin.zaomeng.data.api.SaveChapterRequest
 import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
@@ -87,6 +100,10 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import android.util.Log
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -96,15 +113,24 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import retrofit2.HttpException
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 class ZaomengRepository(
-    private val backend: EmbeddedBackendController,
+    private val backend: BackendManager,
     private val appPreferences: AppPreferencesRepository,
     private val modelApiKeyStore: ModelApiKeyStore,
+    private val ktorModelSettings: KtorModelSettingsClient,
+    private val ktorPlugins: KtorPluginClient,
+    private val ktorRuns: KtorRunsClient,
+    private val ktorRunManagement: KtorRunManagementClient,
+    private val ktorSessions: KtorSessionClient,
+    private val ktorChapters: KtorChapterClient,
+    private val ktorDiagnostics: KtorDiagnosticsClient,
+    private val ktorCards: KtorCardsClient,
+    private val ktorPersona: KtorPersonaClient,
+    private val ktorDialogue: KtorDialogueClient,
+    private val ktorWorldMemory: KtorWorldMemoryClient,
+    private val ktorRelations: KtorRelationsClient,
+    private val ktorRunOps: KtorRunOpsClient,
 ) {
     private val avatarCache = mutableMapOf<String, ByteArray>()
     val backendState: StateFlow<BackendState> = backend.state
@@ -114,51 +140,49 @@ class ZaomengRepository(
     fun retryBackend() = backend.retry()
 
     suspend fun getModelSettings(): ModelSettingsDto = request {
-        backend.requireApi().getModelSettings()
+        ktorModelSettings.get()
     }
 
     suspend fun saveModelSettings(request: SaveModelSettingsRequest): ModelSettingsDto = request {
-        backend.requireApi().saveModelSettings(request).also { saved ->
+        ktorModelSettings.save(request).also { saved ->
             modelApiKeyStore.saveForProfile(request.profileId.ifBlank { saved.activeProfileId }, request.apiKey)
         }
     }
 
     suspend fun testModelSettings(request: TestModelSettingsRequest) = request {
-        backend.requireApi().testModelSettings(request)
+        ktorModelSettings.test(request)
     }
 
     suspend fun activateModelProfile(profileId: String): ModelSettingsDto = request {
-        backend.requireApi().activateModelProfile(profileId)
+        ktorModelSettings.activate(profileId)
     }
 
     suspend fun deleteModelProfile(profileId: String): ModelSettingsDto = request {
-        backend.requireApi().deleteModelProfile(profileId).also {
+        ktorModelSettings.delete(profileId).also {
             modelApiKeyStore.deleteForProfile(profileId)
         }
     }
 
     suspend fun listPlugins(): List<PluginDto> = request {
-        backend.requireApi().listPlugins().items
+        ktorPlugins.list().items
     }
 
     suspend fun refreshPlugins(): List<PluginDto> = request {
-        backend.requireApi().refreshPlugins().items
+        ktorPlugins.refresh().items
     }
 
     suspend fun inspectPluginPackage(
         filename: String,
         contentBase64: String,
     ): PluginPackageInspectionDto = request {
-        backend.requireApi().inspectPluginPackage(
-            InspectPluginPackageRequest(filename, contentBase64),
-        )
+        ktorPlugins.inspect(InspectPluginPackageRequest(filename, contentBase64))
     }
 
     suspend fun installPluginPackage(
         token: String,
         allowUpdate: Boolean,
     ): PluginDto = request {
-        backend.requireApi().installPluginPackage(
+        ktorPlugins.install(
             token,
             InstallPluginPackageRequest(
                 confirmPermissions = true,
@@ -168,29 +192,26 @@ class ZaomengRepository(
     }
 
     suspend fun enablePlugin(pluginId: String): PluginDto = request {
-        backend.requireApi().enablePlugin(pluginId)
+        ktorPlugins.enable(pluginId)
     }
 
     suspend fun disablePlugin(pluginId: String): PluginDto = request {
-        backend.requireApi().disablePlugin(pluginId)
+        ktorPlugins.disable(pluginId)
     }
 
     suspend fun uninstallPlugin(pluginId: String): UninstallPluginResponse = request {
-        backend.requireApi().uninstallPlugin(pluginId)
+        ktorPlugins.uninstall(pluginId)
     }
 
     suspend fun listPluginLogs(pluginId: String): List<PluginLogDto> = request {
-        backend.requireApi().listPluginLogs(pluginId).items
+        ktorPlugins.logs(pluginId).items
     }
 
     suspend fun updatePluginConfig(
         pluginId: String,
         config: kotlinx.serialization.json.JsonObject,
     ): PluginConfigResponse = request {
-        backend.requireApi().updatePluginConfig(
-            pluginId,
-            UpdatePluginConfigRequest(config),
-        )
+        ktorPlugins.updateConfig(pluginId, config)
     }
 
     suspend fun invokePluginChatAction(
@@ -201,7 +222,7 @@ class ZaomengRepository(
         seedText: String = "",
         direction: String = "",
     ): PluginChatActionResponse = request {
-        val result = backend.requireApi().invokePluginChatAction(
+        val result = ktorPlugins.chatAction(
             runId,
             sessionId,
             pluginId,
@@ -221,7 +242,7 @@ class ZaomengRepository(
         generatorId: String,
         direction: String = "",
     ): PluginTemporaryNpcGeneratorResponse = request {
-        backend.requireApi().invokePluginTemporaryNpcGenerator(
+        ktorPlugins.temporaryNpcGenerator(
             runId,
             sessionId,
             pluginId,
@@ -237,36 +258,29 @@ class ZaomengRepository(
         enhancerId: String,
         enabled: Boolean,
     ): DialogueSessionDto = request {
-        backend.requireApi().setGenerationEnhancerState(
+        ktorPlugins.setEnhancerState(
             runId,
             sessionId,
             pluginId,
             enhancerId,
-            SetGenerationEnhancerStateRequest(enabled),
+            enabled,
         )
     }
 
     suspend fun exportDiagnostics(destination: OutputStream): Long = request {
-        val response = backend.requireApi().exportDiagnostics()
-        if (!response.isSuccessful) {
-            throw ApiRequestException(errorDetail(response.errorBody()?.string(), response.code()))
-        }
-        val body = response.body() ?: throw ApiRequestException("诊断信息为空。")
-        body.use { source ->
-            source.byteStream().buffered().use { input -> input.copyTo(destination) }
-        }
+        ktorDiagnostics.export(destination)
     }
 
     suspend fun listRuns(): List<RunManifestDto> = request {
-        backend.requireApi().listRuns().items
+        ktorRuns.list().items
     }
 
     suspend fun listBuiltinNovels(): List<BuiltinNovelDto> = request {
-        backend.requireApi().listBuiltinNovels().items
+        ktorRunOps.listBuiltinNovels()
     }
 
     suspend fun cloneBuiltinNovel(packageId: String): RunManifestDto = request {
-        val run = backend.requireApi().cloneBuiltinNovel(packageId)
+        val run = ktorRunOps.cloneBuiltinNovel(packageId)
         appPreferences.rememberRun(run.runId)
         run
     }
@@ -291,9 +305,7 @@ class ZaomengRepository(
             )
         }
         return request {
-            val run = backend.requireApi().createRun(
-                payload,
-            )
+            val run = ktorRunManagement.create(payload)
             appPreferences.rememberRun(run.runId)
             run
         }
@@ -306,7 +318,7 @@ class ZaomengRepository(
         maxSentences: Int,
         maxChars: Int,
     ): SamplingPlanDto = request {
-        backend.requireApi().estimateSampling(
+        ktorRunOps.estimateSampling(
             EstimateSamplingRequest(
                 charCount = charCount,
                 sentenceCount = sentenceCount,
@@ -330,9 +342,7 @@ class ZaomengRepository(
             )
         }
         return request {
-            val run = backend.requireApi().importRun(
-                payload,
-            )
+            val run = ktorRunManagement.import(payload)
             appPreferences.rememberRun(run.runId)
             run
         }
@@ -359,38 +369,37 @@ class ZaomengRepository(
     }
 
     suspend fun getRun(runId: String): RunManifestDto = request {
-        backend.requireApi().getRun(runId)
+        ktorRunManagement.get(runId)
     }
 
     suspend fun getWorldMemory(runId: String): WorldMemoryDto = request {
-        backend.requireApi().getWorldMemory(runId)
+        ktorWorldMemory.get(runId)
     }
 
     suspend fun saveWorldFact(runId: String, factId: String, requestBody: SaveWorldFactRequest): WorldFactDto = request {
-        if (factId.isBlank()) backend.requireApi().createWorldFact(runId, requestBody)
-        else backend.requireApi().updateWorldFact(runId, factId, requestBody)
+        ktorWorldMemory.save(runId, factId, requestBody)
     }
 
     suspend fun deleteWorldFact(runId: String, factId: String): DeleteStatusDto = request {
-        backend.requireApi().deleteWorldFact(runId, factId)
+        ktorWorldMemory.delete(runId, factId)
     }
 
     suspend fun deleteRun(runId: String): DeleteRunResponse = request {
-        backend.requireApi().deleteRun(runId).also {
+        ktorRunManagement.delete(runId).also {
             appPreferences.forgetRun(runId)
         }
     }
 
     suspend fun refreshRun(runId: String): RunManifestDto = request {
-        backend.requireApi().refreshRun(runId)
+        ktorRunOps.refreshRun(runId)
     }
 
     suspend fun stopRun(runId: String): RunManifestDto = request {
-        backend.requireApi().stopRun(runId)
+        ktorRunManagement.stop(runId)
     }
 
     suspend fun redistill(runId: String, characters: List<String>): RunManifestDto = request {
-        backend.requireApi().redistillRun(runId, RestartRunRequest(characters = characters))
+        ktorRunOps.redistill(runId, RestartRunRequest(characters = characters))
     }
 
     suspend fun createCrossoverSpace(
@@ -398,15 +407,13 @@ class ZaomengRepository(
         worldSetting: String,
         participants: List<CrossoverParticipantRequest>,
     ): RunManifestDto = request {
-        val run = backend.requireApi().createCrossoverSpace(
-            CreateCrossoverSpaceRequest(title, worldSetting, participants),
-        )
+        val run = ktorRunOps.createCrossoverSpace(CreateCrossoverSpaceRequest(title, worldSetting, participants))
         appPreferences.rememberRun(run.runId)
         run
     }
 
     suspend fun resumeDistill(runId: String): RunManifestDto = request {
-        backend.requireApi().resumeDistillRun(runId)
+        ktorRunOps.resumeDistill(runId)
     }
 
     suspend fun redistill(
@@ -428,7 +435,7 @@ class ZaomengRepository(
                 maxChars = maxChars,
             )
         }
-        return request { backend.requireApi().redistillRun(runId, payload) }
+        return request { ktorRunOps.redistill(runId, payload) }
     }
 
     suspend fun suggestRedistillSegments(
@@ -436,7 +443,7 @@ class ZaomengRepository(
         character: String,
         maxSegments: Int = 3,
     ): RedistillSuggestionsDto = request {
-        backend.requireApi().suggestRedistillSegments(
+        ktorRunOps.suggestRedistill(
             runId,
             SuggestRedistillSegmentsRequest(character = character, maxSegments = maxSegments),
         )
@@ -447,15 +454,14 @@ class ZaomengRepository(
         cacheDirectory: File,
         includeDialogue: Boolean = true,
     ): ExportedRunPackage = request {
-        val response = backend.requireApi().exportRun(runId, includeDialogue)
-        if (!response.isSuccessful) {
-            throw ApiRequestException(errorDetail(response.errorBody()?.string(), response.code()))
+        val response = ktorRunOps.exportRun(runId, includeDialogue)
+        if (response.status.value !in 200..299) {
+            throw ApiRequestException(errorDetail(response.bodyAsText(), response.status.value))
         }
-        val body = response.body() ?: throw ApiRequestException("导出内容为空。")
-        val disposition = response.headers()["Content-Disposition"].orEmpty()
+        val disposition = response.headers["Content-Disposition"].orEmpty()
         val filename = parseFilename(disposition).ifBlank { "$runId.zaomeng-run.zip" }
-        val streamed = body.use {
-            streamToTempFile(it.byteStream(), cacheDirectory)
+        val streamed = response.bodyAsChannel().toInputStream().use {
+            streamToTempFile(it, cacheDirectory)
         }
         ExportedRunPackage(
             filename = filename,
@@ -470,12 +476,7 @@ class ZaomengRepository(
         bytes: ByteArray,
     ): PersonaAvatarDto = request {
         require(bytes.isNotEmpty()) { "头像文件为空。" }
-        val part = MultipartBody.Part.createFormData(
-            "file",
-            "avatar.png",
-            bytes.toRequestBody("image/png".toMediaType()),
-        )
-        backend.requireApi().uploadPersonaAvatar(runId, character, part).also { avatar ->
+        ktorPersona.uploadAvatar(runId, character, bytes).also { avatar ->
             avatarCache.keys.removeAll { it.startsWith("$runId|$character|") }
         }
     }
@@ -488,26 +489,19 @@ class ZaomengRepository(
         if (version.isBlank()) return null
         val key = "$runId|$character|$version"
         avatarCache[key]?.let { return it }
-        return request {
-            val response = backend.requireApi().getPersonaAvatar(runId, character)
-            if (response.code() == 404) return@request null
-            if (!response.isSuccessful) {
-                throw ApiRequestException(errorDetail(response.errorBody()?.string(), response.code()))
-            }
-            response.body()?.use { it.bytes() }?.also { avatarCache[key] = it }
-        }
+        return request { ktorPersona.getAvatar(runId, character)?.also { avatarCache[key] = it } }
     }
 
     suspend fun listChapters(runId: String): List<ChapterDto> = request {
-        backend.requireApi().listChapters(runId).items
+        ktorChapters.list(runId).items
     }
 
     suspend fun searchRunContent(runId: String, query: String): List<SearchResultDto> = request {
-        backend.requireApi().searchRunContent(runId, query).items
+        ktorChapters.search(runId, query)
     }
 
     suspend fun askBookQuestion(runId: String, question: String): AskBookResponseDto = request {
-        backend.requireApi().askBookQuestion(runId, AskBookQuestionRequest(question))
+        ktorChapters.ask(runId, question)
     }
 
     suspend fun saveChapter(
@@ -515,35 +509,31 @@ class ZaomengRepository(
         chapterId: String = "",
         payload: SaveChapterRequest,
     ): ChapterDto = request {
-        if (chapterId.isBlank()) {
-            backend.requireApi().createChapter(runId, payload)
-        } else {
-            backend.requireApi().updateChapter(runId, chapterId, payload)
-        }
+        ktorChapters.save(runId, chapterId, payload)
     }
 
     suspend fun archiveSessionAsChapter(runId: String, sessionId: String, title: String = ""): ChapterDto = request {
-        backend.requireApi().archiveSessionAsChapter(runId, ArchiveDialogueChapterRequest(sessionId, title))
+        ktorChapters.archiveSession(runId, ArchiveDialogueChapterRequest(sessionId, title))
     }
 
     suspend fun convertSessionAsNovel(runId: String, sessionId: String, title: String = ""): ChapterDto = request {
-        backend.requireApi().convertSessionAsNovel(runId, ArchiveDialogueChapterRequest(sessionId, title))
+        ktorChapters.convertSessionAsNovel(runId, ArchiveDialogueChapterRequest(sessionId, title))
     }
 
     suspend fun deleteChapter(runId: String, chapterId: String) = request {
-        backend.requireApi().deleteChapter(runId, chapterId)
+        ktorChapters.delete(runId, chapterId)
     }
 
     suspend fun continueChapter(runId: String, chapterId: String): DialogueSessionDto = request {
-        backend.requireApi().continueChapter(runId, chapterId)
+        ktorChapters.continueWriting(runId, chapterId)
     }
 
     suspend fun syncChapterSession(runId: String, chapterId: String): ChapterDto = request {
-        backend.requireApi().syncChapterSession(runId, chapterId)
+        ktorChapters.syncSession(runId, chapterId)
     }
 
     suspend fun reorderChapter(runId: String, chapterId: String, targetOrder: Int): List<ChapterDto> = request {
-        backend.requireApi().reorderChapter(runId, chapterId, ReorderChapterRequest(targetOrder)).items
+        ktorChapters.reorder(runId, chapterId, targetOrder)
     }
 
     suspend fun exportChapters(
@@ -551,15 +541,14 @@ class ZaomengRepository(
         format: String,
         cacheDirectory: File,
     ): ExportedChapterManuscript = request {
-        val response = backend.requireApi().exportChapters(runId, format)
-        if (!response.isSuccessful) {
-            throw ApiRequestException(errorDetail(response.errorBody()?.string(), response.code()))
+        val response = ktorChapters.export(runId, format)
+        if (response.status.value !in 200..299) {
+            throw ApiRequestException(errorDetail(response.bodyAsText(), response.status.value))
         }
-        val body = response.body() ?: throw ApiRequestException("章节导出内容为空。")
         val normalizedFormat = if (format == "text") "text" else "markdown"
-        val streamed = body.use {
+        val streamed = response.bodyAsChannel().toInputStream().use {
             streamToTempFile(
-                it.byteStream(),
+                it,
                 cacheDirectory,
                 prefix = "zaomeng-manuscript-",
                 suffix = if (normalizedFormat == "text") ".txt" else ".md",
@@ -572,7 +561,7 @@ class ZaomengRepository(
     }
 
     suspend fun getPersona(runId: String, character: String): PersonaReviewDto = request {
-        backend.requireApi().getPersona(runId, character)
+        ktorPersona.getReview(runId, character)
     }
 
     suspend fun savePersona(
@@ -586,11 +575,11 @@ class ZaomengRepository(
             put("review_source", JsonPrimitive("android"))
             put("review_note", JsonPrimitive(reviewNote))
         }
-        backend.requireApi().savePersona(runId, character, payload)
+        ktorPersona.saveReview(runId, character, payload)
     }
 
     suspend fun getPersonaQuality(runId: String, character: String): PersonaQualityReportDto = request {
-        backend.requireApi().getPersonaQuality(runId, character)
+        ktorPersona.getQuality(runId, character)
     }
 
     suspend fun suggestPersonaField(
@@ -598,15 +587,15 @@ class ZaomengRepository(
         character: String,
         field: String,
     ): SuggestPersonaFieldResponse = request {
-        backend.requireApi().suggestPersonaField(runId, character, SuggestPersonaFieldRequest(field))
+        ktorPersona.suggestField(runId, character, field)
     }
 
     suspend fun getRelations(runId: String): RelationDetailsDto = request {
-        backend.requireApi().getRelations(runId)
+        ktorRelations.get(runId)
     }
 
     suspend fun updateRelation(runId: String, relation: RelationItemDto): RelationDetailsDto = request {
-        backend.requireApi().updateRelation(
+        ktorRelations.update(
             runId,
             relation.pairKey,
             UpdateRelationDetailRequest(
@@ -623,21 +612,11 @@ class ZaomengRepository(
     }
 
     suspend fun listReusableCards(kind: ReusableCardKind): List<ReusableCardDto> = request {
-        val api = backend.requireApi()
-        when (kind) {
-            ReusableCardKind.Scene -> api.listSceneCards().items
-            ReusableCardKind.Self -> api.listSelfCards().items
-            ReusableCardKind.Opening -> api.listOpeningPresets().items
-        }
+        ktorCards.list(kindToSegment(kind))
     }
 
     suspend fun getReusableCard(kind: ReusableCardKind, cardId: String): ReusableCardDto = request {
-        val api = backend.requireApi()
-        when (kind) {
-            ReusableCardKind.Scene -> api.getSceneCard(cardId)
-            ReusableCardKind.Self -> api.getSelfCard(cardId)
-            ReusableCardKind.Opening -> api.getOpeningPreset(cardId)
-        }
+        ktorCards.get(kindToSegment(kind), cardId)
     }
 
     suspend fun saveReusableCard(
@@ -645,53 +624,29 @@ class ZaomengRepository(
         cardId: String,
         fields: JsonObject,
     ): ReusableCardDto = request {
-        val api = backend.requireApi()
-        when (kind) {
-            ReusableCardKind.Scene -> if (cardId.isBlank()) {
-                api.createSceneCard(fields)
-            } else {
-                api.updateSceneCard(cardId, fields)
-            }
-            ReusableCardKind.Self -> if (cardId.isBlank()) {
-                api.createSelfCard(fields)
-            } else {
-                api.updateSelfCard(cardId, fields)
-            }
-            ReusableCardKind.Opening -> if (cardId.isBlank()) {
-                api.createOpeningPreset(fields)
-            } else {
-                api.updateOpeningPreset(cardId, fields)
-            }
-        }
+        ktorCards.save(kindToSegment(kind), cardId, fields)
     }
 
     suspend fun deleteReusableCard(kind: ReusableCardKind, cardId: String) = request {
-        val api = backend.requireApi()
-        when (kind) {
-            ReusableCardKind.Scene -> api.deleteSceneCard(cardId)
-            ReusableCardKind.Self -> api.deleteSelfCard(cardId)
-            ReusableCardKind.Opening -> api.deleteOpeningPreset(cardId)
-        }
+        ktorCards.delete(kindToSegment(kind), cardId)
     }
 
     suspend fun generateReusableCard(kind: ReusableCardKind): ReusableCardDto = request {
         when (kind) {
-            ReusableCardKind.Scene -> backend.requireApi().generateSceneCard()
-            ReusableCardKind.Self -> backend.requireApi().generateSelfCard()
+            ReusableCardKind.Scene -> ktorCards.generate("scene")
+            ReusableCardKind.Self -> ktorCards.generate("self")
             ReusableCardKind.Opening -> throw ApiRequestException("开场预设需要先选择人物和卡片后保存。")
         }
     }
 
     suspend fun recommendSceneCard(mode: String, participants: List<String>): String = request {
-        val response = backend.requireApi().recommendSceneCards(
-            RecommendSceneCardsRequest(mode = mode, participants = participants),
-        )
+        val response = ktorCards.recommend(mode, participants)
         response["recommended_card_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
     }
 
     suspend fun listSessions(runId: String? = null): List<DialogueSessionDto> = request {
-        val api = backend.requireApi()
-        if (runId.isNullOrBlank()) api.listRecentSessions().items else api.listRunSessions(runId).items
+        if (runId.isNullOrBlank()) ktorSessions.listRecent().items
+        else ktorSessions.listForRun(runId).items
     }
 
     suspend fun createSession(
@@ -716,9 +671,7 @@ class ZaomengRepository(
             selfCardProfile.forEach { (key, value) -> put(key, value) }
             inlineSelfProfile.forEach { (key, value) -> put(key, value) }
         }
-        val session = backend.requireApi().createDialogueSession(
-            runId,
-            CreateDialogueSessionRequest(
+        val payload = CreateDialogueSessionRequest(
                 mode = mode,
                 participants = participants,
                 controlledCharacter = controlledCharacter,
@@ -726,14 +679,14 @@ class ZaomengRepository(
                 sceneProfile = sceneProfile,
                 selfCardId = selfCardId,
                 selfProfile = selfProfile,
-            ),
-        )
+            )
+        val session = ktorSessions.create(runId, payload)
         appPreferences.rememberSession(runId, session.sessionId)
         session
     }
 
     suspend fun getSession(runId: String, sessionId: String): DialogueSessionDto = request {
-        backend.requireApi().getDialogueSession(runId, sessionId)
+        ktorSessions.get(runId, sessionId)
     }
 
     suspend fun updateSessionTitle(
@@ -741,11 +694,7 @@ class ZaomengRepository(
         sessionId: String,
         title: String,
     ): DialogueSessionDto = request {
-        backend.requireApi().updateDialogueSessionTitle(
-            runId,
-            sessionId,
-            UpdateDialogueSessionTitleRequest(title = title),
-        )
+        ktorSessions.updateTitle(runId, sessionId, title)
     }
 
     suspend fun searchSession(
@@ -754,12 +703,12 @@ class ZaomengRepository(
         query: String,
         limit: Int = 50,
     ): List<ChatSearchResultDto> = request {
-        backend.requireApi().searchDialogueSession(
+        ktorDialogue.searchSession(
             runId = runId,
             sessionId = sessionId,
             query = query.trim(),
             limit = limit.coerceIn(1, 100),
-        ).items
+        )
     }
 
     suspend fun recoverSession(
@@ -767,7 +716,7 @@ class ZaomengRepository(
         sessionId: String,
         force: Boolean = false,
     ): DialogueSessionDto = request {
-        backend.requireApi().recoverDialogueSession(runId, sessionId, force)
+        ktorDialogue.recoverSession(runId, sessionId, force)
     }
 
     suspend fun reply(
@@ -777,16 +726,13 @@ class ZaomengRepository(
         messageKind: String,
         includeInnerThoughts: Boolean = false,
     ): DialogueSessionDto = request {
-        backend.requireApi().replyDialogue(
-            runId,
-            sessionId,
-            DialogueReplyRequest(
+        val payload = DialogueReplyRequest(
                 message = message,
                 messageKind = messageKind,
                 suppressTranscriptMessage = messageKind == "plot",
                 includeInnerThoughts = includeInnerThoughts,
-            ),
-        )
+            )
+        ktorDialogue.reply(runId, sessionId, payload)
     }
 
     fun streamReply(
@@ -800,11 +746,10 @@ class ZaomengRepository(
         includeModelReasoning: Boolean = false,
     ): Flow<DialogueStreamEvent> = flow {
         try {
-            val response = backend.requireApi().streamDialogueReply(
+            val okResponse = ktorDialogue.streamReply(
                 runId = runId,
                 sessionId = sessionId,
-                operationId = operationId,
-                request = DialogueReplyRequest(
+                payload = DialogueReplyRequest(
                     message = message,
                     messageKind = messageKind,
                     suppressTranscriptMessage = suppressTranscriptMessage,
@@ -813,66 +758,64 @@ class ZaomengRepository(
                     operationId = operationId,
                 ),
             )
-            if (!response.isSuccessful) {
-                throw ApiRequestException(
-                    errorDetail(response.errorBody()?.string(), response.code()),
-                    statusCode = response.code(),
-                )
-            }
-            val body = response.body() ?: throw ApiRequestException("流式回复内容为空。")
-            var eventName = "message"
-            val dataLines = mutableListOf<String>()
-            var terminalReceived = false
+            try {
+                if (okResponse.code !in 200..299) {
+                    throw ApiRequestException(
+                        errorDetail(okResponse.body?.string().orEmpty(), okResponse.code),
+                        statusCode = okResponse.code,
+                    )
+                }
+                var eventName = "message"
+                val dataLines = mutableListOf<String>()
+                var terminalReceived = false
 
-            body.use { responseBody ->
-                responseBody.charStream().buffered().use { reader ->
-                    while (!terminalReceived) {
-                        val line = reader.readLine() ?: break
-                        when {
-                            line.isEmpty() && dataLines.isNotEmpty() -> {
-                                val event = parseDialogueStreamEvent(
-                                    eventName,
-                                    dataLines.joinToString("\n"),
-                                )
-                                dataLines.clear()
-                                eventName = "message"
-                                if (event != null) {
-                                    emit(event)
-                                    terminalReceived = event is DialogueStreamEvent.Complete ||
-                                        event is DialogueStreamEvent.Failure
-                                }
+                // OkHttp 原生 BufferedSource：确定逐块流式（Ktor client bodyAsChannel 在 Android 实测会缓冲整个 SSE）
+                val source = okResponse.body?.source()
+                    ?: throw ApiRequestException("流式响应体为空。")
+                while (!terminalReceived) {
+                    val line = source.readUtf8Line() ?: break
+                    when {
+                        line.isEmpty() && dataLines.isNotEmpty() -> {
+                            val event = parseDialogueStreamEvent(
+                                eventName,
+                                dataLines.joinToString("\n"),
+                            )
+                            dataLines.clear()
+                            eventName = "message"
+                            if (event != null) {
+                                val text = (event as? DialogueStreamEvent.Delta)?.text
+                                Log.d("ZaomengRepository", "emit@${System.currentTimeMillis()} ${text?.take(20)}")
+                                emit(event)
+                                terminalReceived = event is DialogueStreamEvent.Complete ||
+                                    event is DialogueStreamEvent.Failure
                             }
-                            line.startsWith("event:") -> eventName = line.substringAfter(':').trim()
-                            line.startsWith("data:") -> dataLines += line.substringAfter(':').trimStart()
-                            line.startsWith(":") -> Unit
                         }
-                    }
-                    if (!terminalReceived && dataLines.isNotEmpty()) {
-                        val event = parseDialogueStreamEvent(
-                            eventName,
-                            dataLines.joinToString("\n"),
-                        )
-                        if (event != null) {
-                            emit(event)
-                            terminalReceived = event is DialogueStreamEvent.Complete ||
-                                event is DialogueStreamEvent.Failure
-                        }
+                        line.startsWith("event:") -> eventName = line.substringAfter(':').trim()
+                        line.startsWith("data:") -> dataLines += line.substringAfter(':').trimStart()
+                        line.startsWith(":") -> Unit
                     }
                 }
-            }
-            if (!terminalReceived) {
-                throw ApiRequestException("流式连接提前结束，可安全重试这次发送。")
+                if (!terminalReceived && dataLines.isNotEmpty()) {
+                    val event = parseDialogueStreamEvent(
+                        eventName,
+                        dataLines.joinToString("\n"),
+                    )
+                    if (event != null) {
+                        emit(event)
+                        terminalReceived = event is DialogueStreamEvent.Complete ||
+                            event is DialogueStreamEvent.Failure
+                    }
+                }
+                if (!terminalReceived) {
+                    throw ApiRequestException("流式连接提前结束，可安全重试这次发送。")
+                }
+            } finally {
+                okResponse.close()
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: ApiRequestException) {
             throw error
-        } catch (error: HttpException) {
-            throw ApiRequestException(
-                errorDetail(error.response()?.errorBody()?.string(), error.code()),
-                error,
-                statusCode = error.code(),
-            )
         } catch (error: Throwable) {
             val message = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim() }
@@ -907,8 +850,13 @@ class ZaomengRepository(
                     ?: "正在重新整理回复…",
             )
             "complete" -> payload["session"]?.let { session ->
+                val decodedSession = runCatching { json.decodeFromJsonElement<DialogueSessionDto>(session) }
+                    .getOrElse { error ->
+                        Log.e(TAG, "Failed to decode stream complete session. Session JSON: $session", error)
+                        throw error
+                    }
                 DialogueStreamEvent.Complete(
-                    session = json.decodeFromJsonElement(session),
+                    session = decodedSession,
                     replayed = payload["replayed"]?.jsonPrimitive?.booleanOrNull ?: false,
                 )
             }
@@ -928,19 +876,15 @@ class ZaomengRepository(
         seedText: String = "",
         direction: String = "",
     ): String = request {
-        backend.requireApi().suggestDialogue(
-            runId,
-            sessionId,
-            DialogueSuggestionRequest(seedText = seedText, direction = direction),
-        ).suggestion
+        ktorDialogue.suggestReply(runId, sessionId, seedText, direction)
     }
 
     suspend fun correctLatestReply(runId: String, sessionId: String): DialogueSessionDto = request {
-        backend.requireApi().correctLatestDialogue(runId, sessionId)
+        ktorDialogue.correctLatest(runId, sessionId)
     }
 
     suspend fun deepReviewLatestReply(runId: String, sessionId: String): DialogueSessionDto = request {
-        backend.requireApi().deepReviewLatestDialogue(runId, sessionId)
+        ktorDialogue.deepReview(runId, sessionId)
     }
 
     suspend fun dialogueDirectorOptions(
@@ -949,11 +893,7 @@ class ZaomengRepository(
         goal: String,
         action: String = "advance",
     ): JsonObject = request {
-        backend.requireApi().directDialogue(
-            runId,
-            sessionId,
-            DialogueDirectorRequest(goal = goal, action = action),
-        )
+        ktorDialogue.directorOptions(runId, sessionId, goal, action)
     }
 
     suspend fun branchDialogueTurn(
@@ -961,7 +901,7 @@ class ZaomengRepository(
         sessionId: String,
         turnId: String,
     ): DialogueSessionDto = request {
-        backend.requireApi().branchDialogueTurn(runId, sessionId, BranchDialogueTurnRequest(turnId))
+        ktorDialogue.branchFromTurn(runId, sessionId, turnId)
     }
 
     suspend fun branchDialogueScene(
@@ -969,11 +909,7 @@ class ZaomengRepository(
         sessionId: String,
         sceneIndex: Int,
     ): DialogueSessionDto = request {
-        backend.requireApi().branchDialogueScene(
-            runId,
-            sessionId,
-            BranchDialogueSceneRequest(sceneIndex),
-        )
+        ktorDialogue.branchFromScene(runId, sessionId, sceneIndex)
     }
 
     suspend fun updateDialogueBranchMeta(
@@ -983,15 +919,7 @@ class ZaomengRepository(
         isMainline: Boolean? = null,
         lockedEventIds: List<String>? = null,
     ): DialogueSessionDto = request {
-        backend.requireApi().updateDialogueBranchMeta(
-            runId,
-            sessionId,
-            UpdateDialogueBranchMetaRequest(
-                label = label,
-                isMainline = isMainline,
-                lockedEventIds = lockedEventIds,
-            ),
-        )
+        ktorDialogue.updateBranchMeta(runId, sessionId, label, isMainline, lockedEventIds)
     }
 
     suspend fun setDialogueRelationLock(
@@ -1000,11 +928,7 @@ class ZaomengRepository(
         pairKey: String,
         locked: Boolean,
     ): DialogueSessionDto = request {
-        backend.requireApi().updateDialogueRelationLock(
-            runId,
-            sessionId,
-            UpdateDialogueRelationLockRequest(pairKey = pairKey, locked = locked),
-        )
+        ktorDialogue.setRelationLock(runId, sessionId, pairKey, locked)
     }
 
     suspend fun switchDialogueScene(
@@ -1014,19 +938,11 @@ class ZaomengRepository(
         transitionMessage: String,
         autoContinue: Boolean,
     ): DialogueSessionDto = request {
-        backend.requireApi().switchDialogueScene(
-            runId,
-            sessionId,
-            SwitchDialogueSceneRequest(
-                sceneCardId = sceneCardId,
-                transitionMessage = transitionMessage,
-                autoContinue = autoContinue,
-            ),
-        )
+        ktorDialogue.switchScene(runId, sessionId, sceneCardId, transitionMessage, autoContinue)
     }
 
     suspend fun recommendDialogueScene(runId: String, sessionId: String): JsonObject = request {
-        backend.requireApi().recommendDialogueScene(runId, sessionId)
+        ktorDialogue.recommendScene(runId, sessionId)
     }
 
     suspend fun saveDialogueMemory(
@@ -1041,9 +957,9 @@ class ZaomengRepository(
             enabled = memory.enabled,
         )
         if (memory.memoryId.isBlank()) {
-            backend.requireApi().createDialogueMemory(runId, sessionId, payload)
+            ktorDialogue.saveMemory(runId, sessionId, "", memory.text, memory.category, memory.pinned, memory.enabled)
         } else {
-            backend.requireApi().updateDialogueMemory(runId, sessionId, memory.memoryId, payload)
+            ktorDialogue.saveMemory(runId, sessionId, memory.memoryId, memory.text, memory.category, memory.pinned, memory.enabled)
         }
     }
 
@@ -1052,21 +968,27 @@ class ZaomengRepository(
         sessionId: String,
         memoryId: String,
     ): DialogueSessionDto = request {
-        backend.requireApi().deleteDialogueMemory(runId, sessionId, memoryId)
+        ktorDialogue.deleteMemory(runId, sessionId, memoryId)
     }
 
     suspend fun deleteSession(runId: String, sessionId: String) = request {
-        backend.requireApi().deleteDialogueSession(runId, sessionId).also {
+        ktorSessions.delete(runId, sessionId).also {
             appPreferences.forgetSession(runId, sessionId)
         }
     }
 
     suspend fun deleteSessions(items: List<SessionRefDto>): DeleteSessionsResponse = request {
-        backend.requireApi().deleteSessions(DeleteSessionsRequest(items)).also { response ->
+        ktorSessions.deleteBatch(DeleteSessionsRequest(items)).also { response ->
             (response.deleted + response.notFound).forEach { session ->
                 appPreferences.forgetSession(session.runId, session.sessionId)
             }
         }
+    }
+
+    private fun kindToSegment(kind: ReusableCardKind): String = when (kind) {
+        ReusableCardKind.Scene -> "scene"
+        ReusableCardKind.Self -> "self"
+        ReusableCardKind.Opening -> "opening"
     }
 
     private suspend fun <T> request(block: suspend () -> T): T = withContext(Dispatchers.IO) {
@@ -1076,12 +998,8 @@ class ZaomengRepository(
             throw cancelled
         } catch (error: ApiRequestException) {
             throw error
-        } catch (error: HttpException) {
-            throw ApiRequestException(
-                errorDetail(error.response()?.errorBody()?.string(), error.code()),
-                error,
-            )
         } catch (error: Throwable) {
+            Log.e(TAG, "Repository request failed", error)
             val readable = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim() }
                 .firstOrNull { it.isNotBlank() }
@@ -1130,6 +1048,7 @@ class ZaomengRepository(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
+        const val TAG = "ZaomengRepository"
     }
 }
 
