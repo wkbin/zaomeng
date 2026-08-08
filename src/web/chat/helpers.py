@@ -7,6 +7,12 @@ from typing import Any, Callable
 
 from src.core.exceptions import LLMRequestError
 from src.skill_support.scene_recommendations import build_scene_opening_message
+from prompts.loader import (
+    get_dialogue_director_prompt,
+    get_dialogue_suggestions_prompt,
+    get_consistency_review_prompt,
+    get_inner_thought_rule,
+)
 
 
 DIALOGUE_SUGGESTION_COMPACT_PROMPT_CHAR_THRESHOLD = 18_000
@@ -18,27 +24,8 @@ DIALOGUE_RESPONSE_MIN_MAX_TOKENS = 8_192
 DIALOGUE_RESPONSE_MAX_MAX_TOKENS = 16_000
 
 
-_INNER_THOUGHT_RULE = """
-开启读心功能时，角色回复对象中必须包含 inner_thought 字段。
-
-inner_thought 必须是角色第一人称、没说出口的一句心里话，不是旁白、心理描写、剧情描述或角色分析。
-
-生成规则：
-1. 必须使用第一人称，以角色自己的口吻直接表达。
-2. 只允许表达角色隐藏的：
-   真实态度、欲望/期待、怀疑/戒备、害怕/担忧、嫉妒/不满、犹豫/矛盾、隐瞒事实、真实打算。
-3. 一句话，建议 8～36 字，最多 50 字。
-4. 补充 message 没有说出的新想法，不复述、改写或总结 message。
-5. 不编造新事件、背景、关系或客观事实。
-6. 没有明确且有价值的隐藏想法时，输出空字符串 ""，不要用动作、环境或旁白凑内容。
-
-inner_thought 严禁包含：
-- 环境、场景、天气、时间、地点、动作、神态、物件、光线、声音等外部描写
-- 第三人称心理分析、解释性分析、旁白、括号/星号动作、舞台指示或小说化修辞
-- 对 message 的复述和同义改写
-
-输出前检查：是否只是角色心里的直接话语；是否删除后不影响外部画面；是否包含新的态度、动机或顾虑。
-""".strip()
+# 从配置文件加载读心功能规则
+_INNER_THOUGHT_RULE = get_inner_thought_rule()
 
 
 def _strip_code_fence(text: str) -> str:
@@ -1102,29 +1089,16 @@ def build_dialogue_association_llm_messages(
             "一至三句符合当前用户角色口吻、可直接发送的成品文案",
         )
     response_shape["options"] = option_shapes
-    system_parts = [
-        "你是互动小说的剧情分支编辑，负责在角色回复后给用户少量、明确的推进方向。",
-        "本接口只会在一轮角色回复完成后调用，此刻就是向用户提供推进方向的时机；不要返回空列表，也不要拒绝推荐。",
-        "latest_exchange 是刚刚完成的一轮，优先级高于 history、memory_context、人物关系和场景摘要；旧上下文只能帮助理解，不能覆盖最新进展。",
-        "每个选项必须直接承接 latest_exchange.replies 中至少一名角色刚说出的具体内容。用户刚做过的事、角色刚完成的动作与刚说过的话都已经发生，绝不能再次写成下一步。",
-        "recent_completed_history 按时间顺序记录了近期已经发生的内容。生成前必须检查它：已经发起或接受的赌约、邀请、入局、承诺、交付和角色动作不得再次作为新方向。",
-        "present_participants 和 speakers_who_just_replied 中的人已经在场；不得建议让他们入场、加入对话或首次开口。offstage_participants 中的人未明确回归前不得直接参与。",
-        "不得补写上下文中没有的道具、赌注、约定、秘密、地点或人物动机。direction 只能说明用户角色下一句如何回应、追问、选择或行动，不得偷偷替故事新增前提。",
-        f"返回恰好 {option_count} 个选项。每个 label 用 4-10 个中文字符概括用户能理解的行动或关注点；direction 用一句明确写作意图说明下一句应怎样推动剧情。",
-        "选项必须彼此有实质差异，可分别偏向追问信息、关系或情绪变化、行动或场景变化，但不要机械凑类别。",
-        "只使用上下文中已经成立的事实，不剧透，不凭空引入核心秘密，不把成品台词直接放进 label。",
-        "选项要符合当前 mode：act/insert 是用户所扮演角色能采取的表达或行动，observe 是观察者可施加的场景推进。",
-        "每个选项都要提供 anchor_speaker 和 anchor_quote。anchor_quote 必须从该角色在 latest_exchange.replies 里的原话连续摘录 4-20 个字，不得改写；这是事实校验字段，不会显示给用户。",
-        "每个选项必须提供 suggestion：把该 direction 写成符合当前 mode 与 user_persona、可直接发送的一至三句话；不得复述 label，不得解释写作意图。",
-        '只返回合法 JSON，不要 markdown，不要解释。格式为：{"options":[{"label":"追问旧事","direction":"让当前用户角色顺着对方刚提到的旧事继续追问","suggestion":"你刚才说当年的事并未全忘，究竟还记得多少？","anchor_speaker":"林黛玉","anchor_quote":"当年的事你还记得"}]}。',
-        str(instructions.get("generation_goal", "")).strip(),
-        str(host_action.get("output_rule", "")).strip(),
-    ]
-    if retry_on_empty:
-        system_parts.append(
-            "上一次输出无法解析或不完整。重来：严格返回 JSON，并给足指定数量且不重复的选项。"
-        )
-    system_prompt = "\n".join(part for part in system_parts if part)
+
+    # 使用配置文件中的提示词
+    instructions = dict(payload.get("instructions", {}) or {})
+    host_action = dict(payload.get("host_action", {}) or {})
+    system_prompt = get_dialogue_suggestions_prompt(
+        option_count=option_count,
+        retry=retry_on_empty,
+        generation_goal=str(instructions.get("generation_goal", "")).strip(),
+        output_rule=str(host_action.get("output_rule", "")).strip(),
+    )
     scene_progress = dict(
         payload.get("scene_progress", {})
         or memory_context.get("scene_progress", {})
@@ -1183,18 +1157,7 @@ def build_dialogue_director_llm_messages(
     payload: dict[str, Any], *, retry_on_empty: bool = False
 ) -> list[dict[str, str]]:
     option_count = max(2, min(int(payload.get("option_count", 3) or 3), 4))
-    system_parts = [
-        "你是互动小说的场景导演，负责把用户的导演目标拆成多个可立即演绎的下一拍方案。",
-        "每个方案必须从当前场景、人物状态、关系和已发生事件自然推出，不得把导演目标直接宣称为已经实现。",
-        "方案之间要有明显差异，但都必须服务于 director_goal 和 director_action。",
-        "beat 描述下一拍具体发生的动作、打断、信息或情绪变化；direction 是供后续代写模型落实该方案的明确写作指令。",
-        "expected_effect 说明该拍会怎样推动目标；risk 简短指出可能带来的关系或节奏风险。",
-        "切换视角只能切到当前在场人物，或使用旁白观察；不得让离场人物凭空知道现场信息。",
-        f"返回恰好 {option_count} 个方案。title 用 4-10 个中文字符，其他字段各用一句话。",
-        '只返回合法 JSON：{"options":[{"title":"误会松动","focus":"情绪","beat":"甲注意到乙一直攥着旧信却没有质问","direction":"用一个克制动作让甲意识到乙仍在等待解释","expected_effect":"为和解制造可信入口","risk":"推进过快会削弱此前冲突"}]}。',
-    ]
-    if retry_on_empty:
-        system_parts.append("上一次输出不可解析。请重新只返回完整 JSON，并给足指定数量。")
+    system_prompt = get_dialogue_director_prompt(option_count=option_count, retry=retry_on_empty)
     input_payload = dict(payload.get("input", {}) or {})
     user_payload = {
         "director_goal": str(payload.get("director_goal", "")).strip(),
@@ -1214,7 +1177,7 @@ def build_dialogue_director_llm_messages(
         "option_count": option_count,
     }
     return [
-        {"role": "system", "content": "\n".join(system_parts)},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, indent=2)},
     ]
 
@@ -1644,18 +1607,7 @@ def build_dialogue_consistency_review_messages(
         "responses": list(payload.get("responses", []) or []),
         "deterministic_report": dict(payload.get("deterministic_report", {}) or {}),
     }
-    system_prompt = "\n".join(
-        [
-            "你是人物对话一致性审校器，不续写剧情，只审查本轮 responses。",
-            "重点检查四类语义偏离：说话口吻明显不像人物、动机或决策逻辑突变、关系态度与当前关系冲突、角色使用了其不可能知道的信息。",
-            "只有证据明确时才报告；合理的情绪波动、讽刺、撒谎、伪装和情境性反常不应误判。",
-            "evidence 必须逐字摘自对应角色本轮 response，且长度为 2-40 字。",
-            "code 只允许 semantic_voice_drift / semantic_motivation_drift / semantic_relationship_drift / semantic_knowledge_drift。",
-            "severity 只允许 warning 或 error。没有明确问题时返回空 issues。",
-            "只返回 JSON，不要 markdown，不要解释。",
-            '格式：{"issues":[{"code":"semantic_voice_drift","severity":"warning","speaker":"角色名","title":"短标题","detail":"为什么与人物资料冲突","evidence":"回复原文摘录"}],"summary":"一句话结论"}',
-        ]
-    )
+    system_prompt = get_consistency_review_prompt()
     return [
         {"role": "system", "content": system_prompt},
         {

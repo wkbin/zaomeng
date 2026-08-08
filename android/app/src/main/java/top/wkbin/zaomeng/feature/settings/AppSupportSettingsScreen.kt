@@ -18,9 +18,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import top.wkbin.zaomeng.BuildConfig
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -128,6 +130,15 @@ private fun SettingsSupportGroup(
                 title = "书卷包地址",
                 subtitle = "github.com/wkbin/zaomeng-library",
                 onClick = onOpenPackageLibrary,
+            )
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            val buildTimeText = remember(BuildConfig.BUILD_TIME) {
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(BuildConfig.BUILD_TIME.toLong()))
+            }
+            SettingsRow(
+                title = "版本信息",
+                subtitle = "v${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）· 构建于 $buildTimeText",
             )
             androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsRow(

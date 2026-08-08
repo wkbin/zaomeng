@@ -2,6 +2,11 @@ package top.wkbin.zaomeng.data.api
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -13,6 +18,118 @@ import org.junit.Test
 
 class ApiModelsTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    /** 用户报错场景回归：严格模式（ignoreUnknownKeys=false）下解析创建会话响应，
+     * 服务端返回的 run_id 等蛇形 key 必须全部有 @SerialName 映射，不得报 unknown key。 */
+    @Test
+    fun dialogueSessionStrictModeDecodesCreateResponse() {
+        val strictJson = Json {} // 与报错场景相同的严格配置
+        val session = strictJson.decodeFromString<DialogueSessionDto>(
+            """
+            {
+              "session_id": "sess-1",
+              "run_id": "run-1",
+              "mode": "observe",
+              "participants": ["林黛玉", "贾宝玉"],
+              "controlled_character": "林黛玉",
+              "scene_card_id": "",
+              "scene_profile": {"location": "大观园"},
+              "self_card_id": "",
+              "self_profile": {"display_name": "我"},
+              "created_at": "2026-08-07T00:00:00Z",
+              "updated_at": "2026-08-07T00:00:00Z",
+              "title": "",
+              "status": "ready",
+              "transcript": [],
+              "turns": [{"turn_id": "t1", "message": "你好"}],
+              "turn_count": 1,
+              "current_turn_id": "t1"
+            }
+            """.trimIndent(),
+        )
+        assertEquals("sess-1", session.sessionId)
+        assertEquals("run-1", session.runId)
+        assertEquals("observe", session.mode)
+        assertEquals(listOf("林黛玉", "贾宝玉"), session.participants)
+        assertEquals("林黛玉", session.controlledCharacter)
+        assertEquals("大观园", session.sceneProfile["location"]?.jsonPrimitive?.content)
+        assertEquals("我", session.selfProfile["display_name"]?.jsonPrimitive?.content)
+        assertEquals(1, session.turnCount)
+        assertEquals("t1", session.currentTurnId)
+        assertEquals(1, session.turns.size)
+        assertEquals("t1", session.turns[0]["turn_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `stream complete event session decodes with repository json`() {
+        // 模拟生产 DialogueStreamRoute complete 事件的 data 负载（与用户报错场景一致的 hex session_id/run_id）
+        val eventJson = buildJsonObject {
+            put("event", JsonPrimitive("complete"))
+            put("session", buildJsonObject {
+                put("session_id", JsonPrimitive("57429ab30ec2ad96c81f36"))
+                put("run_id", JsonPrimitive("9c74d4e027984605af21abc"))
+                put("mode", JsonPrimitive("insert"))
+                put("participants", buildJsonArray { add(JsonPrimitive("林黛玉")) })
+                put("character_avatars", buildJsonObject { put("林黛玉", JsonPrimitive("123-456")) })
+                put("transcript", buildJsonArray { })
+                put("turns", buildJsonArray { })
+                put("turn_count", JsonPrimitive(0))
+                put("current_turn_id", JsonPrimitive(""))
+                put("status", JsonPrimitive("ready"))
+            })
+            put("replayed", JsonPrimitive(false))
+        }
+        // 与 ZaomengRepository companion json 完全相同的配置（ignoreUnknownKeys=true）
+        val repoJson = Json { ignoreUnknownKeys = true }
+        val data = repoJson.encodeToString(JsonObject.serializer(), eventJson)
+
+        val payload = repoJson.parseToJsonElement(data).jsonObject
+        val sessionElement = payload["session"] ?: error("session missing")
+        val session = repoJson.decodeFromJsonElement<DialogueSessionDto>(sessionElement)
+
+        assertEquals("57429ab30ec2ad96c81f36", session.sessionId)
+        assertEquals("9c74d4e027984605af21abc", session.runId)
+        assertEquals("insert", session.mode)
+        assertEquals("123-456", session.characterAvatars["林黛玉"])
+    }
+
+    @Test
+    fun runManifestDecodesImportedPackageMetadata() {
+        val run = json.decodeFromString<RunManifestDto>(
+            """
+            {
+              "run_id": "imported-run",
+              "imported_from": {
+                "package_filename": "demo.zaomeng-run.zip",
+                "builtin_source": false,
+                "imported_at": "2026-08-07T06:00:00Z",
+                "online_library": {
+                  "id": "demo",
+                  "title": "Demo",
+                  "version": "1.0.0",
+                  "download_url": "https://example.invalid/demo.zip",
+                  "sha256": "abc123"
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("demo.zaomeng-run.zip", run.importedFrom.packageFilename)
+        assertFalse(run.importedFrom.builtinSource)
+        assertEquals("2026-08-07T06:00:00Z", run.importedFrom.importedAt)
+        assertEquals("1.0.0", run.importedFrom.onlineLibrary?.version)
+    }
+
+    @Test
+    fun runManifestAcceptsLegacyImportedPackageFilename() {
+        val run = json.decodeFromString<RunManifestDto>(
+            """{"run_id":"legacy-run","imported_from":"legacy.zaomeng-run.zip"}""",
+        )
+
+        assertEquals("legacy.zaomeng-run.zip", run.importedFrom.packageFilename)
+        assertEquals(null, run.importedFrom.onlineLibrary)
+    }
 
     @Test
     fun dialogueSessionDecodesAdvancedRuntimeState() {

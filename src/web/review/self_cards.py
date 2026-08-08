@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from prompts.loader import get_self_card_generation_prompt
+
 from src.web.review.persona_completion import PERSONA_REVIEW_FIELD_LABELS
 from src.web.review.persona import (
     PERSONA_REVIEW_FIELDS,
@@ -215,11 +217,7 @@ def build_random_self_card_messages() -> list[dict[str, str]]:
     return [
         {
             "role": "system",
-            "content": (
-                "你是原创角色卡生成器。请生成一个适合中文小说互动场景的原创角色，不依赖任何现有作品。"
-                "输出必须是 JSON 对象，键只允许来自给定字段；每个字段都给出可直接写入表单的中文短内容。"
-                "不要解释，不要代码块，不要附加备注。"
-            ),
+            "content": get_self_card_generation_prompt(),
         },
         {
             "role": "user",

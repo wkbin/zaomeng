@@ -4,30 +4,13 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.chaquopy)
 }
 
-val repositoryRoot = rootProject.projectDir.parentFile
-val generatedPythonSources = layout.buildDirectory.dir("generated/python/main")
-val configuredBuildPython = providers.gradleProperty("chaquopyBuildPython").orNull
 val signingPropertiesFile = rootProject.file("keystore.properties")
 val signingProperties = Properties().apply {
     if (signingPropertiesFile.exists()) {
         signingPropertiesFile.inputStream().use { input -> load(input) }
     }
-}
-val syncSharedPythonSources by tasks.registering(Sync::class) {
-    from(repositoryRoot) {
-        include("src/**")
-        include("rules/**")
-        include("zaomeng-skill/**")
-        exclude("src/web/static/**")
-        exclude("zaomeng-skill/assets/**")
-        exclude("**/__pycache__/**")
-        exclude("**/*.pyc")
-        exclude("**/*.pyo")
-    }
-    into(generatedPythonSources)
 }
 
 android {
@@ -46,6 +29,9 @@ android {
         versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("boolean", "USE_KTOR_BACKEND", "true")
+        buildConfigField("String", "BUILD_TIME", "\"${System.currentTimeMillis()}\"")
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -85,47 +71,32 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
     buildFeatures {
         compose = true
         buildConfig = true
     }
-}
 
-chaquopy {
-    defaultConfig {
-        version = "3.11"
-        when {
-            !configuredBuildPython.isNullOrBlank() -> buildPython(configuredBuildPython)
-            System.getProperty("os.name").lowercase().contains("windows") -> buildPython("python")
-        }
-        extractPackages("src")
-        pip {
-            install("PyYAML==6.0.3")
-            install("fastapi==0.119.1")
-            install("pydantic==1.10.24")
-            install("uvicorn==0.34.3")
-            install("python-multipart==0.0.20")
-            install("requests>=2.31.0,<3.0.0")
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/INDEX.LIST"
+            )
         }
     }
-    sourceSets {
-        getByName("main") {
-            srcDir(generatedPythonSources)
-        }
-    }
-}
 
-tasks.named("preBuild").configure {
-    dependsOn(syncSharedPythonSources)
+    // 提示词 YAML（dialogue/chapters/review）由 :server 模块自带：
+    // 已拷贝到 server/src/main/assets/ 下（仓库根 prompts/ 为单一来源，改动需同步）。
+    // PromptLoader 在真机上从 assets 读取；server 的 assets 会合并进最终 APK。
 }
-
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("PythonSources") }
-    .configureEach {
-        dependsOn(syncSharedPythonSources)
-    }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    implementation(project(":server"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -141,12 +112,26 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Ktor server host dependencies used by KtorBackendController.
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.ktor.server.auth)
+
+    // Ktor client dependencies
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.logging)
+    implementation(libs.ktor.client.content.negotiation)
+
     testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.ktor.server.test.host)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

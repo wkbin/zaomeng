@@ -24,7 +24,7 @@ enum class ChatFontSize(
 
     companion object {
         fun fromStorageValue(value: String?): ChatFontSize =
-            values().firstOrNull { it.storageValue == value } ?: STANDARD
+            entries.firstOrNull { it.storageValue == value } ?: STANDARD
     }
 }
 
@@ -36,7 +36,7 @@ enum class ThemeMode(val storageValue: String) {
 
     companion object {
         fun fromStorageValue(value: String?): ThemeMode =
-            values().firstOrNull { it.storageValue == value } ?: SYSTEM
+            entries.firstOrNull { it.storageValue == value } ?: SYSTEM
     }
 }
 

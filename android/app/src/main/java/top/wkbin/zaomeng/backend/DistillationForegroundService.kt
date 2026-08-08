@@ -18,6 +18,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import top.wkbin.zaomeng.MainActivity
 import top.wkbin.zaomeng.R
+import top.wkbin.zaomeng.data.api.KtorRunsClient
+import top.wkbin.zaomeng.data.api.KtorRunManagementClient
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +34,9 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 class DistillationForegroundService : Service(), KoinComponent {
-    private val backend: EmbeddedBackendController by inject()
+    private val backend: BackendManager by inject()
+    private val ktorRuns: KtorRunsClient by inject()
+    private val ktorRunManagement: KtorRunManagementClient by inject()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
     @Volatile private var stopRequested = false
@@ -94,9 +98,7 @@ class DistillationForegroundService : Service(), KoinComponent {
                     is BackendState.Failed -> backend.retry()
                     else -> backend.start()
                 }
-                val allRuns = backend.requireApi()
-                    .listRuns()
-                    .items
+                val allRuns = ktorRuns.list().items
                 val running = allRuns
                     .filter { it.status == RUNNING_STATUS }
                 if (running.isNotEmpty()) {
@@ -106,7 +108,7 @@ class DistillationForegroundService : Service(), KoinComponent {
                 }
                 if (stopRequested && running.isNotEmpty()) {
                     updateNotification(buildStoppingNotification())
-                    running.forEach { run -> backend.requireApi().stopRun(run.runId) }
+                    running.forEach { run -> ktorRunManagement.stop(run.runId) }
                     delay(POLL_INTERVAL_MS)
                     continue
                 }

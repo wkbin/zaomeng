@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import top.wkbin.zaomeng.MainActivity
 import top.wkbin.zaomeng.R
 import top.wkbin.zaomeng.data.api.ArchiveDialogueChapterRequest
+import top.wkbin.zaomeng.data.api.KtorChapterClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +30,8 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 class NovelConversionForegroundService : Service(), KoinComponent {
-    private val backend: EmbeddedBackendController by inject()
+    private val backend: BackendManager by inject()
+    private val ktorChapters: KtorChapterClient by inject()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueLock = Any()
     private val pendingConversions = ArrayDeque<ConversionRequest>()
@@ -110,7 +112,7 @@ class NovelConversionForegroundService : Service(), KoinComponent {
                 else -> backend.start()
             }
             updateNotification(buildProgressNotification())
-            backend.requireApi().convertSessionAsNovel(
+            ktorChapters.convertSessionAsNovel(
                 request.runId,
                 ArchiveDialogueChapterRequest(request.sessionId, request.title),
             )
