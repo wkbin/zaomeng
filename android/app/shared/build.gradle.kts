@@ -76,6 +76,7 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.okhttp)
+            implementation(libs.skiko.awt)
         }
         if (isMacHost) {
             getByName("iosMain") {

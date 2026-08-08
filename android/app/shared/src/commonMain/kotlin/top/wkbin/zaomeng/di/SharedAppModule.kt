@@ -28,6 +28,7 @@ import top.wkbin.zaomeng.data.library.OnlineLibraryRepository
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ContentDisclaimerPreferences
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
+import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
 
@@ -84,4 +85,5 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     }
 
     viewModel { BookshelfViewModel(get(), get()) }
+    viewModel { SessionsViewModel(get()) }
 }

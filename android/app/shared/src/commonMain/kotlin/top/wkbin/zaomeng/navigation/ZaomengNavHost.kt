@@ -18,6 +18,8 @@ import androidx.navigation3.ui.NavDisplay
 import org.koin.compose.viewmodel.koinViewModel
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfScreen
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
+import top.wkbin.zaomeng.feature.sessions.SessionsScreen
+import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 
 /**
  * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
@@ -49,8 +51,23 @@ fun ZaomengNavHost() {
             entry(ModelSettingsDestination) { PlaceholderScreen("模型设置（迁移中）") }
             entry(CardLibraryDestination) { PlaceholderScreen("卡库（迁移中）") }
             entry(CrossoverDestination) { PlaceholderScreen("联动（迁移中）") }
-            addEntryProvider(clazz = SessionsDestination::class) { PlaceholderScreen("会话（迁移中）") }
+            addEntryProvider(clazz = SessionsDestination::class) { destination ->
+                val viewModel: SessionsViewModel = koinViewModel()
+                SessionsScreen(
+                    viewModel = viewModel,
+                    runId = destination.runId.takeIf(String::isNotBlank),
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenChat = { runId, sessionId ->
+                        backStack.add(ChatDestination(runId, sessionId))
+                    },
+                    onOpenStoryRecap = { runId, sessionId ->
+                        backStack.add(StoryRecapDestination(runId, sessionId))
+                    },
+                )
+            }
             addEntryProvider(clazz = RunDetailDestination::class) { PlaceholderScreen("运行详情（迁移中）") }
+            addEntryProvider(clazz = ChatDestination::class) { PlaceholderScreen("对话（迁移中）") }
+            addEntryProvider(clazz = StoryRecapDestination::class) { PlaceholderScreen("剧情回顾（迁移中）") }
         },
     )
 }
