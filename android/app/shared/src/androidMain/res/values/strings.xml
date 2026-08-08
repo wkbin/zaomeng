@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="distillation_notification_channel_name">蒸馏进度</string>
+    <string name="distillation_notification_channel_description">显示正在手机上处理的小说蒸馏任务</string>
+    <string name="distillation_notification_result_channel_name">蒸馏结果</string>
+    <string name="distillation_notification_result_channel_description">提示小说蒸馏已完成、停止或需要查看失败结果</string>
+    <string name="distillation_notification_starting_title">正在准备蒸馏</string>
+    <string name="distillation_notification_starting_text">正在启动本地服务…</string>
+    <string name="distillation_notification_running_title">小说蒸馏进行中</string>
+    <string name="distillation_notification_running_text">正在整理人物与关系</string>
+    <string name="distillation_notification_reconnecting">正在重新连接本地服务…</string>
+    <string name="distillation_notification_single_title">正在蒸馏《%1$s》</string>
+    <string name="distillation_notification_multiple_title">正在蒸馏 %1$d 本小说</string>
+    <string name="distillation_notification_character">正在处理：%1$s</string>
+    <string name="distillation_notification_stop_action">停止全部</string>
+    <string name="distillation_notification_stopping_title">正在停止蒸馏</string>
+    <string name="distillation_notification_stopping_text">正在让当前处理步骤安全收束…</string>
+    <string name="distillation_notification_complete_title">蒸馏已完成</string>
+    <string name="distillation_notification_complete_single_text">《%1$s》的人物与关系已整理完成，点击查看书架。</string>
+    <string name="distillation_notification_complete_multiple_text">%1$d 本小说的蒸馏已结束，点击查看书架。</string>
+    <string name="distillation_notification_stopped_title">蒸馏已停止</string>
+    <string name="distillation_notification_stopped_result_text">已有整理结果会保留，点击查看书架。</string>
+    <string name="distillation_notification_failed_title">蒸馏需要查看</string>
+    <string name="distillation_notification_failed_text">%1$d/%2$d 个任务未完成，点击查看书架中的详情。</string>
+    <string name="novel_conversion_notification_channel_name">小说生成进度</string>
+    <string name="novel_conversion_notification_channel_description">显示对话转小说的后台生成任务</string>
+    <string name="novel_conversion_notification_result_channel_name">小说生成结果</string>
+    <string name="novel_conversion_notification_result_channel_description">提示小说章节是否生成完成</string>
+    <string name="novel_conversion_notification_starting_title">正在准备生成小说</string>
+    <string name="novel_conversion_notification_starting_text">正在启动本地服务…</string>
+    <string name="novel_conversion_notification_running_title">小说章节生成中</string>
+    <string name="novel_conversion_notification_running_text">正在把对话改写成小说正文，完成后会通知你。</string>
+    <string name="novel_conversion_notification_complete_title">小说章节已生成</string>
+    <string name="novel_conversion_notification_complete_text">对话已改写为小说章节，点击进入章节工作台查看。</string>
+    <string name="novel_conversion_notification_failed_title">小说生成需要查看</string>
+    <string name="novel_conversion_notification_failed_text">对话转小说没有完成，点击打开应用查看失败原因。</string>
+</resources>

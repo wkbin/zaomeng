@@ -1,13 +1,33 @@
 package top.wkbin.zaomeng.app.shared
 
 import androidx.compose.runtime.Composable
+import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.navigation.ZaomengNavHost
 import top.wkbin.zaomeng.ui.theme.MyApplicationTheme
 
-/** 跨平台共享 UI 入口：androidApp / desktopApp / iosApp 都渲染这个组合。 */
+/**
+ * 跨平台共享 UI 入口：androidApp / desktopApp / iosApp 都渲染这个组合。
+ * 更新检查/下载与深链属于平台能力，通过可选参数由平台入口注入（桌面/iOS 使用默认空实现）。
+ */
 @Composable
-fun App() {
+fun App(
+    appUpdateState: AppUpdateUiState = AppUpdateUiState(),
+    onCheckForAppUpdate: (Boolean) -> Unit = {},
+    onDownloadAppUpdate: () -> Unit = {},
+    startupUpdateCheckDisabled: Boolean = false,
+    onStartupUpdateCheckDisabledChange: (Boolean) -> Unit = {},
+    launchChaptersRunId: String? = null,
+    onChaptersLaunchConsumed: () -> Unit = {},
+) {
     MyApplicationTheme {
-        ZaomengNavHost()
+        ZaomengNavHost(
+            appUpdateState = appUpdateState,
+            onCheckForAppUpdate = onCheckForAppUpdate,
+            onDownloadAppUpdate = onDownloadAppUpdate,
+            startupUpdateCheckDisabled = startupUpdateCheckDisabled,
+            onStartupUpdateCheckDisabledChange = onStartupUpdateCheckDisabledChange,
+            launchChaptersRunId = launchChaptersRunId,
+            onChaptersLaunchConsumed = onChaptersLaunchConsumed,
+        )
     }
 }

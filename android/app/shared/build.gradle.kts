@@ -77,6 +77,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling)
             implementation(libs.compose.ui.tooling.preview)
+            implementation(libs.androidx.core.ktx)
             implementation(libs.okhttp)
         }
         jvmMain.dependencies {

@@ -72,10 +72,10 @@ git status
 ### 测试和构建
 ```bash
 # 编译项目
-./gradlew :app:assembleDebug
+./gradlew :app:androidApp:assembleDebug
 
 # 运行测试
-./gradlew :app:testDebugUnitTest
+./gradlew :app:shared:allTests :server:jvmTest
 
 # 查看测试报告
 open app/build/reports/tests/testDebugUnitTest/index.html
@@ -230,7 +230,7 @@ ktor = "3.5.2"
 - 需要设置 `JAVA_HOME` 环境变量
 - 推荐使用 JDK 17 或更高版本
 - 验证安装：`java -version`
-- 编译命令：`./gradlew :app:compileDebugKotlin`
+- 编译命令：`./gradlew :app:androidApp:compileDebugKotlin`
 
 ### Phase 3 已知问题
 1. **API 密钥集成待完善**

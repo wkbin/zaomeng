@@ -4,7 +4,7 @@
 
 ## 运行架构
 
-1. `ZaomengApplication` 通过 Koin 初始化依赖注入；Ktor 服务端代码位于独立 `:server` Android library module（routes/services/models/plugins/认证）。
+1. `androidApp` 的 `ZaomengApplication` 通过 Koin 初始化依赖注入；Ktor 服务端代码位于独立 `:server` KMP module（routes/services/models/plugins/认证，Room 持久化）。
 2. `KtorBackendController` 在随机 `127.0.0.1` 端口启动内嵌 Ktor (CIO) 服务，数据根目录设为 App 私有目录；服务端日志由 `CallLogging` 和 `StatusPages` 统一处理。
 3. 每次安装生成的本机接口 Token 由 Android Keystore 保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Retrofit/OkHttp 或 Ktor Client 并附加认证信息。
 4. Compose 界面采用 ViewModel 和 Repository 分层；Koin 提供 Repository、ViewModel、本机后端控制器及其他依赖。
@@ -35,7 +35,7 @@
 
 ```powershell
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:androidApp:assembleDebug
 ```
 
 Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。

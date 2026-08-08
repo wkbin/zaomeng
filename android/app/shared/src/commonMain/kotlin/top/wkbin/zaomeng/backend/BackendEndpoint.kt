@@ -4,7 +4,7 @@ package top.wkbin.zaomeng.backend
 data class BackendEndpoint(val baseUrl: String)
 
 /**
- * 内嵌后端端点提供者：Android 由 BackendManager（启动内嵌服务）实现，
+ * 内嵌后端端点提供者：Android 由 LocalBackendController（启动内嵌服务）实现，
  * 桌面由 desktopApp 直接指向本地端口。
  */
 interface BackendEndpointProvider {

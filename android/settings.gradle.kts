@@ -34,7 +34,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Zaomeng"
-include(":app")
 include(":server")
 include(":plugins-api")
 include(":builtin-plugins")

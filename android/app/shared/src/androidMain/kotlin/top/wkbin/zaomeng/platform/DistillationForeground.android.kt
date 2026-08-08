@@ -1,18 +1,20 @@
 package top.wkbin.zaomeng.platform
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
+import top.wkbin.zaomeng.backend.DistillationForegroundController
 
-/** Android 蒸馏前台提示：权限检查真实化；前台服务暂为 no-op（TODO 移植旧实现）。 */
+/** Android 蒸馏前台提示：启动前台服务监控运行中的蒸馏任务。 */
 class AndroidDistillationForeground(
     private val context: Context,
 ) : DistillationForeground {
-    override fun start() = Unit
+    override fun start() {
+        DistillationForegroundController.start(context)
+    }
 
-    override fun stopAll() = Unit
+    override fun stopAll() {
+        DistillationForegroundController.stopAll(context)
+    }
 
     override fun hasNotificationPermission(): Boolean =
-        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+        DistillationForegroundController.hasNotificationPermission(context)
 }

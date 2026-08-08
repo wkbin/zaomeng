@@ -1,16 +1,15 @@
 package top.wkbin.zaomeng.platform
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
+import top.wkbin.zaomeng.backend.NovelConversionForegroundController
 
-/** Android 前台转换控制器：权限检查真实化；前台服务暂为 no-op（TODO 移植旧实现）。 */
+/** Android 前台转换控制器：启动前台服务排队生成章节。 */
 class AndroidNovelConversionForeground(
     private val context: Context,
 ) : NovelConversionForeground {
-    override fun start(runId: String, sessionId: String, title: String): Boolean = true
+    override fun start(runId: String, sessionId: String, title: String): Boolean =
+        NovelConversionForegroundController.start(context, runId, sessionId, title)
 
     override fun hasNotificationPermission(): Boolean =
-        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+        NovelConversionForegroundController.hasNotificationPermission(context)
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,11 +58,6 @@ import top.wkbin.zaomeng.feature.redistill.RedistillScreen
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
-
 /**
  * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
  *
@@ -69,8 +65,26 @@ import androidx.compose.runtime.saveable.rememberSaveable
  * rememberNavBackStack(SavedStateConfiguration) + NavKey 多态注册。
  */
 @Composable
-fun ZaomengNavHost() {
+fun ZaomengNavHost(
+    appUpdateState: AppUpdateUiState = AppUpdateUiState(),
+    onCheckForAppUpdate: (Boolean) -> Unit = {},
+    onDownloadAppUpdate: () -> Unit = {},
+    startupUpdateCheckDisabled: Boolean = false,
+    onStartupUpdateCheckDisabledChange: (Boolean) -> Unit = {},
+    launchChaptersRunId: String? = null,
+    onChaptersLaunchConsumed: () -> Unit = {},
+) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
+
+    val pendingLaunchRunId = remember(launchChaptersRunId) {
+        launchChaptersRunId?.takeIf { it.isNotBlank() }
+    }
+    LaunchedEffect(pendingLaunchRunId) {
+        if (pendingLaunchRunId != null) {
+            backStack.add(ChaptersDestination(pendingLaunchRunId))
+            onChaptersLaunchConsumed()
+        }
+    }
 
     NavDisplay(
         backStack = backStack,
@@ -149,15 +163,13 @@ fun ZaomengNavHost() {
                 )
             }
             entry(AppUpdateDestination) {
-                var startupUpdateCheckDisabled by rememberSaveable { mutableStateOf(false) }
-                // TODO: 跨平台更新服务（Android DownloadManager 移植后接线）
                 AppUpdateScreen(
-                    state = AppUpdateUiState(),
+                    state = appUpdateState,
                     onBack = { backStack.removeLastOrNull() },
-                    onCheck = {},
-                    onDownload = {},
+                    onCheck = { onCheckForAppUpdate(true) },
+                    onDownload = onDownloadAppUpdate,
                     startupUpdateCheckDisabled = startupUpdateCheckDisabled,
-                    onStartupUpdateCheckDisabledChange = { startupUpdateCheckDisabled = it },
+                    onStartupUpdateCheckDisabledChange = onStartupUpdateCheckDisabledChange,
                 )
             }
             entry(CardLibraryDestination) {
