@@ -77,8 +77,12 @@ kotlin {
             getByName("iosMain") {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
+                    implementation(libs.snakeyaml.engine.kmp)
                 }
             }
+        }
+        jvmTest.dependencies {
+            implementation(libs.snakeyaml.engine.kmp)
         }
     }
 }

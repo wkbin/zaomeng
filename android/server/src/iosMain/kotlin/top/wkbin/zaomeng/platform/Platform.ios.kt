@@ -2,6 +2,10 @@ package top.wkbin.zaomeng.platform
 
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.darwin.Darwin
+import it.krzeminski.snakeyaml.engine.kmp.api.Dump
+import it.krzeminski.snakeyaml.engine.kmp.api.DumpSettings
+import it.krzeminski.snakeyaml.engine.kmp.api.Load
+import it.krzeminski.snakeyaml.engine.kmp.common.FlowStyle
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,14 +37,13 @@ actual object PlatformLog {
     }
 }
 
-// ------------------------------------------------------------------
-// YAML：jvm/android 用 snakeyaml；iOS 待接入 KMP YAML 库（iOS 阶段 TODO）
-// ------------------------------------------------------------------
+// YAML：jvm/android 用 snakeyaml（经典版）；iOS 用 snakeyaml-engine-kmp（同一语义的 KMP 移植）。
+@Suppress("UNCHECKED_CAST")
 actual fun parseYaml(text: String): Map<String, Any?>? =
-    throw NotImplementedError("iOS YAML 解析待接入 KMP YAML 库（iOS 阶段 TODO）")
+    runCatching { Load().loadOne(text) }.getOrNull() as? Map<String, Any?>
 
 actual fun dumpYaml(value: Any?): String =
-    throw NotImplementedError("iOS YAML 序列化待接入 KMP YAML 库（iOS 阶段 TODO）")
+    Dump(DumpSettings(defaultFlowStyle = FlowStyle.BLOCK)).dumpToString(value)
 
 actual fun randomUuid(): String = NSUUID().UUIDString.lowercase()
 

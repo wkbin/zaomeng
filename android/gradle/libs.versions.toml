@@ -26,6 +26,7 @@ okhttp = "4.12.0"
 serializationJson = "1.9.0"
 ktor = "3.5.2"
 snakeyaml = "2.0"
+snakeyamlEngineKmp = "4.0.1"
 desugarJdkLibs = "2.1.5"
 okio = "3.9.1"
 kotlinxDatetime = "0.7.1"
@@ -92,6 +93,7 @@ ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp-jvm", version.ref = 
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+snakeyaml-engine-kmp = { module = "it.krzeminski:snakeyaml-engine-kmp", version.ref = "snakeyamlEngineKmp" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 [plugins]
