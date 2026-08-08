@@ -384,10 +384,13 @@ class DialogueAdvancedService(
 
     /**
      * 修正最新回复：重新生成最后一条角色回复并替换。
-     * 对应 Python: correct_latest_dialogue_turn（简化版：不创建独立分支）
+     * 对应 Python: correct_latest_dialogue_turn（走完整 reply 管道 + CORRECTION_CONTEXT，
+     * 在当会话内替换最后一轮角色回复，而不是创建独立分支）。
      */
     suspend fun correctLatest(runId: String, sessionId: String): JsonObject {
         val session = requireSession(runId, sessionId)
+        val runManifest = storage.readRunManifest(runId)
+            ?: throw NoSuchElementException("Run not found: $runId")
         val transcript = transcriptOf(session)
         val lastRoleIndex = transcript.indexOfLast {
             val role = it["role"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -395,37 +398,122 @@ class DialogueAdvancedService(
         }
         if (lastRoleIndex < 0) throw IllegalStateException("当前会话还没有可修正的回复")
         val target = transcript[lastRoleIndex]
+        val targetTurnId = target["turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val speaker = target["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val participants = (session["participants"]?.jsonArray ?: JsonArray(emptyList()))
+            .mapNotNull { it.jsonPrimitive.contentOrNull }.filter(String::isNotBlank)
         val client = requireNotNull(llm) { "LLM 客户端未配置" }
         val loader = requireNotNull(prompts) { "提示词加载器未配置" }
-        val system = loader.getDialogueDirectorPrompt(optionCount = 1, retry = true)
-        val user = buildString {
-            append("对话记录（前文）：\n").append(formatTranscript(session, maxEntries = 12, excludeLast = true))
-            append("\n\n请以「").append(speaker).append("」的身份，重写上一条回复（修正事实、语气与逻辑问题）。")
+
+        // 原始用户输入（对齐 Python：取 target turn 的 user 条目）
+        val userEntry = if (targetTurnId.isNotEmpty()) {
+            transcript.lastOrNull { it["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId && it["role"]?.jsonPrimitive?.contentOrNull == "user" }
+        } else {
+            null
         }
+        val originalMessage = userEntry?.get("message")?.jsonPrimitive?.contentOrNull?.trim()
+            ?: session["last_entry_preview"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+
+        // 一致性审校问题（对齐 Python create_correction_branch：从 consistency_monitor.latest.issues 取）
+        val monitor = session["consistency_monitor"]?.jsonObject ?: JsonObject(emptyMap())
+        val latestReview = monitor["latest"]?.jsonObject ?: JsonObject(emptyMap())
+        val issues = latestReview["issues"]?.jsonArray?.mapNotNull { it.jsonObject }.orEmpty()
+        val correctionContext = buildJsonObject {
+            put("message", originalMessage)
+            put("message_kind", "dialogue")
+            if (targetTurnId.isNotEmpty()) put("turn_id", targetTurnId)
+            put(
+                "issues",
+                buildJsonArray {
+                    issues.forEach { add(it) }
+                },
+            )
+            put(
+                "original_responses",
+                buildJsonArray {
+                    transcript.filter {
+                        it["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId &&
+                            it["role"]?.jsonPrimitive?.contentOrNull != "user"
+                    }.forEach { add(it) }
+                },
+            )
+        }
+
+        // 走完整 reply 管道（对齐 Python _generate_dialogue_responses），注入 CORRECTION_CONTEXT
+        val payloadBuilder = DialoguePayloadBuilder(storage)
+        val promptBuilder = DialoguePromptBuilder(loader)
+        val turnId = "correct-" + UUID.randomUUID().toString().replace("-", "").take(10)
+        val payload = payloadBuilder.buildTurnPayload(
+            runManifest = runManifest,
+            session = session,
+            turnId = turnId,
+            message = originalMessage,
+        ).toMutableMap()
+        payload["correction_context"] = correctionContext.mapKeys { it.key.toString() }
+            .mapValues { (_, value) -> jsonValueToAny(value) }
+        val messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = true)
+        val responseLimit = ((payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() }
+            ?.get("response_limit_hint") as? Number)?.toInt() ?: 2
+        val maxTokens = DialogueService.resolveDialogueMaxTokens(responseLimit)
         val corrected = client.chatCompletion(
-            messages = listOf(
-                LlmClient.ChatMessage("system", system),
-                LlmClient.ChatMessage("user", user),
-            ),
+            messages = messages,
             temperature = 0.7,
-            maxTokens = 1200,
+            maxTokens = maxTokens,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (corrected.isBlank()) throw IllegalStateException("修正结果为空")
-        val correctedText = parseGeneratedText(corrected)
+        val forbidden = listOf(
+            session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            "User",
+            "我",
+        ).filter(String::isNotBlank)
+        val correctedResponses = DialogueResponseParser.parse(
+            content = corrected,
+            allowedSpeakers = participants + listOf("旁白", "场景提示"),
+            forbiddenSpeakers = forbidden,
+        )
+        if (correctedResponses.isEmpty()) throw IllegalStateException("修正结果为空")
         val timestamp = Instant.now().toString()
         val updatedTranscript = transcript.toMutableList().apply {
-            this[lastRoleIndex] = buildJsonObject {
-                target.forEach { (key, value) -> put(key, value) }
-                put("message", correctedText)
-                put("corrected_at", timestamp)
+            // 删除 target turn 的全部角色回复（保留 user 条目），再插入修正后的回复
+            removeAll { entry ->
+                val role = entry["role"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                targetTurnId.isNotEmpty() && entry["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId &&
+                    role != "user"
+            }
+            correctedResponses.forEach { response ->
+                add(
+                    buildJsonObject {
+                        put("speaker", response.speaker)
+                        put("message", response.message)
+                        response.innerThought?.let { put("inner_thought", it) }
+                        put(
+                            "role",
+                            if (response.speaker in setOf("旁白", "场景提示")) "scene" else "character",
+                        )
+                        put("turn_id", targetTurnId.ifEmpty { turnId })
+                        put("timestamp", timestamp)
+                        put("corrected_at", timestamp)
+                    },
+                )
             }
         }
+        val correctedText = correctedResponses.lastOrNull()?.message.orEmpty()
         val updated = saveSession(runId, sessionId, session, extra = buildJsonObject {
             put("transcript", buildJsonArray { updatedTranscript.forEach(::add) })
             put("last_entry_preview", correctedText)
         })
-        return updated
+        // 修正后重推 scene progress（对齐 Python _refresh_dialogue_scene_progress use_llm=False）
+        val transcriptMaps = updatedTranscript.mapNotNull { entry ->
+            runCatching {
+                entry.mapKeys { it.key.toString() }.mapValues { (_, value) ->
+                    if (value is JsonObject) value.mapKeys { it.key.toString() } else value.jsonPrimitive.contentOrNull
+                }
+            }.getOrNull()
+        }
+        val state = SceneProgressState.deriveSceneProgressState(updated, transcriptMaps, updatedAt = timestamp)
+        return saveSession(runId, sessionId, updated, extra = buildJsonObject {
+            put("state", SceneProgressState.stateToJsonObject(state))
+        })
     }
 
     /**
@@ -588,13 +676,8 @@ class DialogueAdvancedService(
             put("scene_card_id", sceneCardId)
             put("scene_card", sceneCard)
             put("scene_history", buildJsonArray { sceneHistory.forEach(::add) })
-            put("scene_progress", buildJsonObject {
-                put("progression_note", "")
-                put("turns_in_current_scene", 0)
-                put("beat_maturity", 0)
-            })
         })
-        return if (autoContinue && transitionMessage.isNotBlank()) {
+        val final = if (autoContinue && transitionMessage.isNotBlank()) {
             // auto_continue：将转场消息作为场景提示写入 transcript
             val transcript = transcriptOf(updated).toMutableList()
             transcript.add(
@@ -612,6 +695,19 @@ class DialogueAdvancedService(
         } else {
             updated
         }
+        // 对齐 Python switch_scene_card：写入场景切换事件信号并推导 scene progress state
+        val sceneProfileMap = sceneProfile.mapKeys { it.key.toString() }.mapValues { (_, value) ->
+            value.jsonPrimitive.contentOrNull
+        }
+        val state = SceneProgressState.deriveAfterSceneSwitch(
+            session = final,
+            sceneProfile = sceneProfileMap,
+            transitionMessage = transitionMessage,
+            switchedAt = timestamp,
+        )
+        return saveSession(runId, sessionId, final, extra = buildJsonObject {
+            put("state", SceneProgressState.stateToJsonObject(state))
+        })
     }
 
     /**
@@ -708,6 +804,15 @@ class DialogueAdvancedService(
 
     private fun transcriptOf(session: JsonObject): List<JsonObject> =
         session["transcript"]?.jsonArray?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
+
+    private fun jsonValueToAny(value: kotlinx.serialization.json.JsonElement?): Any? = when (value) {
+        null -> null
+        is JsonObject -> value.mapValues { jsonValueToAny(it.value) }
+        is JsonArray -> value.map { jsonValueToAny(it) }
+        is kotlinx.serialization.json.JsonPrimitive ->
+            if (value.isString) value.content else value.contentOrNull ?: value.toString()
+        else -> null
+    }
 
     private fun memoryLedgerOf(session: JsonObject): List<JsonObject> =
         session["memory_ledger"]?.jsonArray?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()

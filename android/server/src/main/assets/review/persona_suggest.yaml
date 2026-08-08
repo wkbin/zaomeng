@@ -1,0 +1,2 @@
+# 人物资料字段补全 user 提示词模板（迁移自 Ktor PersonaService.suggestField）
+template: "人物：{character}\n目标字段：{field}\n当前档案：\n{profile}\n严格返回 JSON：{\"status\":\"filled\"|\"insufficient\",\"value\":\"...\",\"reason\":\"...\"}"

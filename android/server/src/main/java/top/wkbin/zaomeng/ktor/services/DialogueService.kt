@@ -12,6 +12,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -322,7 +323,7 @@ class DialogueService(
 
         val timestamp = java.time.Instant.now().toString()
         val transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
-        val updated = buildJsonObject {
+        val updatedBase = buildJsonObject {
             manifest.forEach { (key, value) -> put(key, value) }
             put("turn_count", newTurnCount)
             put("current_turn_id", turnId)
@@ -351,6 +352,28 @@ class DialogueService(
                     put("timestamp", timestamp)
                 }) }
             })
+        }
+
+        // 每轮提交后推导场景进度状态（对齐 Python _refresh_dialogue_scene_progress）
+        val newTranscript = updatedBase["transcript"]?.jsonArray ?: JsonArray(emptyList())
+        val transcriptMaps = newTranscript.mapNotNull { raw ->
+            runCatching {
+                raw.jsonObject.mapKeys { it.key.toString() }.mapValues { (_, value) ->
+                    when (value) {
+                        is JsonObject -> value.mapKeys { it.key.toString() }
+                        else -> value.jsonPrimitive.contentOrNull
+                    }
+                }
+            }.getOrNull()
+        }
+        val derivedState = SceneProgressState.deriveSceneProgressState(
+            session = updatedBase,
+            transcript = transcriptMaps,
+            updatedAt = timestamp,
+        )
+        val updated = buildJsonObject {
+            updatedBase.forEach { (key, value) -> put(key, value) }
+            put("state", SceneProgressState.stateToJsonObject(derivedState))
         }
 
         storageService.writeTextAtomically(manifestFile, Json.encodeToString(JsonObject.serializer(), updated))

@@ -496,11 +496,10 @@ class DialoguePromptBuilder(
         stableSystemParts.add(instructions["response_style"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["scene_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(hostAction["output_rule"]?.toString()?.trim().orEmpty())
-        stableSystemParts.add("角色的明显小动作不要单独写成旁白或场景提示；应尽量内嵌到该角色自己的台词里，用很短的括号动作来带出。")
-        stableSystemParts.add("只返回 JSON 数组，每项必须包含 speaker 和 message。")
-        // 提示词增强（比 Python 多一句，用户确认）：deepseek-v4-flash 常把 JSON 包进 markdown 代码围栏
-        // 且 ```json[ 同行会破坏解析；明确禁止围栏可显著降低触发率（解析器容错仍兜底）
-        stableSystemParts.add("不要使用代码围栏或反引号（``` 或 ```json），直接输出原始 JSON，不要加任何解释或前后缀文字。")
+        stableSystemParts.add(promptLoader.getTurnSystemRule("small_action_rule"))
+        stableSystemParts.add(promptLoader.getTurnSystemRule("json_only_rule"))
+        // 提示词增强（比 Python 多一句，用户确认）：见 prompts/dialogue/turn_system.yaml 的 no_code_fence_rule
+        stableSystemParts.add(promptLoader.getTurnSystemRule("no_code_fence_rule"))
         if (includeInnerThoughts) {
             stableSystemParts.add(promptLoader.getInnerThoughtRule())
         }
@@ -524,56 +523,29 @@ class DialoguePromptBuilder(
         val responderHints = rawResponderHints
         val speakerActivity = payload["speaker_activity"] as? List<*> ?: emptyList<Any?>()
         if (speakerPlan.isNotEmpty()) {
-            turnSystemParts.add(
-                "SPEAKER_PLAN 给出本轮自然的介入优先级。优先参考 recommended_speakers，" +
-                    "但若角色与当前动作无关，可以少说或不说；不得让离场角色或用户控制的角色越权发言。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("speaker_plan_rule"))
         }
         if (knowledgeContext.isNotEmpty()) {
-            turnSystemParts.add(
-                "KNOWLEDGE_BOUNDARY 中每条 fact 只允许 holders 中的角色知晓。" +
-                    "未列入 holders 的角色不得提及、暗示或据此行动。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("knowledge_boundary_rule"))
         }
         if (originalSourceEntries.isNotEmpty()) {
-            turnSystemParts.add(
-                "ORIGINAL_SOURCE_CONTEXT 是本轮从原作动态检索出的证据。原作证据优先于模型预训练记忆；" +
-                    "不得用模型自带的作品知识补写检索结果中没有的事实。角色只能使用 allowed_characters 中包含自己名字的片段；" +
-                    "visibility=uncertain 的片段只可供旁白组织场景，角色不得将其当成自己知道的事实。" +
-                    "原文只用于内部约束，不要在回复中引用、复述出处或解释检索过程。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("original_source_rule"))
         }
         val controlledMemories = memoryContext["controlled_memories"] as? List<*> ?: emptyList<Any?>()
         if (controlledMemories.isNotEmpty()) {
-            turnSystemParts.add(
-                "CONTROLLED_MEMORIES 是用户明确管理的有效记忆。" +
-                    "其中 pinned=true 的内容属于必须持续遵守的硬设定；其他内容也应作为当前有效上下文，" +
-                    "除非本轮输入明确修改了该设定。不要在回复中解释记忆系统。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("controlled_memories_rule"))
         }
         val worldFacts = memoryContext["world_facts"] as? List<*> ?: emptyList<Any?>()
         if (worldFacts.isNotEmpty()) {
-            turnSystemParts.add(
-                "WORLD_FACTS are current story facts. Facts with locked=true are binding: " +
-                    "do not contradict, replace, or silently change them without an explicit in-story cause. " +
-                    "Use other active facts as context and never explain the memory system in the reply."
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("world_facts_rule"))
         }
         if (correctionContext.isNotEmpty()) {
-            turnSystemParts.add(
-                "CORRECTION_CONTEXT 表示上一版回复存在一致性问题。" +
-                    "请重写同一轮角色回复，逐项消除 issues；保留已经成立的场景事实，" +
-                    "不要解释修正过程，也不要凭空新增事件。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("correction_context_rule"))
         }
         if (retryOnEmpty) {
-            turnSystemParts.add(
-                "这次至少返回 1 条可用回复；只有在确实需要场景切换、人物进退场或环境变化时，才返回 speaker 为“旁白”或“场景提示”的一条提示。"
-            )
+            turnSystemParts.add(promptLoader.getTurnSystemRule("retry_rule"))
             if (messageKind == "plot") {
-                turnSystemParts.add(
-                    "上一版没有完成剧情推动。第一项必须是 speaker 为“场景提示”或“旁白”的具体新事件或状态变化，随后再写角色反应；不得只延续原话题闲聊。"
-                )
+                turnSystemParts.add(promptLoader.getTurnSystemRule("retry_plot_rule"))
             }
         }
         val stableSystemPrompt = stableSystemParts.filter { it.isNotEmpty() }.joinToString("\n")
@@ -640,33 +612,33 @@ class DialoguePromptBuilder(
 
         val systemParts = mutableListOf<String>()
         systemParts.add(payload["host_prompt_brief"]?.toString()?.trim().orEmpty())
-        systemParts.add("你不是在解释剧情，也不是在做回复分析；你要直接代写一条用户下一句要发出去的话。")
+        systemParts.add(promptLoader.getTurnSystemRule("suggestion_meta_rule"))
         systemParts.add(instructions["generation_goal"]?.toString()?.trim().orEmpty())
         systemParts.add(instructions["mode_rule"]?.toString()?.trim().orEmpty())
         systemParts.add(instructions["speaker_rule"]?.toString()?.trim().orEmpty())
         systemParts.add(instructions["response_style"]?.toString()?.trim().orEmpty())
         systemParts.add(instructions["scene_rule"]?.toString()?.trim().orEmpty())
         systemParts.add(hostAction["output_rule"]?.toString()?.trim().orEmpty())
-        systemParts.add("必须优先参考 user_persona：这代表当前应该由“你”如何说话。")
-        systemParts.add("如果 mode=insert，就按 self-insert 的完整角色卡来写，不只参考上下文和别人刚才的回复。")
-        systemParts.add("优先服从 self-insert 的核心身份、故事位置、灵魂目标、气质底色、世界观、信念支点、说话方式、应激反应和 interaction_style。")
-        systemParts.add("如果上下文允许多种接法，优先选更符合 user_persona 的那一种，而不是只做一个泛用接话。")
-        systemParts.add("如果 mode=act，就按 controlled character 的 persona profile、speech_style、temperament 和典型说话习惯来写。")
-        systemParts.add("如果 mode=observe，就把这句话写成推动剧情的场景提示：让局势往前走，而不是复述、总结、劝说或规划。")
-        systemParts.add("如果 scene_progress 显示这一拍已经成熟、适合转场，就优先写成自然的转场推进；如果还没到转场时机，就优先续当前这一拍的动作、情绪或张力。")
-        systemParts.add("如果 mode=observe，句子必须像“下一下已经发生了”的即时场景推进，而不是“要不要/不如/可以让他们/继续聊”这种调度口吻。")
-        systemParts.add("如果 user_persona.profile.anchor_lines 里有当前目标、未收线或最近冲突，就优先咬住这些锚点来推进，不要另起一条太泛的新线。")
-        systemParts.add("offstage_participants 里的人不要被你无端写回来，除非这句提示本身就在明确推动他们重新入场。")
-        systemParts.add("如果 scene_card 存在，优先服从它给出的地点、气氛、开场局面、明面目标、暗线张力与推进方向。")
-        systemParts.add("只输出一段完整、可直接发送的成品文案；根据所选方向需要，可以写一至三句，但不能在语义未完成处收尾。")
-        systemParts.add("不要解释上下文，不要总结历史，不要提供建议理由，不要写“作为/当前场景/我们可以/你可以/建议/回复：”这类分析话术。")
-        systemParts.add("不要分段，不要项目符号，不要加包裹整段的引号，不要加说话人标签。")
+        systemParts.add(promptLoader.getTurnSystemRule("user_persona_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("insert_persona_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("insert_core_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("persona_priority_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("act_persona_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("observe_scene_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("scene_progress_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("observe_immediate_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("anchor_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("offstage_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("scene_card_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("output_complete_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("no_analysis_rule"))
+        systemParts.add(promptLoader.getTurnSystemRule("no_format_rule"))
         if (selectedDirection.isNotEmpty()) {
-            systemParts.add("用户已经点选了一个剧情推进方向。必须把 selected_direction 落实成当前角色或观察者下一句真正会发出的成品文案。")
-            systemParts.add("selected_direction 是写作意图，不是要照抄的台词；不要复述选项标题，也不要解释你如何落实它。")
+            systemParts.add(promptLoader.getTurnSystemRule("selected_direction_rule"))
+            systemParts.add(promptLoader.getTurnSystemRule("selected_direction_intent_rule"))
         }
         if (retryOnEmpty) {
-            systemParts.add("上一次输出不可用或在中途被截断。重来：给出语义完整、可直接发送的一至三句话，结尾必须完整。")
+            systemParts.add(promptLoader.getTurnSystemRule("suggestion_retry_rule"))
         }
         val systemPrompt = systemParts.filter { it.isNotEmpty() }.joinToString("\n")
 
@@ -683,7 +655,8 @@ class DialoguePromptBuilder(
             "persona_contexts" to personaContexts,
             "history" to history,
             "relation_excerpt" to relationExcerpt,
-            "response_shape" to (hostAction["expected_output"] ?: mapOf("suggestion" to "一段完整、可直接发送的文案")),
+            "response_shape" to (hostAction["expected_output"]
+                ?: mapOf("suggestion" to promptLoader.getTurnSystemRule("response_shape_default_suggestion"))),
             "good_examples" to mapOf(
                 "act_or_insert" to listOf("抱歉，我刚才那句说重了。", "你先别气，我不是在呛你。", "那我换个说法，你别误会。"),
                 "observe" to listOf(
@@ -731,16 +704,16 @@ class DialoguePromptBuilder(
         if (optionShapes.isEmpty()) {
             optionShapes.add(
                 mapOf<String, Any?>(
-                    "label" to "4-10字的推进选项",
-                    "direction" to "供下一步代写使用的明确剧情方向",
-                    "anchor_speaker" to "该方向所依据的最新回复角色",
-                    "anchor_quote" to "从该角色最新回复中原样摘录的4-20字",
+                    "label" to promptLoader.getTurnSystemRule("option_label_shape"),
+                    "direction" to promptLoader.getTurnSystemRule("option_direction_shape"),
+                    "anchor_speaker" to promptLoader.getTurnSystemRule("option_anchor_speaker_shape"),
+                    "anchor_quote" to promptLoader.getTurnSystemRule("option_anchor_quote_shape"),
                 ).toMutableMap()
             )
         }
         for (optionShape in optionShapes) {
             if (optionShape["suggestion"]?.toString().isNullOrEmpty()) {
-                optionShape["suggestion"] = "一至三句符合当前用户角色口吻、可直接发送的成品文案"
+                optionShape["suggestion"] = promptLoader.getTurnSystemRule("suggestion_shape")
             }
         }
         val responseShape = responseShapeRaw.toMutableMap()

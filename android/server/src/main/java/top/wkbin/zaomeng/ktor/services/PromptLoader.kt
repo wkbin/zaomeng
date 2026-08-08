@@ -28,6 +28,11 @@ class PromptLoader(private val context: Context) {
         projectRoot?.resolve("prompts")
             ?: throw IllegalStateException("Could not locate prompts directory")
     }
+    private val projectRoot: File by lazy {
+        val filesDir = context.filesDir
+        filesDir.parentFile?.parentFile?.parentFile?.parentFile
+            ?: throw IllegalStateException("Could not locate project root")
+    }
 
     /**
      * Load a prompt configuration file as a Map.
@@ -178,5 +183,58 @@ class PromptLoader(private val context: Context) {
         val config = loadPromptConfig("review", "persona_completion")
         val modeConfig = config.getMap(mode)
         return modeConfig.getString("system_prompt")
+    }
+
+    // ------------------------------------------------------------------
+    // 2026-08-08 追加：对话 turn-system 文本块 / 卡片 / 人物补全 / 问书卷 / 章节改写 / 蒸馏
+    // ------------------------------------------------------------------
+
+    /**
+     * 读取提示词配置的单个文本 key（如 turn_system.yaml 的规则块）。
+     */
+    fun getPromptText(category: String, name: String, key: String): String {
+        val config = loadPromptConfig(category, name)
+        return config[key] as? String ?: ""
+    }
+
+    /**
+     * 读取原始提示词文件（assets 优先，回退 prompts/ 与 zaomeng-skill/）。
+     * 用于整篇文档类提示词（蒸馏/关系的 .md），保持 md 原样。
+     */
+    fun loadRawPrompt(relativePath: String): String? {
+        readPromptSource(relativePath)?.let { input ->
+            return input.bufferedReader().use { it.readText().trim() }
+        }
+        val skillFile = projectRoot.resolve("zaomeng-skill").resolve(relativePath.removePrefix("distill/"))
+        if (skillFile.exists()) {
+            return skillFile.readText().trim()
+        }
+        return null
+    }
+
+    /** 对话回复/续写建议的 turn-system 文本块。 */
+    fun getTurnSystemRule(key: String): String = getPromptText("dialogue", "turn_system", key)
+
+    /** 卡片生成 user 指令（{field_lines} 由调用方填充）。 */
+    fun getCardInstruction(kind: String, fieldLines: String): String {
+        val config = loadPromptConfig("review", "card_instructions")
+        val card = config[kind] as? Map<*, *> ?: return ""
+        val instruction = card["instruction"] as? String ?: return ""
+        return instruction.replace("{field_lines}", fieldLines)
+    }
+
+    /** 人物字段补全 user 模板。 */
+    fun getPersonaSuggestFieldTemplate(): String = getPromptText("review", "persona_suggest", "template")
+
+    /** 问书卷 user 模板。 */
+    fun getAskBookTemplate(): String = getPromptText("chapters", "ask", "template")
+
+    /** 章节改写 user 模板。 */
+    fun getChapterRewriteUserTemplate(): String = getPromptText("chapters", "rewrite_user", "template")
+
+    /** 蒸馏/关系 guidance 文本块（YAML）。 */
+    fun getDistillGuidance(): Map<String, String> {
+        val config = loadPromptConfig("distill", "guidance")
+        return config.mapValues { (_, value) -> value.toString() }
     }
 }

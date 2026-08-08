@@ -519,6 +519,67 @@ class DialoguePayloadBuilder(
         }
     }
 
+    /**
+     * 规范化的场景进度（对齐 Python helpers.py:_canonical_scene_progress）。
+     * 从 session["state"] 的 scene/presence/progression 汇总，并合并 session["scene_progress"] 覆盖。
+     */
+    private fun loadCanonicalSceneProgress(session: JsonObject): Map<String, Any?> {
+        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val scene = (state["scene"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+        val presence = (state["presence"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+        val progression = (state["progression"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+        val derived = linkedMapOf<String, Any?>(
+            "present_participants" to (presence["present_participants"] ?: emptyList<Any?>()),
+            "offstage_participants" to (presence["offstage_participants"] ?: emptyList<Any?>()),
+            "time_hint" to (scene["time_hint"]?.toString()?.trim().orEmpty()),
+            "location" to (scene["location"]?.toString()?.trim().orEmpty()),
+            "atmosphere_summary" to (scene["atmosphere_summary"]?.toString()?.trim().orEmpty()),
+            "progression_note" to (scene["progression_note"]?.toString()?.trim().orEmpty()),
+            "should_offer_scene_shift" to (progression["should_offer_scene_shift"] ?: false),
+            "scene_shift_reason" to (progression["scene_shift_reason"]?.toString()?.trim().orEmpty()),
+            "turns_in_current_scene" to ((progression["turns_in_current_scene"] as? Number)?.toInt() ?: 0),
+            "beat_maturity" to ((progression["beat_maturity"] as? Number)?.toInt() ?: 0),
+            "world_tension_summary" to (progression["world_tension_summary"]?.toString()?.trim().orEmpty()),
+            "updated_at" to listOf(
+                progression["updated_at"]?.toString()?.trim(),
+                presence["updated_at"]?.toString()?.trim(),
+                scene["updated_at"]?.toString()?.trim(),
+            ).firstOrNull { it.isNullOrEmpty().not() }.orEmpty(),
+        )
+        val merged = derived.toMutableMap()
+        session["scene_progress"]?.jsonObject?.forEach { (key, value) ->
+            merged[key] = jsonValueToAny(value)
+        }
+        return merged.filterValues { value ->
+            when (value) {
+                is String -> value.isNotEmpty()
+                is List<*> -> value.isNotEmpty()
+                is Boolean -> value
+                is Number -> (value as? Int)?.let { it != 0 } ?: (value as? Double)?.let { it != 0.0 } ?: true
+                else -> value != null
+            }
+        }
+    }
+
+    /** 事件信号（对齐 Python _canonical_event_signals：state.signals 或 session.event_signals）。 */
+    private fun loadEventSignals(session: JsonObject): Map<String, Any?> {
+        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val signals = (state["signals"] as? Map<*, *>)?.mapKeys { it.key.toString() }
+            ?: session["event_signals"]?.jsonObject?.mapKeys { it.key.toString() }
+            ?: SceneProgressState.emptyEventSignalsState()
+        return signals
+    }
+
+    /** 角色快照（对齐 Python _canonical_character_snapshots）。 */
+    private fun loadCharacterSnapshots(session: JsonObject): Map<String, Any?> {
+        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val characters = (state["characters"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+        val snapshots = (characters["snapshots"] as? Map<*, *>)?.mapKeys { it.key.toString() }
+            ?: session["character_snapshots"]?.jsonObject?.mapKeys { it.key.toString() }
+            ?: emptyMap()
+        return snapshots
+    }
+
     // ------------------------------------------------------------------
     // _build_turn_payload 迁移
     // ------------------------------------------------------------------
@@ -563,10 +624,18 @@ class DialoguePayloadBuilder(
         }
         val latestHistory = history.takeLast(8)
 
-        // 在场参与人（Ktor 无 scene_progress，全部视为在场；act 模式排除受控角色）
+        // 场景进度（对齐 Python _canonical_scene_progress + _canonical_event_signals）
+        val sceneProgress = loadCanonicalSceneProgress(session)
+        val eventSignals = loadEventSignals(session)
+        val snapshots = loadCharacterSnapshots(session)
+        val presentParticipants = (sceneProgress["present_participants"] as? List<*>)
+            ?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+
+        // 在场参与人：有 scene_progress 时以在场名单为准（对齐 Python service.py 的 active_participants）
         val activeParticipants = run {
             val deduped = mutableListOf<String>()
-            for (name in participants) {
+            val source = presentParticipants.ifEmpty { participants }
+            for (name in source) {
                 if (name.isNotEmpty() && name !in deduped) deduped.add(name)
             }
             val active = if (mode == "act") deduped.filter { it != speaker } else deduped
@@ -577,7 +646,6 @@ class DialoguePayloadBuilder(
 
         val runId = runManifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        val snapshots = emptyMap<String, Any?>()
         val personaContexts = buildPersonaContexts(
             runManifest = runManifest,
             participants = participants,
@@ -595,10 +663,10 @@ class DialoguePayloadBuilder(
             "controlled_memories" to loadControlledMemories(session),
             "world_facts" to loadWorldFacts(runId),
             "retrieved_memories" to emptyList<Any?>(),
-            "scene_progress" to emptyMap<String, Any?>(),
+            "scene_progress" to sceneProgress,
             "relation_delta" to emptyMap<String, Any?>(),
-            "character_snapshots" to emptyMap<String, Any?>(),
-            "event_signals" to emptyList<Any?>(),
+            "character_snapshots" to snapshots,
+            "event_signals" to SceneProgressState.buildSessionEventExcerpt(eventSignals),
         )
 
         val responseLimitHint = run {
@@ -629,8 +697,8 @@ class DialoguePayloadBuilder(
             "speaker_rule" to DialoguePromptRules.speakerRule(mode, session.toPayloadMap(), normalizedMessageKind),
             "response_style" to DialoguePromptRules.responseStyleRule(mode, normalizedMessageKind, controlledCharacterName),
             "scene_rule" to DialoguePromptRules.sceneRule(sceneCard),
-            "progression_rule" to DialoguePromptRules.sceneProgressRule(emptyMap()),
-            "plot_progression_contract" to DialoguePromptRules.plotProgressionContract(normalizedMessageKind, emptyMap()),
+            "progression_rule" to DialoguePromptRules.sceneProgressRule(sceneProgress),
+            "plot_progression_contract" to DialoguePromptRules.plotProgressionContract(normalizedMessageKind, sceneProgress),
             "response_count_rule" to responseCountRule,
             "mention_rule" to (
                 if (mentionTargets.isNotEmpty()) {
@@ -709,7 +777,7 @@ class DialoguePayloadBuilder(
                 "mention_targets" to mentionTargets,
                 "controlled_character" to (session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()),
                 "scene_card" to sceneCard,
-                "scene_progress" to emptyMap<String, Any?>(),
+                "scene_progress" to sceneProgress,
                 "character_snapshots" to snapshots,
                 "self_insert" to selfInsert,
             ),
@@ -718,7 +786,7 @@ class DialoguePayloadBuilder(
             "memory_context" to memoryContext,
             "original_source_context" to emptyMap<String, Any?>(),
             "knowledge_context" to emptyList<Any?>(),
-            "scene_progress" to emptyMap<String, Any?>(),
+            "scene_progress" to sceneProgress,
             "persona_contexts" to personaContexts,
             "relation_context" to mapOf(
                 "graph" to jsonMap(runManifest["artifact_index"]?.jsonObject?.get("relation_graph")?.jsonObject),

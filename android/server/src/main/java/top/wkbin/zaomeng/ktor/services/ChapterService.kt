@@ -22,12 +22,12 @@ class ChapterService(
         val chapter = json.decodeFromString<JsonObject>(file.readText())
         val original = chapter["content"]?.let { (it as? JsonPrimitive)?.content }.orEmpty().trim()
         if (original.isBlank()) throw IllegalArgumentException("Chapter content is empty")
-        val user = buildString {
-            append("请改写以下章节，保持事实、人物和叙事视角一致。\n")
-            if (instruction.isNotBlank()) append("改写要求：").append(instruction.trim()).append('\n')
-            if (contextSummary.isNotBlank()) append("上下文：").append(contextSummary.trim()).append('\n')
-            append("原文：\n").append(original)
-        }
+        val instructionLine = if (instruction.isNotBlank()) "改写要求：${instruction.trim()}\n" else ""
+        val contextLine = if (contextSummary.isNotBlank()) "上下文：${contextSummary.trim()}\n" else ""
+        val user = prompts.getChapterRewriteUserTemplate()
+            .replace("{instruction_line}", instructionLine)
+            .replace("{context_line}", contextLine)
+            .replace("{original}", original)
         val result = llm.chatCompletion(
             messages = listOf(
                 LlmClient.ChatMessage("system", prompts.getNovelRewritePrompt()),

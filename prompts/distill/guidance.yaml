@@ -1,0 +1,62 @@
+# 蒸馏/关系提示词的文本块（迁移自 Ktor DistillPromptBuilder / Python src/web/prompts/builders.py
+# 的硬编码 guidance；整篇文档类提示词保持 md，见 zaomeng-skill/prompts/）
+
+# 分块蒸馏引导（{chunk_partial_line} 仅在 chunk_mode=partial 时追加）
+chunk_distill: |
+  ## CHUNK_MODE
+  - 当前是证据块 {chunk_index}/{chunk_total}：{chunk_label}
+  - 这是分批蒸馏中的局部草稿，请尽量完整；没有证据的字段直接留空。
+  - 不要因为当前块缺少信息，就虚构角色稳定特征。
+  {chunk_partial_line}
+chunk_partial_line: "- 输出仍然必须是 PROFILE.generated.md 格式，但这是局部草案，后续还会汇总。"
+
+# 分块关系引导
+relation_chunk_distill: |
+  ## CHUNK_MODE
+  - 当前是关系证据块 {chunk_index}/{chunk_total}：{chunk_label}
+  - 这是分批关系抽取中的局部草稿，请只保留当前证据块里能站得住的关系。
+  - 不要为了凑完整图谱而硬补没有证据的人物关系。
+  {chunk_partial_line}
+relation_chunk_partial_line: "- 输出仍然必须是完整 RELATION_GRAPH Markdown，但这是局部草案，后续还会汇总。"
+
+priority_guidance: |
+  ## PRIORITY_GUIDANCE
+  - 先判断 {character} 的核心身份、故事位置、立场锚点，再补深层人格。
+  - 性别与年龄阶段只允许根据正文中的稳定称谓、称呼、身份关系、年龄序列或明确描写来写；拿不准就留空。
+  - 外貌辨识与习惯动作优先写可重复观察到的外显特征，不要把一次性桥段动作误当成长期人设。
+  - 再判断该角色长期稳定的价值观、信念支点、情绪失控阈值，不要被单一桥段带偏。
+  - 最后收束到说话风格、典型反应、关系落点与 OOC 边界。
+  - 如果前期与后期明显变化，请在 timeline_stage / arc_* / contradiction_note 中体现，不要强行揉成一个静态人格。
+  - 如果同批角色之间容易混淆，优先把差异写在 identity_anchor、soul_goal、belief_anchor、stress_response 上。
+
+  ### FIELD_GROUPS
+  - 第一组：core_identity / story_role / identity_anchor / faction_position / world_belong
+  - 第二组：soul_goal / worldview / belief_anchor / moral_bottom_line / restraint_threshold
+  - 第三组：social_mode / stress_response / reward_logic / speech_style / typical_lines / key_bonds
+
+dialogue_style: |
+  ## DIALOGUE_STYLE
+  - 语言风格不要只写抽象词，如“冷静克制”“温柔含蓄”。要尽量落到句子手感上。
+  - 优先从对白里提取：口头禅、常见起句、连接词、句尾习惯、语气词、代表句。
+  - 如果没有稳定证据，对应字段留空；不要写占位词、省略号或硬编语气词。
+  - typical_lines 应尽量保留角色自己的说话味道，不要改写成旁白总结句。
+  ### DIALOGUE_EVIDENCE
+  {evidence_lines}
+
+excerpt_stages: |
+  ## EVIDENCE_STAGES
+  - 请把前段证据更多用于判断初始底色、出身烙印、早期立场。
+  - 请把中段证据更多用于判断稳定互动模式、冲突升级、关系走向。
+  - 请把后段证据更多用于判断弧线收束、信念变化、边界是否松动。
+  ### START
+  {start}
+  ### MID
+  {mid}
+  ### END
+  {end}
+
+distill_user_head: "目标角色：{character}\n同批角色：{peers}\n请严格根据以下 skill payload 输出该角色唯一一份完整的 PROFILE.generated.md Markdown。\n不要解释，不要输出代码块，不要补充额外前后缀。\n如果证据不足，相关字段的冒号后留空；禁止填写“证据不足”“未知”等占位词或任何省略号。"
+distill_merge_head: "目标角色：{character}\n同批角色：{peers}\n以下是基于多个证据块得到的局部 PROFILE 草稿，请整合成唯一一份最终 PROFILE.generated.md。\n去重、纠偏、补足稳定特征；不要保留桥段碎句、剧情转述或互相打架的字段。\n说话风格优先保留重复出现的口头禅、语气词、起句、句尾和代表句味道。\n不要解释，不要输出代码块，不要补充额外前后缀。\n{fallback_line}"
+relation_user_head: "请严格输出一份完整的关系图谱 Markdown。\n不要解释，不要输出代码块，不要补充额外前后缀。\n只保留当前书段内有明确证据支撑的人物关系。"
+relation_merge_head: "以下是基于多个证据块得到的局部关系图谱草稿，请整合成唯一一份最终 RELATION_GRAPH Markdown。\n去重、纠偏、补足稳定关系；不要保留剧情转述碎句。\n若某关系只在单一块中短暂出现且证据弱，可以不保留。\n不要解释，不要输出代码块，不要补充额外前后缀。\n{fallback_line}"
+fallback_line: "补充分批原因参考：{fallback_reason}"

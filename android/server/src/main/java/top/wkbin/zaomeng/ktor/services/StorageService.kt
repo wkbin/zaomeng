@@ -16,9 +16,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.ktor.models.*
 import java.io.File
+import java.nio.file.StandardCopyOption
 import java.nio.file.Path
 import java.security.MessageDigest
 import kotlin.io.path.*
+import java.nio.file.Files
 
 /**
  * 存储服务
@@ -54,7 +56,19 @@ class StorageService(
             target.parentFile?.mkdirs()
             val temp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
             temp.writeText(content)
-            if (!temp.renameTo(target)) {
+            // Windows 上 File.renameTo 无法覆盖已存在目标，统一改用 Files.move(REPLACE_EXISTING)
+            val replaced = runCatching {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+                true
+            }.getOrElse {
+                // 兜底：删除旧目标后重命名（极端情况下仍失败则报错并清理临时文件）
+                runCatching { target.delete() }.getOrDefault(false) && temp.renameTo(target)
+            }
+            if (!replaced) {
                 temp.delete()
                 throw IllegalStateException("Unable to replace ${target.name}")
             }

@@ -237,6 +237,14 @@ class LlmClient(
         }
     }
 
+    /** 当前模型是否已配置（有激活 profile 的 model 且已存 API key）。 */
+    fun isConfigured(): Boolean {
+        val profile = getActiveProfile()
+        if (profile["model"]?.trim().isNullOrEmpty()) return false
+        val profileId = profile["profile_id"].orEmpty()
+        return runCatching { modelApiKeyService.getApiKey(profileId) }.getOrNull()?.isNotBlank() == true
+    }
+
     /**
      * Make a chat completion request (non-streaming).
      *

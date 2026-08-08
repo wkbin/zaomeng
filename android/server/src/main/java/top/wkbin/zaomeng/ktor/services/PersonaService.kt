@@ -103,7 +103,10 @@ class PersonaService(
         val activeLlm = checkNotNull(llm) { "LLM service is unavailable" }
         val activePrompts = checkNotNull(prompts) { "Prompt loader is unavailable" }
         val profile = currentFields.entries.joinToString("\n") { "${it.key}: ${it.value}" }
-        val prompt = "人物：$normalizedCharacter\n目标字段：$normalizedField\n当前档案：\n${profile.ifBlank { "（暂无）" }}\n严格返回 JSON：{\"status\":\"filled\"|\"insufficient\",\"value\":\"...\",\"reason\":\"...\"}"
+        val prompt = activePrompts.getPersonaSuggestFieldTemplate()
+            .replace("{character}", normalizedCharacter)
+            .replace("{field}", normalizedField)
+            .replace("{profile}", profile.ifBlank { "（暂无）" })
         val response = activeLlm.chatCompletion(
             messages = listOf(
                 LlmClient.ChatMessage("system", activePrompts.getPersonaCompletionPrompt("knowledge_based")),

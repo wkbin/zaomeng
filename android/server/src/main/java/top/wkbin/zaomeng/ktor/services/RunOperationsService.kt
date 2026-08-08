@@ -374,6 +374,10 @@ class RunOperationsService(
         maxSentences: Int,
         maxChars: Int,
     ): JsonObject {
+        // 对齐 Python restart_run_distill：未配置模型时直接 400
+        if (!distillExecutor.isConfigured()) {
+            throw IllegalArgumentException("请先在设置中完成模型配置。")
+        }
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         val normalizedCharacters = characters.map(String::trim).filter(String::isNotEmpty).distinct()
         if (normalizedCharacters.isEmpty()) throw IllegalArgumentException("至少保留一位要蒸馏的人物。")
@@ -696,6 +700,8 @@ class RunOperationsService(
             manifest.forEach { (key, value) -> if (key != "artifact_index") put(key, value) }
             put("artifact_index", buildJsonObject {
                 put("characters", buildJsonArray { characters.forEach { add(it) } })
+                // 保留既有 relation_graph（蒸馏落盘后 refresh 不应抹掉）
+                manifest["artifact_index"]?.jsonObject?.get("relation_graph")?.let { put("relation_graph", it) }
             })
         }
     }

@@ -334,3 +334,79 @@ Android 端蒸馏不经过 Ktor server，无提示词差异风险；但若未来
   - 显示对齐：progress 更新后 App 端通知（currentCharacter→"正在处理 X"）、书架（progress.message→"正在蒸馏 X"）自动恢复 Python 版体验。
 - **本轮范围（P1-P2）**：单角色非分块蒸馏（≤12k 字符节选采样）；关系图/分块并行/增量重蒸馏（P3-P5）延后。
 - **验证**：Kotlin 2.2.10 真实编译 0 error（60 文件）。
+
+## 十五、App 行为对齐补全（2026-08-08，P3-P5 + 对话状态）
+
+- **蒸馏 P3-P5**（`DistillExecutor.kt` 重写）：角色聚焦节选（前/中/后段证据分桶，迁移 `novel_preparation.py`）、
+  长文分块蒸馏（并行分块草稿 + LLM 汇总合并，迁移 `chunking.py/chunk_execution.py/generation.py`）、
+  增量蒸馏（已有 PROFILE 时 update_mode=incremental）、人物关系图谱（单遍/分块抽取 + 落盘
+  `artifacts/relations/*.relations.md` + manifest `artifact_index.relation_graph`/`has_relation_graph`）、
+  progress 文案对齐（"正在分批蒸馏 X（i/N）并行 N 线程"、"正在汇总 X 的分批草稿"、"正在生成人物关系图谱"等）、
+  manifest 字段对齐（events/capabilities/quality/summary/timing）、resume 跳过已完成。
+  提示词 md 已打包进 `server/src/main/assets/distill/`（单一来源 `zaomeng-skill/`，修改后需同步）。
+- **对话场景状态**（新增 `SceneProgressState.kt`）：迁移 `scene_signals.py/event_signals.py/scene_progress.py`
+  启发式状态机（在场/离场推断、时间提示、场景成熟度、转场压力、world tension），每轮提交后写入 session
+  `state` 并接入对话 payload 的 scene_progress/event_signals/character_snapshots 与
+  progression_rule/plot_progression_contract；场景卡切换写入 scene_transition/time_change/atmosphere_shift 事件。
+- **correct-latest**：改走完整 reply 管道并注入 CORRECTION_CONTEXT（从 consistency_monitor.latest.issues 取），
+  在当会话内替换最后一轮回复并重推 scene progress。
+- **卡片生成**：user prompt 补齐 Python 的字段清单与要求（scene/self 卡）。
+- **章节转换**：context_summary = summary or body[:180]（对齐 Python）。
+- **redistill 前置校验**：未配置模型返回 400（对齐 Python restart_run_distill）。
+- **Windows 原子写入**：`writeTextAtomically` 改 `Files.move(REPLACE_EXISTING)`（原 `File.renameTo`
+  在 Windows 无法覆盖已存在文件，导致集成测试 10 例失败；已修复）。
+- **refresh 保留关系图**：`refreshArtifactIndex` 不再抹掉 `artifact_index.relation_graph`。
+- **验证**：`:server:compileDebugKotlin`、`:app:compileDebugKotlin` 通过；KtorApiIntegrationTest 29/29 全绿。
+- **仍保留差异（App 可接受/无数据源）**：original_source_context / knowledge_context / retrieved_memories
+  在 Android 上本就无对应数据源（Python 侧亦为空）；蒸馏 repair/completion 二次修复、关系图 mermaid/html
+  导出（WebUI 用）未迁移；第三方 Python 插件执行仍返回明确错误。
+
+## 十六、提示词去硬编码（2026-08-08）
+
+将 Ktor 侧残留的硬编码提示词文本提取到 `prompts/` YAML（单一来源，已同步 `server/src/main/assets/`）：
+
+| YAML | 内容 | 原位置 |
+|---|---|---|
+| `dialogue/turn_system.yaml` | 回复路径 stable/turn 文本块（KNOWLEDGE_BOUNDARY/ORIGINAL_SOURCE/CORRECTION 等）、续写建议 20 条规则、联想选项默认形状 | `DialoguePromptBuilder.kt`（源自 Python helpers.py） |
+| `review/card_instructions.yaml` | 场景卡/自我角色卡生成 user 指令（`{field_lines}` 由代码填充） | `CardsService.kt`（源自 review/scene_cards.py、self_cards.py） |
+| `review/persona_suggest.yaml` | 人物字段补全 user 模板 | `PersonaService.suggestField` |
+| `chapters/ask.yaml` | 问书卷 user 模板 | `ChapterManagementService.ask` |
+| `chapters/rewrite_user.yaml` | 章节改写 user 模板 | `ChapterService.rewrite` |
+| `distill/guidance.yaml` | 蒸馏/关系 guidance 文本块（CHUNK_MODE/PRIORITY_GUIDANCE/DIALOGUE_STYLE/EVIDENCE_STAGES/合并引导） | `DistillPromptBuilder.kt`（源自 builders.py） |
+
+`PromptLoader` 新增 `getPromptText`/`getCardInstruction`/`getPersonaSuggestFieldTemplate`/
+`getAskBookTemplate`/`getChapterRewriteUserTemplate`/`getDistillGuidance`/`loadRawPrompt`
+（assets 优先 + 文件系统/zaomeng-skill 回退）。
+
+**distill md 是否转 YAML 的判断**：不转。`distill_prompt.md`/`relation_prompt.md` 与
+`references/*.md` 是完整技能文档、无参数化，Python 直接按文件读取；转 YAML 只是包一层字符串，
+还破坏与 `zaomeng-skill/` 的直接对应。整篇文档保持 md（经 `loadRawPrompt` 统一读取），
+可参数化的 guidance 片段转 YAML。
+
+**保留在代码中的提示词（与 Python 一致，逻辑+文本混合）**：`DialoguePromptRules.kt`
+的 13 个规则函数（条件分支组装文本，如 modeRule/responseStyleRule/hostPromptBrief）、
+`DialoguePayloadBuilder.kt` 的 instruction 组装（generation_goal/response_count_rule/output_rule）。
+如需一并抽到 YAML 模板，可后续用占位符渲染方式迁移。
+
+**验证**：`:server:compileDebugKotlin`、`:app:compileDebugKotlin` 通过；KtorApiIntegrationTest 29/29 全绿。
+
+## 十七、真机蒸馏卡在 fallback 的修复（2026-08-08）
+
+现象：新建书卷后进度一直停在"人物和关系正在这台手机上逐步浮现"、可用人物一直
+"正在等待第一位人物完成"，没有"正在蒸馏 X"等进度。
+
+根因（两处）：
+1. `RunManagementService.createRun` 只把 status 置为 running、progress.stage=starting，
+   **从不启动蒸馏执行器**（Python create_run(auto_run=True) 会 `_start_background_run`）；
+2. `DistillExecutor` 只写 `artifacts.character_dirs`，**从未刷新 `artifact_index.characters`**，
+   导致 App 的可用人物列表（读 artifact_index）永远为空。
+
+修复：
+- `RunManagementService` 注入 `DistillExecutor`：非 defer 创建先校验模型已配置（对齐 Python
+  create_run），`autoRun && !deferRun` 时写入 manifest 后调用 `distillExecutor.start(...)`；
+  manifest 补写 `locked_characters`。
+- `DistillExecutor` 新增 `refreshArtifactIndex`（扫描 artifacts/characters，保留 relation_graph），
+  每完成一名角色和 finalize 时刷新 `artifact_index.characters`。
+- `KtorServiceGraph` 先建 DistillExecutor 再注入 RunManagementService / RunOperationsService。
+
+验证：`server`/`app` 编译通过；KtorApiIntegrationTest 29/29 全绿。

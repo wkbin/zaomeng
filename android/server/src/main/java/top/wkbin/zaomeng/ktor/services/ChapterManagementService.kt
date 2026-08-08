@@ -147,11 +147,15 @@ class ChapterManagementService(
         val sourceText = evidence.take(12).mapIndexed { index, item ->
             "[${index + 1}] ${item["title"]?.jsonPrimitive?.contentOrNull.orEmpty()}\n${item["preview"]?.jsonPrimitive?.contentOrNull.orEmpty()}"
         }.joinToString("\n\n")
+        val userPrompt = requireNotNull(prompts) { "Prompt loader is unavailable" }
+            .getAskBookTemplate()
+            .replace("{question}", normalized)
+            .replace("{evidence}", sourceText)
         val content = client.chatCompletion(
             messages = listOf(
                 LlmClient.ChatMessage(
                     "user",
-                    "只依据以下书卷证据回答问题；没有证据就说明不知道。不要编造。\n问题：$normalized\n\n证据：\n$sourceText",
+                    userPrompt,
                 ),
             ),
             temperature = 0.2,
@@ -172,6 +176,7 @@ class ChapterManagementService(
         participants: List<String>,
         content: String,
         sourceSessionId: String = "",
+        contextSummary: String = "",
     ): JsonObject {
         val normalizedTitle = title.trim()
         if (normalizedTitle.isEmpty()) throw IllegalArgumentException("章节标题不能为空。")
@@ -195,6 +200,7 @@ class ChapterManagementService(
                 put("participants", buildJsonArray { normalizedParticipants.forEach { add(JsonPrimitive(it)) } })
                 put("content", normalizedContent)
                 if (sourceSessionId.isNotEmpty()) put("source_session_id", sourceSessionId.trim())
+                if (contextSummary.isNotEmpty()) put("context_summary", contextSummary.trim())
                 put("updated_at", now)
             }
             updatedChapters = chapters.toMutableList().apply { this[existingIndex] = chapter }
@@ -207,7 +213,7 @@ class ChapterManagementService(
                 put("participants", buildJsonArray { normalizedParticipants.forEach { add(JsonPrimitive(it)) } })
                 put("content", normalizedContent)
                 put("source_session_id", sourceSessionId.trim())
-                put("context_summary", "")
+                put("context_summary", contextSummary.trim())
                 put("last_session_id", "")
                 put("synced_transcript_count", 0)
                 put("created_at", now)
@@ -326,6 +332,8 @@ class ChapterManagementService(
                 storyRecap["title"]?.jsonPrimitive?.contentOrNull.orEmpty().ifEmpty { "第 ${chapters.size + 1} 章" }
             }
         }
+        // 对齐 Python：context_summary = summary or body[:180]
+        val contextSummary = summary.ifBlank { body.take(180) }
         val participants = session["participants"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
         return save(
             runId,
@@ -335,6 +343,7 @@ class ChapterManagementService(
             participants = participants,
             content = body,
             sourceSessionId = session["session_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: sessionId,
+            contextSummary = contextSummary,
         )
     }
 

@@ -47,6 +47,12 @@
 
 **重大进展（2026-08-07）**: 修复约 58 个 404 端点——Ktor server 补齐了对话高级功能（15）、章节管理（11）、卡片 CRUD（16）、人物关系（2）、运行/蒸馏（9）、插件包（5）全部端点；prompts 提示词目录已打包进 assets 供真机 LLM 使用；KtorApiIntegrationTest 26/26 全绿。
 
+**重大进展（2026-08-08，App 行为对齐）**: 蒸馏 P3-P5 迁移完成（分块+合并+关系图+增量+resume 跳过+进度文案对齐）；
+对话场景状态机迁移（scene_progress/event_signals/character_snapshots 每轮推导并进 payload）；correct-latest 走
+CORRECTION_CONTEXT 分支；卡片生成字段清单、章节转换 context_summary、redistill 模型配置校验补齐；
+修复 Windows 原子写入（renameTo→Files.move）与 refresh 抹掉关系图的问题。KtorApiIntegrationTest 29/29 全绿。
+详见 `docs/PROMPT_DIFF_ANALYSIS.md` 第十五节。
+
 **提示词对齐（2026-08-07 追加）**: 系统对比 Python 与 Ktor 提示词构建后，对话系（reply/stream/suggest/associations/direct/deepReview）已迁移 Python 完整提示词管道到 Ktor——新增 `DialoguePromptRules.kt`（prompt_rules.py 规则文本）、`DialoguePromptBuilder.kt`（helpers.py 的 5 个 build_*_messages + compact 辅助）、`DialoguePayloadBuilder.kt`（service.py `_build_turn_payload` 管道 + speaker_balance + persona/关系/world_memory/memory_ledger 数据读取）；修改 4 个服务接入。差异清单见 `docs/PROMPT_DIFF_ANALYSIS.md`。已知保留差异：scene_progress/original_source_context/knowledge_context/长期记忆检索（Ktor 无对应数据源，payload 传空）。本机无 Android SDK 未能编译，需在构建环境运行 `./gradlew :server:testDebugUnitTest` 验证。
 
 ---

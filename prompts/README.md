@@ -11,16 +11,27 @@ prompts/
 │   ├── suggestions.yaml   # 对话建议生成
 │   ├── consistency_review.yaml  # 一致性审校
 │   └── inner_thought_rule.yaml  # 读心功能规则
+│   └── turn_system.yaml   # 回复/建议的 system 文本块（KNOWLEDGE_BOUNDARY 等）
 ├── chapters/              # 章节相关
-│   └── novel_rewrite.yaml # 小说改写
+│   ├── novel_rewrite.yaml # 小说改写（system）
+│   ├── rewrite_user.yaml  # 章节改写 user 模板
+│   └── ask.yaml           # 问书卷 user 模板
 ├── review/                # 审校和生成
 │   ├── persona_completion.yaml  # 人物资料补全
 │   ├── scene_card_generation.yaml  # 场景卡生成
 │   └── self_card_generation.yaml   # 角色卡生成
-├── distillation/          # 蒸馏相关（待添加）
+│   ├── card_instructions.yaml  # 卡片生成 user 指令
+│   └── persona_suggest.yaml    # 字段补全 user 模板
+├── distill/               # 蒸馏/关系 guidance 文本块（YAML）
+│   └── guidance.yaml
 ├── loader.py              # Python 加载器
 └── README.md              # 本文件
 ```
+
+> 蒸馏/关系的整篇文档类提示词（`distill_prompt.md`、`relation_prompt.md` 与 `references/*.md`）
+> 保持 Markdown，位于 `zaomeng-skill/prompts/` 与 `zaomeng-skill/references/`，不转 YAML——
+> 它们是完整的技能文档、无参数化，Python 直接读取；Ktor 通过 `PromptLoader.loadRawPrompt`
+> 读取（assets 优先，回退 `zaomeng-skill/`）。
 
 ## 使用方式
 

@@ -42,6 +42,7 @@ import top.wkbin.zaomeng.ktor.services.DiagnosticsService
 import top.wkbin.zaomeng.ktor.services.ChapterManagementService
 import top.wkbin.zaomeng.ktor.services.CardsManagementService
 import top.wkbin.zaomeng.ktor.services.DialogueAdvancedService
+import top.wkbin.zaomeng.ktor.services.DistillExecutor
 import top.wkbin.zaomeng.ktor.services.PluginOperationsService
 import top.wkbin.zaomeng.ktor.services.RelationsService
 import top.wkbin.zaomeng.ktor.services.RunOperationsService
@@ -1022,16 +1023,15 @@ class KtorApiIntegrationTest {
         val exported = client.get("/api/web/runs/ops-run/export") { bearerAuth("test-token") }
         assertEquals(HttpStatusCode.OK, exported.status, exported.bodyAsText())
 
-        // 重新蒸馏 → running 状态
+        // 重新蒸馏（未配置模型 → 400，对齐 Python restart_run_distill）
         val redistilled = client.post("/api/web/runs/ops-run/redistill") {
             bearerAuth("test-token")
             contentType(ContentType.Application.Json)
             setBody("""{"characters":["贾宝玉","林黛玉"],"novel_name":"","novel_content_base64":""}""")
         }
-        assertEquals(HttpStatusCode.OK, redistilled.status, redistilled.bodyAsText())
-        assertEquals("running", json.parseToJsonElement(redistilled.bodyAsText()).jsonObject["status"]?.jsonPrimitive?.content)
+        assertEquals(HttpStatusCode.BadRequest, redistilled.status, redistilled.bodyAsText())
 
-        // 蒸馏中再次 resume → 400
+        // resume（未配置模型 → 400）
         val resumed = client.post("/api/web/runs/ops-run/resume-distill") { bearerAuth("test-token") }
         assertEquals(HttpStatusCode.BadRequest, resumed.status)
 
@@ -1204,7 +1204,7 @@ class KtorApiIntegrationTest {
                 healthRoute()
                 runsRoute(storage)
                 diagnosticsRoute(storage, DiagnosticsService(root, storage))
-                runManagementRoutes(RunManagementService(storage), RunPackageService(storage))
+                runManagementRoutes(RunManagementService(storage, distillExecutor = null), RunPackageService(storage))
                 pluginRoutes(PluginService(storage))
                 if (includePersona) personaRoutes(PersonaService(storage))
                 if (includeSessions) sessionManagementRoutes(SessionManagementService(storage, DialogueService(storage)))
@@ -1230,7 +1230,12 @@ class KtorApiIntegrationTest {
                 }
                 if (includeRunOps) {
                     runOperationsRoutes(
-                        RunOperationsService(storage, RunManagementService(storage), RunPackageService(storage)),
+                        RunOperationsService(
+                            storage,
+                            RunManagementService(storage, distillExecutor = null),
+                            RunPackageService(storage),
+                            DistillExecutor(context = null, storage = storage, llm = null, promptLoader = null),
+                        ),
                     )
                 }
                 if (includePluginOps) {

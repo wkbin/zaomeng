@@ -16,7 +16,8 @@ class KtorServiceGraph(context: Context) {
     val suggestions = SuggestionsService(applicationContext, storage, llm, promptLoader)
     val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader)
     val sessionManagement = SessionManagementService(storage, dialogue)
-    val runManagement = RunManagementService(storage)
+    val distillExecutor = DistillExecutor(applicationContext, storage, llm, promptLoader)
+    val runManagement = RunManagementService(storage, distillExecutor)
     val runPackages = RunPackageService(storage)
     val settingsManagement = SettingsManagementService(applicationContext, storage, modelApiKeys)
     val chapter = ChapterService(storage, applicationContext)
@@ -26,7 +27,12 @@ class KtorServiceGraph(context: Context) {
     val persona = PersonaService(storage, llm, promptLoader)
     val worldMemory = WorldMemoryService(storage)
     val relations = RelationsService(storage)
-    val runOperations = RunOperationsService(storage, runManagement, runPackages, DistillExecutor(storage, llm))
+    val runOperations = RunOperationsService(
+        storage,
+        runManagement,
+        runPackages,
+        distillExecutor,
+    )
     val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
     val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins)
     val pluginOperations = PluginOperationsService(storage, plugins, pluginHost)

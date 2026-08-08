@@ -233,6 +233,7 @@ data class BuiltinNovelDto(
 data class RunManifestDto(
     @SerialName("run_id") val runId: String = "",
     @SerialName("novel_id") val novelId: String = "",
+    @SerialName("novel_name") val novelName: String = "",
     @SerialName("novel_path") val novelPath: String = "",
     val status: String = "unknown",
     val success: Boolean = false,
@@ -252,7 +253,7 @@ data class RunManifestDto(
         get() = novelSources.firstOrNull()?.sourceName
             ?.substringBeforeLast('.')
             ?.takeIf(String::isNotBlank)
-            ?: novelId.ifBlank { runId }
+            ?: novelName.ifBlank { novelId.ifBlank { runId } }
 
     val isTerminal: Boolean
         get() = status in setOf("ready", "failed", "stopped", "draft")

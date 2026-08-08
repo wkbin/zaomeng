@@ -23,7 +23,8 @@ import android.util.Base64
  * 对应 Python 的 WebRunService 中的运行管理功能
  */
 class RunManagementService(
-    private val storageService: StorageService
+    private val storageService: StorageService,
+    private val distillExecutor: DistillExecutor? = null,
 ) {
     private val json = Json {
         prettyPrint = true
@@ -61,6 +62,10 @@ class RunManagementService(
         if (maxChars !in 2000..200000) {
             throw IllegalArgumentException("maxChars must be between 2000 and 200000")
         }
+        // 对齐 Python create_run：非 defer 运行必须已配置模型（自动/手动蒸馏都依赖 LLM）
+        if (!deferRun && distillExecutor?.isConfigured() == false) {
+            throw IllegalArgumentException("请先在设置中完成模型配置。")
+        }
 
         // 生成运行 ID
         val runId = generateId()
@@ -90,7 +95,18 @@ class RunManagementService(
         val manifest = buildJsonObject {
             put("run_id", runId)
             put("novel_name", novelName)
+            put("novel_sources", buildJsonArray {
+                add(buildJsonObject {
+                    put("source_name", novelName.ifBlank { novelFile.name })
+                    put("source_path", novelFile.absolutePath)
+                    put("kind", "import")
+                    put("timestamp", timestamp)
+                    put("byte_size", novelContent.toByteArray(Charsets.UTF_8).size)
+                    put("char_count", novelContent.length)
+                })
+            })
             put("characters", buildJsonArray { characters.forEach { add(JsonPrimitive(it)) } })
+            put("locked_characters", buildJsonArray { characters.forEach { add(JsonPrimitive(it)) } })
             put("max_sentences", maxSentences)
             put("max_chars", maxChars)
             put("created_at", timestamp)
@@ -104,6 +120,11 @@ class RunManagementService(
 
         // 写入运行清单
         storageService.writeRunManifest(runId, manifest)
+
+        // 对齐 Python create_run(auto_run=True) 的 _start_background_run：自动启动蒸馏执行
+        if (autoRun && !deferRun) {
+            distillExecutor?.start(runId, characters)
+        }
 
         Log.d(TAG, "Created run: $runId with ${characters.size} characters")
 
