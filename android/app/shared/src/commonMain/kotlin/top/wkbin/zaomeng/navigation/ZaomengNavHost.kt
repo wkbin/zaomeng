@@ -15,9 +15,12 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
+import org.koin.core.parameter.parametersOf
 import org.koin.compose.viewmodel.koinViewModel
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfScreen
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
+import top.wkbin.zaomeng.feature.chapters.ChaptersScreen
+import top.wkbin.zaomeng.feature.chapters.ChaptersViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsScreen
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 
@@ -68,6 +71,21 @@ fun ZaomengNavHost() {
             addEntryProvider(clazz = RunDetailDestination::class) { PlaceholderScreen("运行详情（迁移中）") }
             addEntryProvider(clazz = ChatDestination::class) { PlaceholderScreen("对话（迁移中）") }
             addEntryProvider(clazz = StoryRecapDestination::class) { PlaceholderScreen("剧情回顾（迁移中）") }
+            addEntryProvider(clazz = ChaptersDestination::class) { destination ->
+                val viewModel: ChaptersViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                ChaptersScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenChat = { runId, sessionId ->
+                        backStack.add(ChatDestination(runId, sessionId))
+                    },
+                    onOpenPersona = { runId, character ->
+                        backStack.add(PersonaDestination(runId, character))
+                    },
+                )
+            }
+            addEntryProvider(clazz = PersonaDestination::class) { PlaceholderScreen("人物（迁移中）") }
         },
     )
 }

@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import okio.Path
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.NovelConversionForeground
 import top.wkbin.zaomeng.platform.ServerPlatform
 
 /** 平台应用依赖：各端入口提供，Koin 模块据此组装。 */
@@ -19,4 +20,6 @@ interface AppPlatform {
     val backendToken: String
 
     val distillationForeground: DistillationForeground
+
+    val novelConversionForeground: NovelConversionForeground
 }
