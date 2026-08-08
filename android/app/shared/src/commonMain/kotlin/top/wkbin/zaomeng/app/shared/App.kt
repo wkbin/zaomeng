@@ -1,6 +1,11 @@
 package top.wkbin.zaomeng.app.shared
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.koinInject
+import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
+import top.wkbin.zaomeng.data.preferences.ThemeMode
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.navigation.ZaomengNavHost
 import top.wkbin.zaomeng.ui.theme.MyApplicationTheme
@@ -19,7 +24,11 @@ fun App(
     launchChaptersRunId: String? = null,
     onChaptersLaunchConsumed: () -> Unit = {},
 ) {
-    MyApplicationTheme {
+    val preferencesRepository: AppPreferencesRepository = koinInject()
+    val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
+        initialValue = ThemeMode.SYSTEM,
+    )
+    MyApplicationTheme(themeMode = themeMode, dynamicColor = true) {
         ZaomengNavHost(
             appUpdateState = appUpdateState,
             onCheckForAppUpdate = onCheckForAppUpdate,

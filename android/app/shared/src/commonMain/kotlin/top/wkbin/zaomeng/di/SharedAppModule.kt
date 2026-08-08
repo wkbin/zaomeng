@@ -53,6 +53,7 @@ import top.wkbin.zaomeng.platform.NovelConversionForeground
 
 /** 跨平台 Koin 模块：数据层 + 书卷架 ViewModel（feature 逐个追加）。 */
 fun sharedAppModule(platform: AppPlatform): Module = module {
+    single<AppPlatform> { platform }
     single<DataStore<Preferences>> { platform.dataStore }
     single<ServerPlatform> { platform.serverPlatform }
     single<SecureKeyValueStore> { platform.serverPlatform.secureStore() }
