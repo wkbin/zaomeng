@@ -3,10 +3,19 @@ package top.wkbin.zaomeng.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.window.core.layout.WindowSizeClass
 import org.koin.core.parameter.parametersOf
 import org.koin.compose.viewmodel.koinViewModel
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfScreen
@@ -50,11 +59,15 @@ import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 /**
- * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
+ * nav3 导航宿主：按窗口宽度自适应布局。
+ *
+ * - compact（手机竖屏/未展开折叠屏）：保持全屏单页导航，与旧版手机端一致；
+ * - medium/expanded（平板、展开后的折叠屏、桌面窗口）：左侧导航栏 + 右侧内容区。
  *
  * 使用非持久化 NavBackStack（进程死亡不恢复）；后续需要恢复时可换
  * rememberNavBackStack(SavedStateConfiguration) + NavKey 多态注册。
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ZaomengNavHost(
     appUpdateState: AppUpdateUiState = AppUpdateUiState(),
@@ -77,14 +90,15 @@ fun ZaomengNavHost(
         }
     }
 
-    NavDisplay(
-        backStack = backStack,
-        onBack = { backStack.removeLastOrNull() },
-        entryProvider = entryProvider<NavKey> {
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+
+    val navEntryProvider = entryProvider<NavKey> {
             entry(BookshelfDestination) {
                 val viewModel: BookshelfViewModel = koinViewModel()
                 BookshelfScreen(
                     viewModel = viewModel,
+                    showTopBarActions = !wideLayout,
                     onImport = { backStack.add(ImportBookDestination) },
                     onOpenSettings = { backStack.add(ModelSettingsDestination) },
                     onOpenCards = { backStack.add(CardLibraryDestination) },
@@ -290,6 +304,38 @@ fun ZaomengNavHost(
                     onBack = { backStack.removeLastOrNull() },
                 )
             }
-        },
-    )
+        }
+
+    if (wideLayout) {
+        Row(Modifier.fillMaxSize()) {
+            AppTopLevelRail(
+                selectedDestination = backStack.firstOrNull(),
+                onSelectDestination = { destination ->
+                    backStack.clear()
+                    backStack.addAll(listOf(destination))
+                },
+            )
+            NavDisplay(
+                backStack = backStack,
+                modifier = Modifier.fillMaxHeight().weight(1f),
+                onBack = { backStack.removeLastOrNull() },
+                entryProvider = navEntryProvider,
+                entryDecorators = listOf(
+                    rememberSaveableStateHolderNavEntryDecorator(),
+                    rememberViewModelStoreNavEntryDecorator(),
+                ),
+            )
+        }
+    } else {
+        NavDisplay(
+            backStack = backStack,
+            modifier = Modifier.fillMaxSize(),
+            onBack = { backStack.removeLastOrNull() },
+            entryProvider = navEntryProvider,
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
+        )
+    }
 }

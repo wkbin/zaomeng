@@ -361,9 +361,9 @@ class DialogueService(
         val newTranscript = updatedBase["transcript"]?.jsonArray ?: JsonArray(emptyList())
         val transcriptMaps = newTranscript.mapNotNull { raw ->
             runCatching {
-                raw.jsonObject.mapKeys { it.key.toString() }.mapValues { (_, value) ->
+                raw.jsonObject.mapValues { (_, value) ->
                     when (value) {
-                        is JsonObject -> value.mapKeys { it.key.toString() }
+                        is JsonObject -> value
                         else -> value.jsonPrimitive.contentOrNull
                     }
                 }

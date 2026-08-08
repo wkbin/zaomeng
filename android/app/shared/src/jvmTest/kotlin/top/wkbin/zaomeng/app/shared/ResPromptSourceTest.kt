@@ -8,6 +8,11 @@ import kotlin.test.assertTrue
 class ResPromptSourceTest {
     private val source = ResPromptSource(env = { null })
 
+    /**
+     * 注意：本测试放在 jvmTest（桌面路径）——CMP 的 Android host test 是纯 JVM
+     * 单测，没有 Context/AssetManager，读不到打包进 assets 的 composeResources；
+     * 桌面端资源打进 jar 可直接读取。Android 端由真机/桌面端实际运行覆盖。
+     */
     @Test
     fun readsPackagedYamlPrompt() {
         val director = source.read("dialogue/director.yaml")

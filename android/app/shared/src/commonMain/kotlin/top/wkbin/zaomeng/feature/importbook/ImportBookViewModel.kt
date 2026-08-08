@@ -238,8 +238,8 @@ class ImportBookViewModel(
             } catch (error: Throwable) {
                 val recovered = findRecoveredRun(knownRunIds) { run ->
                     when {
-                        !builtin?.novelId.isNullOrBlank() -> run.novelId == builtin?.novelId
-                        !builtin?.title.isNullOrBlank() -> run.title == builtin?.title
+                        !builtin?.novelId.isNullOrBlank() -> run.novelId == builtin.novelId
+                        !builtin?.title.isNullOrBlank() -> run.title == builtin.title
                         else -> false
                     }
                 }

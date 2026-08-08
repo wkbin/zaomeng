@@ -66,6 +66,11 @@ class RedistillViewModel(
         load()
     }
 
+    /** UI 消费完成信号后复位，避免 entry 复用/残留下一次打开立即触发返回。 */
+    fun consumeCompleted() {
+        mutableState.update { it.copy(completed = false) }
+    }
+
     fun load() {
         viewModelScope.launch {
             mutableState.update { it.copy(loading = true, error = "") }

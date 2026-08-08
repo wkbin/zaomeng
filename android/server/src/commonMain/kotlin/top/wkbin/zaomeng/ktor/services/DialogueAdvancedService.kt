@@ -455,8 +455,7 @@ class DialogueAdvancedService(
             turnId = turnId,
             message = originalMessage,
         ).toMutableMap()
-        payload["correction_context"] = correctionContext.mapKeys { it.key.toString() }
-            .mapValues { (_, value) -> jsonValueToAny(value) }
+        payload["correction_context"] = correctionContext.mapValues { (_, value) -> jsonValueToAny(value) }
         val messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = true)
         val responseLimit = ((payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() }
             ?.get("response_limit_hint") as? Number)?.toInt() ?: 2
@@ -511,8 +510,8 @@ class DialogueAdvancedService(
         // 修正后重推 scene progress（对齐 Python _refresh_dialogue_scene_progress use_llm=False）
         val transcriptMaps = updatedTranscript.mapNotNull { entry ->
             runCatching {
-                entry.mapKeys { it.key.toString() }.mapValues { (_, value) ->
-                    if (value is JsonObject) value.mapKeys { it.key.toString() } else value.jsonPrimitive.contentOrNull
+                entry.mapValues { (_, value) ->
+                    if (value is JsonObject) value else value.jsonPrimitive.contentOrNull
                 }
             }.getOrNull()
         }
@@ -671,7 +670,7 @@ class DialogueAdvancedService(
             updated
         }
         // 对齐 Python switch_scene_card：写入场景切换事件信号并推导 scene progress state
-        val sceneProfileMap = sceneProfile.mapKeys { it.key.toString() }.mapValues { (_, value) ->
+        val sceneProfileMap = sceneProfile.mapValues { (_, value) ->
             value.jsonPrimitive.contentOrNull
         }
         val state = SceneProgressState.deriveAfterSceneSwitch(

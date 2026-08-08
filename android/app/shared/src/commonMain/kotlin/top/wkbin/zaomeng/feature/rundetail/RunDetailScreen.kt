@@ -1075,7 +1075,7 @@ private fun AvatarCropDialog(
     var offsetX by remember(bytes) { mutableStateOf(0f) }
     var offsetY by remember(bytes) { mutableStateOf(0f) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+    val transformableState = rememberTransformableState { _, zoomChange, panChange, _ ->
         zoom = (zoom * zoomChange).coerceIn(1f, 4f)
         val baseScale = minOf(
             viewport.width.toFloat() / bitmap.width,

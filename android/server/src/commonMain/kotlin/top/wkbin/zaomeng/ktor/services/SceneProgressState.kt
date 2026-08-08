@@ -316,7 +316,7 @@ object SceneProgressState {
 
     fun sessionState(session: JsonObject): Map<String, Any?> {
         val raw = session["state"]?.jsonObject ?: return emptySessionState()
-        return raw.mapKeys { it.key.toString() }
+        return raw
     }
 
     fun sessionEventSignals(session: JsonObject): Map<String, Any?> {
@@ -445,7 +445,7 @@ object SceneProgressState {
         val sceneCard = session["scene_card"]?.jsonObject ?: session["scene_profile"]?.jsonObject
             ?: return emptyMap()
         val fields = sceneCard["fields"]?.jsonObject ?: sceneCard
-        return fields.mapKeys { it.key.toString() }
+        return fields
     }
 
     private fun derivePresenceState(
@@ -788,7 +788,7 @@ object SceneProgressState {
                 "source" to "scene_card_switch",
                 "location_hint" to sceneLocation,
                 "ts" to switchedAt,
-            ).filterValues { (it as? String)?.isNotEmpty() != false },
+            ).filterValues { it.isNotEmpty() },
         )
         if (sceneTime.isNotEmpty()) {
             transitionEvents.add(

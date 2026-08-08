@@ -74,6 +74,7 @@ fun BookshelfScreen(
     onOpenSessions: () -> Unit,
     onOpenCrossover: () -> Unit,
     onOpenRun: (String) -> Unit,
+    showTopBarActions: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -100,14 +101,16 @@ fun BookshelfScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = onOpenCards) {
-                        Icon(Icons.Outlined.CollectionsBookmark, contentDescription = "创作资料库")
-                    }
-                    IconButton(onClick = onOpenSessions) {
-                        Icon(Icons.Outlined.Forum, contentDescription = "查看会话")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "模型设置")
+                    if (showTopBarActions) {
+                        IconButton(onClick = onOpenCards) {
+                            Icon(Icons.Outlined.CollectionsBookmark, contentDescription = "创作资料库")
+                        }
+                        IconButton(onClick = onOpenSessions) {
+                            Icon(Icons.Outlined.Forum, contentDescription = "查看会话")
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Outlined.Settings, contentDescription = "模型设置")
+                        }
                     }
                 },
             )

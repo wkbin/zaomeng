@@ -14,7 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Settings
@@ -105,7 +105,7 @@ fun SettingsHomeScreen(
                     SettingsHomeRow(
                         title = "聊天显示",
                         subtitle = "调整消息字号、显示密度和推理内容。",
-                        icon = Icons.Outlined.Chat,
+                        icon = Icons.AutoMirrored.Outlined.Chat,
                         onClick = onOpenChatDisplay,
                     )
                 }

@@ -57,8 +57,14 @@ class JvmPromptSource : PromptSource {
         if (configFile.exists()) {
             return configFile.readText() to configFile.lastModified()
         }
-        val skillFile = File(repoRoot, "zaomeng-skill").resolve(relativePath.removePrefix("distill/"))
-        if (skillFile.exists()) {
+        // zaomeng-skill 的蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录
+        val skillName = relativePath.removePrefix("distill/")
+        val skillFile = listOf(
+            File(repoRoot, "zaomeng-skill").resolve(skillName),
+            File(repoRoot, "zaomeng-skill/prompts").resolve(skillName),
+            File(repoRoot, "zaomeng-skill/references").resolve(skillName),
+        ).firstOrNull { it.exists() }
+        if (skillFile != null) {
             return skillFile.readText() to skillFile.lastModified()
         }
         return null
@@ -136,5 +142,15 @@ private fun okio.Sink.asOutputStream(): java.io.OutputStream = object : java.io.
     override fun write(b: ByteArray, off: Int, len: Int) {
         buffer.write(b, off, len)
         this@asOutputStream.write(buffer, len.toLong())
+    }
+
+    override fun flush() {
+        this@asOutputStream.flush()
+    }
+
+    override fun close() {
+        // BufferedSink.close() 内部会先 flush 再关闭底层文件；
+        // 若不显式转发，Properties.store() 的缓冲数据永远不会落盘。
+        this@asOutputStream.close()
     }
 }

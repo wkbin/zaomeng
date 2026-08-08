@@ -258,7 +258,7 @@ class SessionManagementService(
         return storageService.listFiles(storageService.runsDir)
             .asSequence()
             .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
-            ?.flatMap { runDir ->
+            .flatMap { runDir ->
                 storageService.listDialogueSessions(runDir.name).asSequence().map { session ->
                     if (session["run_id"] != null) session else buildJsonObject {
                         session.forEach { (key, value) -> put(key, value) }
@@ -266,9 +266,8 @@ class SessionManagementService(
                     }
                 }
             }
-            ?.sortedByDescending { it["updated_at"]?.toString().orEmpty() }
-            ?.toList()
-            ?: emptyList()
+            .sortedByDescending { it["updated_at"]?.toString().orEmpty() }
+            .toList()
     }
 
     fun deleteDialogueSession(runId: String, sessionId: String): Boolean {

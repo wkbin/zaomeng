@@ -86,7 +86,10 @@ fun RedistillScreen(
     }
 
     LaunchedEffect(state.completed) {
-        if (state.completed) onStarted()
+        if (state.completed) {
+            onStarted()
+            viewModel.consumeCompleted()
+        }
     }
 
     LaunchedEffect(state.samplingPlan) {
@@ -269,7 +272,7 @@ private fun RedistillSamplingPlanCard(
             Text("正在估算本轮蒸馏…", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        state.samplingPlan != null -> state.samplingPlan?.let { plan ->
+        state.samplingPlan != null -> state.samplingPlan.let { plan ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),

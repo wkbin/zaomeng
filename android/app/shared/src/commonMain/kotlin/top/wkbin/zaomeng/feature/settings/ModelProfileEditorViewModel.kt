@@ -164,6 +164,11 @@ class ModelProfileEditorViewModel(
         }
     }
 
+    /** UI 消费完成信号后复位，避免 entry 复用/残留下一次打开立即触发返回。 */
+    fun consumeCompleted() {
+        mutableState.update { it.copy(completed = false) }
+    }
+
     private fun load() {
         viewModelScope.launch {
             try {

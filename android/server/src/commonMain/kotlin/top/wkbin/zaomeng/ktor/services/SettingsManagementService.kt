@@ -158,6 +158,7 @@ class SettingsManagementService(
             else -> remaining.firstOrNull()?.profileId
         }
         storageService.writeModelSettings(settings.copy(activeProfileId = nextActive, profiles = remaining))
+        modelApiKeyService.deleteApiKey(normalized)
         return getModelSettings()
     }
 
@@ -207,7 +208,7 @@ class SettingsManagementService(
     private fun kotlinx.serialization.json.JsonObjectBuilder.putProfileFields(profile: ModelProfile?) {
         val profileId = profile?.profileId.orEmpty()
         val keyConfigured = profileId.isNotBlank() && modelApiKeyService.hasApiKey(profileId)
-        val configured = !profile?.provider.isNullOrBlank() && !profile?.model.isNullOrBlank() && keyConfigured
+        val configured = !profile?.provider.isNullOrBlank() && !profile.model.isNullOrBlank() && keyConfigured
         put("provider", profile?.provider.orEmpty())
         put("model", profile?.model.orEmpty())
         put("base_url", profile?.baseUrl.orEmpty())

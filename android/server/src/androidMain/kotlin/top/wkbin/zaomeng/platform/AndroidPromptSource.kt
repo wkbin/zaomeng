@@ -37,9 +37,14 @@ class AndroidPromptSource(private val context: Context) : PromptSource {
         if (configFile.exists()) {
             return configFile.readText() to configFile.lastModified()
         }
-        // 3. zaomeng-skill（蒸馏 md）
-        val skillFile = projectRoot.resolve("zaomeng-skill").resolve(relativePath.removePrefix("distill/"))
-        if (skillFile.exists()) {
+        // 3. zaomeng-skill（蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录）
+        val skillName = relativePath.removePrefix("distill/")
+        val skillFile = listOf(
+            projectRoot.resolve("zaomeng-skill").resolve(skillName),
+            projectRoot.resolve("zaomeng-skill/prompts").resolve(skillName),
+            projectRoot.resolve("zaomeng-skill/references").resolve(skillName),
+        ).firstOrNull { it.exists() }
+        if (skillFile != null) {
             return skillFile.readText() to skillFile.lastModified()
         }
         return null

@@ -45,6 +45,18 @@ class ModelApiKeyService(private val store: SecureKeyValueStore) {
     }
 
     /**
+     * 删除某个档案的 API Key（删除档案时同步清理，避免密钥残留在安全存储中）。
+     */
+    fun deleteApiKey(profileId: String) {
+        try {
+            store.remove(SecureStoreNames.secretName(profileId))
+            PlatformLog.d(TAG, "Deleted API key for profile $profileId")
+        } catch (e: Exception) {
+            PlatformLog.e(TAG, "Failed to delete API key for profile $profileId", e)
+        }
+    }
+
+    /**
      * Get all API keys as a map of profile ID to API key.
      *
      * @return Map of profile IDs to their API keys

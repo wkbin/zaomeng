@@ -222,17 +222,17 @@ class DialoguePayloadBuilder(
         hints: List<Map<String, String>>,
         plan: Map<String, Any?>,
     ): List<Map<String, String>> {
-        val normalized = hints.filter { it["name"]?.toString()?.trim().isNullOrEmpty().not() }
+        val normalized = hints.filter { it["name"]?.trim().isNullOrEmpty().not() }
             .map { it.toMutableMap() }
         val urgent = ((plan["priority_candidates"] as? List<*>) ?: emptyList<Any?>())
             .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() }.toSet()
         val reasons = (plan["reasons"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val merged = mutableListOf<Map<String, String>>()
         for (item in normalized) {
-            val name = item["name"]?.toString()?.trim().orEmpty()
+            val name = item["name"]?.trim().orEmpty()
             if (name in urgent) item["priority"] = "urgent"
             item["reason"] = reasons[name]?.toString()?.trim().orEmpty()
-            merged.add(item.mapValues { it.value.toString() })
+            merged.add(item.mapValues { it.value })
         }
         return merged
     }
@@ -342,7 +342,7 @@ class DialoguePayloadBuilder(
                 "core_identity" to (profile["core_identity"]?.toString()?.trim().orEmpty()),
                 "speech_style" to (profile["speech_style"]?.toString()?.trim().orEmpty()),
                 "appearance_feature" to trimText(profile["appearance_feature"], 80),
-            ).filterValues { (it as? String)?.isNotEmpty() == true }
+            ).filterValues { it.isNotEmpty() }
             personaMap[name] = mapOf(
                 "name" to name,
                 "preview" to preview,
@@ -525,7 +525,7 @@ class DialoguePayloadBuilder(
      * 从 session["state"] 的 scene/presence/progression 汇总，并合并 session["scene_progress"] 覆盖。
      */
     private fun loadCanonicalSceneProgress(session: JsonObject): Map<String, Any?> {
-        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val state = session["state"]?.jsonObject ?: emptyMap()
         val scene = (state["scene"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val presence = (state["presence"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val progression = (state["progression"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
@@ -564,19 +564,19 @@ class DialoguePayloadBuilder(
 
     /** 事件信号（对齐 Python _canonical_event_signals：state.signals 或 session.event_signals）。 */
     private fun loadEventSignals(session: JsonObject): Map<String, Any?> {
-        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val state = session["state"]?.jsonObject ?: emptyMap()
         val signals = (state["signals"] as? Map<*, *>)?.mapKeys { it.key.toString() }
-            ?: session["event_signals"]?.jsonObject?.mapKeys { it.key.toString() }
+            ?: session["event_signals"]?.jsonObject
             ?: SceneProgressState.emptyEventSignalsState()
         return signals
     }
 
     /** 角色快照（对齐 Python _canonical_character_snapshots）。 */
     private fun loadCharacterSnapshots(session: JsonObject): Map<String, Any?> {
-        val state = session["state"]?.jsonObject?.mapKeys { it.key.toString() } ?: emptyMap()
+        val state = session["state"]?.jsonObject ?: emptyMap()
         val characters = (state["characters"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val snapshots = (characters["snapshots"] as? Map<*, *>)?.mapKeys { it.key.toString() }
-            ?: session["character_snapshots"]?.jsonObject?.mapKeys { it.key.toString() }
+            ?: session["character_snapshots"]?.jsonObject
             ?: emptyMap()
         return snapshots
     }

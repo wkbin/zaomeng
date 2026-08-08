@@ -543,7 +543,7 @@ private fun SamplingPlanCard(
             Text("正在估算本次蒸馏…", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        state.samplingPlan != null -> state.samplingPlan?.let { plan ->
+        state.samplingPlan != null -> state.samplingPlan.let { plan ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),

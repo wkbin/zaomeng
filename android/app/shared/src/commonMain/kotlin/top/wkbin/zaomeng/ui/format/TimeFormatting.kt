@@ -1,7 +1,8 @@
 package top.wkbin.zaomeng.ui.format
 
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 
 private val isoTimestampPattern = Regex(
@@ -18,9 +19,9 @@ fun String.toLocalDateTimeDisplay(fallback: String = "时间未记录"): String 
     return buildString {
         append(local.year.toString().padStart(4, '0'))
         append('-')
-        append(local.monthNumber.toString().padStart(2, '0'))
+        append(local.month.number.toString().padStart(2, '0'))
         append('-')
-        append(local.dayOfMonth.toString().padStart(2, '0'))
+        append(local.day.toString().padStart(2, '0'))
         append(' ')
         append(local.hour.toString().padStart(2, '0'))
         append(':')

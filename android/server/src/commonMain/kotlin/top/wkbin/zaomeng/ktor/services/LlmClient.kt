@@ -411,7 +411,7 @@ class LlmClient(
                     contentBuilder.append(deltaContent)
                     onDelta(deltaContent)
                 }
-                delta?.reasoningContent?.takeIf { it.isNotBlank() }?.let { onReasoning?.invoke(it) }
+                delta?.reasoningContent?.takeIf { it.isNotBlank() }?.let { onReasoning.invoke(it) }
                 chunk.choices.firstOrNull()?.finishReason?.let {
                     finishReason = it
                 }

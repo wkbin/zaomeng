@@ -1,7 +1,10 @@
 package top.wkbin.zaomeng.app.desktop
 
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import io.github.vinceglb.filekit.FileKit
 import org.koin.core.context.startKoin
 import top.wkbin.zaomeng.app.shared.App
@@ -17,6 +20,7 @@ fun main() {
         Window(
             onCloseRequest = ::exitApplication,
             title = "Zaomeng",
+            state = rememberWindowState(size = DpSize(1200.dp, 800.dp)),
         ) {
             App()
         }
