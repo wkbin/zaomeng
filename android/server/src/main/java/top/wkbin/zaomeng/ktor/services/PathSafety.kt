@@ -1,8 +1,6 @@
 package top.wkbin.zaomeng.ktor.services
 
 import java.io.File
-import java.nio.file.Path
-import kotlin.io.path.*
 
 /**
  * 存储标识符验证异常
@@ -64,7 +62,7 @@ object PathSafety {
     }
 
     /**
-     * 解析存储子路径，确保不会逃逸根目录
+     * 解析存储子路径，确保不会逃逸根目录（纯 java.io.File 实现，兼容 minSdk 24）。
      *
      * @param root 根目录
      * @param value 子路径标识符
@@ -72,25 +70,18 @@ object PathSafety {
      * @return 解析后的安全路径
      * @throws InvalidStorageIdentifierException 如果路径不安全
      */
-    fun resolveStorageChild(root: Path, value: String, fieldName: String = "path"): Path {
+    fun resolveStorageChild(root: File, value: String, fieldName: String = "path"): File {
         val safeValue = validateStorageId(value, fieldName)
-        val resolvedRoot = root.toAbsolutePath().normalize()
-        val candidate = (resolvedRoot / safeValue).normalize()
-
-        // 确保 candidate 在 resolvedRoot 内部
-        if (!candidate.startsWith(resolvedRoot)) {
+        val resolvedRoot = root.canonicalFile
+        val candidate = File(resolvedRoot, safeValue).canonicalFile
+        // 确保 candidate 在 resolvedRoot 内部（同目录或子路径）
+        if (candidate.path != resolvedRoot.path &&
+            !candidate.path.startsWith(resolvedRoot.path + File.separator)
+        ) {
             throw InvalidStorageIdentifierException(
                 "Invalid $fieldName: path escapes storage root."
             )
         }
-
         return candidate
-    }
-
-    /**
-     * 解析存储子路径（File 版本）
-     */
-    fun resolveStorageChild(root: File, value: String, fieldName: String = "path"): File {
-        return resolveStorageChild(root.toPath(), value, fieldName).toFile()
     }
 }

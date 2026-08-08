@@ -228,7 +228,7 @@ class DialogueStreamParser(
                 '{' -> stack.add(index)
                 '}' -> {
                     if (stack.isNotEmpty()) {
-                        val start = stack.removeLast()
+                        val start = stack.removeAt(stack.lastIndex)
                         if (start == targetStart) {
                             return Pair(start, index + 1)
                         }

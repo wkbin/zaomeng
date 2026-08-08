@@ -58,7 +58,7 @@ class PathSafetyTest {
 
     @Test
     fun `resolveStorageChild prevents directory traversal`() {
-        val tempDir = createTempDir("path-safety-test")
+        val tempDir = java.nio.file.Files.createTempDirectory("path-safety-test").toFile()
         try {
             // Valid child path
             val validChild = PathSafety.resolveStorageChild(tempDir, "child", "test")

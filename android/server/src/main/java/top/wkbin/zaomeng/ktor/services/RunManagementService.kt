@@ -71,9 +71,9 @@ class RunManagementService(
         val runId = generateId()
         val timestamp = Instant.now().toString()
 
-        // 解码小说内容
-        val novelContent = try {
-            String(Base64.decode(novelContentBase64, Base64.DEFAULT), Charsets.UTF_8)
+        // 解码小说内容（字节直写文件，避免 String 往返拷贝）
+        val novelBytes = try {
+            Base64.decode(novelContentBase64, Base64.DEFAULT)
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid base64 content: ${e.message}")
         }
@@ -89,7 +89,9 @@ class RunManagementService(
 
         // 写入小说内容
         val novelFile = File(runDir, "novel.txt")
-        storageService.writeTextAtomically(novelFile, novelContent)
+        storageService.writeBytesAtomically(novelFile, novelBytes)
+        // char_count 需要一次 UTF-8 解码（仅用于估算与清单，不参与再次编码）
+        val novelContent = String(novelBytes, Charsets.UTF_8)
 
         // 创建运行清单
         val manifest = buildJsonObject {
@@ -101,7 +103,7 @@ class RunManagementService(
                     put("source_path", novelFile.absolutePath)
                     put("kind", "import")
                     put("timestamp", timestamp)
-                    put("byte_size", novelContent.toByteArray(Charsets.UTF_8).size)
+                    put("byte_size", novelBytes.size)
                     put("char_count", novelContent.length)
                 })
             })

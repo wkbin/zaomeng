@@ -207,13 +207,6 @@ class PluginOperationsService(
     // 内部辅助
     // ------------------------------------------------------------------
 
-    private fun requirePluginInstalled(pluginId: String) {
-        val normalized = pluginId.trim()
-        if (!File(File(storage.getStorageRoot(), "plugins"), normalized).resolve("plugin.json").isFile) {
-            throw NoSuchElementException("Plugin not found: $normalized")
-        }
-    }
-
     private fun loadSession(runId: String, sessionId: String): JsonObject {
         if (!storage.runExists(runId)) throw NoSuchElementException("Run not found: $runId")
         return runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()

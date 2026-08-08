@@ -23,6 +23,7 @@ import java.util.*
 class SessionManagementService(
     private val storageService: StorageService,
     private val dialogueService: DialogueService,
+    private val worldMemory: WorldMemoryService? = null,
 ) {
     private val json = Json {
         prettyPrint = true
@@ -274,7 +275,12 @@ class SessionManagementService(
         PathSafety.validateStorageId(runId, "run_id")
         PathSafety.validateStorageId(sessionId, "session_id")
         val directory = File(storageService.getDialogueSessionsDirectory(runId), sessionId)
-        return directory.exists() && directory.deleteRecursively()
+        val deleted = directory.exists() && directory.deleteRecursively()
+        if (deleted) {
+            // 该会话归属的时间线/剧情事实（world_memory.json 中 source_session_id 匹配）一并清理
+            runCatching { worldMemory?.purgeSession(runId, sessionId) }
+        }
+        return deleted
     }
 
     /**

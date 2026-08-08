@@ -262,14 +262,18 @@ class RunOperationsService(
             fun addDir(base: File, relative: String) {
                 base.listFiles()?.filter { !it.name.endsWith(".tmp") }?.forEach { file ->
                     val childRelative = if (relative.isEmpty()) file.name else "$relative/${file.name}"
-                    if (file.isDirectory) {
-                        if (file.name in ignored) return@forEach
-                        zip.putNextEntry(ZipEntry("run/$childRelative/"))
+                      if (file.isDirectory) {
+                          if (file.name in ignored) return@forEach
+                          // 不携带会话时整个 dialogue 目录都不导出（含空目录条目）
+                          if (file.name == "dialogue" && !includeDialogue) return@forEach
+                          zip.putNextEntry(ZipEntry("run/$childRelative/"))
                         zip.closeEntry()
                         addDir(file, childRelative)
-                    } else {
-                        if (childRelative == "dialogue" || (childRelative.startsWith("dialogue/") && !includeDialogue)) return@forEach
-                        zip.putNextEntry(ZipEntry("run/$childRelative"))
+                      } else {
+                          // 不携带会话时：对话目录与对话派生的时间线/剧情事实（world_memory.json）都不导出
+                          if (childRelative == "dialogue" || (childRelative.startsWith("dialogue/") && !includeDialogue)) return@forEach
+                          if (childRelative == "world_memory.json" && !includeDialogue) return@forEach
+                          zip.putNextEntry(ZipEntry("run/$childRelative"))
                         FileInputStream(file).use { input -> input.copyTo(zip) }
                         zip.closeEntry()
                     }
@@ -305,7 +309,9 @@ class RunOperationsService(
             if (profileFile.isEmpty() || !profile.isFile || !profile.absolutePath.startsWith(sourceRunDir.absolutePath)) {
                 throw NoSuchElementException("$runId:$character 的人物资料不存在。")
             }
-            selected.add(Triple(runId, character, profile.parentFile))
+            val profileParent = profile.parentFile
+                ?: throw NoSuchElementException("$runId:$character 的人物资料目录不可用。")
+            selected.add(Triple(runId, character, profileParent))
             names.add(character)
         }
         if (selected.map { it.first }.distinct().size < 2) {
@@ -389,14 +395,15 @@ class RunOperationsService(
                 .getOrElse { throw IllegalArgumentException("小说内容 Base64 无效。") }
             val safeName = PathSafety.sanitizePathComponent(novelName.ifBlank { "redistill-source.txt" }, "novelName")
             val sourceFile = File(runDir, "redistill-sources/$safeName")
-            storage.writeTextAtomically(sourceFile, String(bytes, Charsets.UTF_8))
+            storage.writeBytesAtomically(sourceFile, bytes)
+            val sourceText = String(bytes, Charsets.UTF_8)
             buildJsonObject {
                 put("source_name", safeName)
                 put("source_path", sourceFile.absolutePath)
                 put("kind", "redistill")
                 put("timestamp", now)
                 put("byte_size", bytes.size)
-                put("char_count", String(bytes, Charsets.UTF_8).length)
+                put("char_count", sourceText.length)
             }
         } else {
             null

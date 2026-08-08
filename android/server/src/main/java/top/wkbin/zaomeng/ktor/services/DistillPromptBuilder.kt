@@ -116,7 +116,10 @@ object DistillPromptBuilder {
         val userParts = mutableListOf<Any?>(
             userHead.ifEmpty { "目标角色：$character\n同批角色：$peers" },
             distillPriorityGuidance(guidance, character),
-            excerptStageGuidance(guidance, payload.request["excerpt_stages"] as? Map<String, Any?> ?: emptyMap()),
+            excerptStageGuidance(
+                guidance,
+                (payload.request["excerpt_stages"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap(),
+            ),
             dialogueStyleGuidance(guidance, emptyList()),
             chunkDistillGuidance(guidance, chunkLabel, chunkIndex, chunkTotal, chunkMode),
             renderPayloadSection("OUTPUT_SCHEMA", payload.references["output_schema"]),
@@ -160,7 +163,10 @@ object DistillPromptBuilder {
         val userParts = mutableListOf<Any?>(
             userHead.ifEmpty { "目标角色：$character\n同批角色：$peers" },
             distillPriorityGuidance(guidance, character),
-            excerptStageGuidance(guidance, payload.request["excerpt_stages"] as? Map<String, Any?> ?: emptyMap()),
+            excerptStageGuidance(
+                guidance,
+                (payload.request["excerpt_stages"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap(),
+            ),
             dialogueStyleGuidance(guidance, emptyList()),
             renderPayloadSection("OUTPUT_SCHEMA", payload.references["output_schema"]),
             renderPayloadSection("STYLE_DIFFER", payload.references["style_differ"]),

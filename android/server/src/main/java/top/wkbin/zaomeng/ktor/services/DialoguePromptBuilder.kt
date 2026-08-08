@@ -31,7 +31,6 @@ class DialoguePromptBuilder(
         is JsonArray -> element.map { jsonToMap(it) }
         is JsonPrimitive -> if (element.isString) element.content else element.contentOrNull ?: element.toString()
         is JsonNull -> null
-        else -> null
     }
 
     fun toJsonElement(value: Any?): JsonElement = when (value) {

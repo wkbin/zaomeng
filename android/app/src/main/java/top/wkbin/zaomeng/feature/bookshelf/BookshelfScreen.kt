@@ -363,17 +363,6 @@ private fun BetaCornerBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EmptyFilterResults(onClearFilters: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("没有匹配的书卷", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("换个关键词，或清除筛选条件后再看看。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = onClearFilters) { Text("清除筛选", color = MaterialTheme.colorScheme.error) }
-        }
-    }
-}
-
-@Composable
 private fun ActiveModelCard(modelLabel: String, onOpenSettings: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(

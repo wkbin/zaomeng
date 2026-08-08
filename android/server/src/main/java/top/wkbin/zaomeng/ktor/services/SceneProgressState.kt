@@ -24,11 +24,7 @@ import java.time.Instant
  */
 object SceneProgressState {
 
-    private val SCENE_ENTER_TOKENS = listOf("进门", "入内", "走进", "转入", "移步", "到了", "回到", "落座", "入座", "上楼", "进屋", "推门而入")
-    private val SCENE_EXIT_TOKENS = listOf("出去", "离开", "退场", "回房", "回家", "出门", "走远", "散去", "下楼", "离席")
-    private val ACTION_TOKENS = listOf("抬头", "低头", "笑", "沉默", "转身", "皱眉", "顿住", "垂眼", "抿唇", "抬眼", "偏头", "停住", "看向")
     val ATMOSPHERE_TOKENS = listOf("暧昧", "尴尬", "紧张", "安静", "压抑", "冷场", "发僵", "僵住", "沉下来", "静了一拍", "气氛")
-    private val ENVIRONMENT_TOKENS = listOf("雨", "雪", "风", "雷", "灯", "烛", "门外", "脚步声", "敲门", "天色", "夜色", "天光", "雾", "潮气")
     private val LEAVE_TOKENS = listOf(
         "离开", "离席", "退场", "告退", "先走", "走吧", "退下", "走了", "离去", "回房", "回家", "回去了", "退出",
     )
@@ -690,6 +686,10 @@ object SceneProgressState {
         transcript: List<Map<String, Any?>>,
         updatedAt: String = "",
     ): Map<String, Any?> {
+        // 状态推导只依赖近期窗口（takeLast ≤16）与上一轮 state；截取最近 512 条，
+        // 避免长会话每轮全量扫描（O(1)/轮）。单场景超过 512 轮时 turns_in_current_scene
+        // 会封顶在窗口内统计，实际会话几乎不会触及。
+        val recentTranscript = transcript.takeLast(512)
         val state = sessionState(session)
         val priorScene = (state["scene"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val priorPresence = (state["presence"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
@@ -703,10 +703,10 @@ object SceneProgressState {
         val sceneCard = sceneCardFields(session)
         val eventSignals = sessionEventSignals(session)
 
-        val presenceState = derivePresenceState(participants, transcript, eventSignals)
-        val sceneFrame = deriveSceneFrameState(session, transcript, sceneCard, prior, eventSignals)
+        val presenceState = derivePresenceState(participants, recentTranscript, eventSignals)
+        val sceneFrame = deriveSceneFrameState(session, recentTranscript, sceneCard, prior, eventSignals)
         val progressionState = deriveProgressionState(
-            session, transcript, sceneCard, prior, presenceState, sceneFrame, eventSignals,
+            session, recentTranscript, sceneCard, prior, presenceState, sceneFrame, eventSignals,
         )
         val progressionBits = mutableListOf<String>()
         sceneFrame["location"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { progressionBits.add("地点：$it") }

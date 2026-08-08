@@ -18,9 +18,22 @@ import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldFactDto
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
+import java.util.concurrent.ConcurrentHashMap
 
 class WorldMemoryService(private val storage: StorageService) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
+    private val runLocks = ConcurrentHashMap<String, Any>()
+
+    private fun lockFor(runId: String): Any = runLocks.computeIfAbsent(runId) { Any() }
+
+    private val eventCategory = mapOf(
+        "scene_transition" to "location",
+        "cast_enter" to "location",
+        "cast_exit" to "location",
+        "relationship_shift" to "relationship",
+        "time_change" to "setting",
+        "environment_change" to "setting",
+    )
 
     fun get(runId: String): WorldMemoryDto = decode(read(runId))
 
@@ -75,6 +88,183 @@ class WorldMemoryService(private val storage: StorageService) {
             put("updated_at", Instant.now().toString())
         })
         return DeleteStatusDto(status = "deleted")
+    }
+
+    /**
+     * 对话轮次提交后同步世界记忆（迁移自 Python WorldMemoryStore.sync_completed_turn）。
+     * 把本轮的剧情事件写成带 source_session_id/source_turn_id 的事实，并为每一轮追加一条
+     * 时间线条目（按 turn_key 幂等去重）。
+     */
+    fun syncCompletedTurn(
+        runId: String,
+        sessionId: String,
+        turnId: String,
+        title: String,
+        participants: List<String>,
+        events: List<JsonObject>,
+        location: String,
+        timeHint: String,
+        consistencyStatus: String,
+        knowledgeLedger: List<JsonObject>,
+        updatedAt: String,
+    ): JsonObject {
+        val safeSessionId = PathSafety.validateStorageId(sessionId, "session_id")
+        val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
+        val now = updatedAt.ifBlank { Instant.now().toString() }
+        val turnKey = "$safeSessionId:$safeTurnId"
+        val cleanParticipants = participants.map(String::trim).filter(String::isNotBlank).distinct()
+        val cleanLocation = location.trim().take(100)
+        val cleanTimeHint = timeHint.trim().take(80)
+
+        synchronized(lockFor(runId)) {
+            val payload = read(runId)
+            val facts = (payload["facts"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            val bySourceKey = LinkedHashMap<String, Int>()
+            facts.forEachIndexed { index, item ->
+                runCatching {
+                    item.jsonObject["source_key"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+                        ?.let { bySourceKey[it] = index }
+                }
+            }
+
+            events.forEachIndexed { index, rawEvent ->
+                val cue = rawEvent["cue"]?.jsonPrimitive?.contentOrNull?.trim()?.take(500).orEmpty()
+                if (cue.isEmpty()) return@forEachIndexed
+                val sourceKey = "$turnKey:event:$index"
+                val actor = rawEvent["actor"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val target = rawEvent["target"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val characters = listOf(actor, target).filter(String::isNotBlank).distinct()
+                val kind = rawEvent["kind"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val eventLocation = rawEvent["location_hint"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?.takeIf(String::isNotBlank) ?: cleanLocation
+                val eventTime = rawEvent["time_hint"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?.takeIf(String::isNotBlank) ?: cleanTimeHint
+                val item = buildJsonObject {
+                    put("fact_id", "fact-" + UUID.randomUUID().toString().replace("-", "").take(12))
+                    put("category", eventCategory[kind] ?: "event")
+                    put("summary", cue)
+                    put("characters", buildJsonArray { characters.forEach { add(JsonPrimitive(it)) } })
+                    put("location", eventLocation)
+                    put("time_hint", eventTime)
+                    put("source_session_id", safeSessionId)
+                    put("source_turn_id", safeTurnId)
+                    put("source_key", sourceKey)
+                    put("source", "dialogue")
+                    put("locked", false)
+                    put("active", true)
+                    put("created_at", now)
+                    put("updated_at", now)
+                }
+                val existingIndex = bySourceKey[sourceKey]
+                if (existingIndex == null) {
+                    bySourceKey[sourceKey] = facts.size
+                    facts.add(item)
+                } else {
+                    val existing = facts[existingIndex].jsonObject
+                    val locked = existing["locked"]?.jsonPrimitive?.contentOrNull == "true" ||
+                        existing["locked"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == true
+                    if (!locked) {
+                        val updated = buildJsonObject {
+                            item.forEach { (k, v) -> if (k != "fact_id" && k != "created_at") put(k, v) }
+                            put("fact_id", existing["fact_id"] ?: item["fact_id"] ?: JsonPrimitive(""))
+                            put("created_at", existing["created_at"] ?: item["created_at"] ?: JsonPrimitive(now))
+                        }
+                        facts[existingIndex] = updated
+                    }
+                }
+            }
+
+            knowledgeLedger.forEach { rawSecret ->
+                val summary = (rawSecret["secret"] ?: rawSecret["summary"])?.jsonPrimitive?.contentOrNull
+                    ?.trim()?.take(500).orEmpty()
+                if (summary.isEmpty()) return@forEach
+                val sourceKey = "knowledge:${summary.lowercase()}"
+                if (sourceKey in bySourceKey) return@forEach
+                val knowers = (rawSecret["knowers"]?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
+                    .map(String::trim).filter(String::isNotBlank).distinct()
+                facts.add(buildJsonObject {
+                    put("fact_id", "fact-" + UUID.randomUUID().toString().replace("-", "").take(12))
+                    put("category", "secret")
+                    put("summary", summary)
+                    put("characters", buildJsonArray { knowers.forEach { add(JsonPrimitive(it)) } })
+                    put("location", "")
+                    put("time_hint", "")
+                    put("source_session_id", safeSessionId)
+                    put("source_turn_id", safeTurnId)
+                    put("source_key", sourceKey)
+                    put("source", "dialogue")
+                    put("locked", false)
+                    put("active", true)
+                    put("created_at", now)
+                    put("updated_at", now)
+                })
+                bySourceKey[sourceKey] = facts.size - 1
+            }
+
+            val timeline = ((payload["timeline"]?.jsonArray ?: JsonArray(emptyList())))
+                .filterNot { item ->
+                    runCatching { item.jsonObject["turn_key"]?.jsonPrimitive?.contentOrNull == turnKey }
+                        .getOrDefault(false)
+                }
+                .toMutableList()
+            timeline.add(buildJsonObject {
+                put("timeline_id", "timeline-" + UUID.randomUUID().toString().replace("-", "").take(12))
+                put("turn_key", turnKey)
+                put("source_session_id", safeSessionId)
+                put("source_turn_id", safeTurnId)
+                put("title", title.trim().take(160).ifEmpty { "剧情推进" })
+                put("participants", buildJsonArray { cleanParticipants.forEach { add(JsonPrimitive(it)) } })
+                put("event_types", buildJsonArray {
+                    val kinds = events.mapNotNull { it["kind"]?.jsonPrimitive?.contentOrNull?.trim() }
+                        .filter(String::isNotBlank).distinct()
+                    (kinds.ifEmpty { listOf("dialogue") }).forEach { add(JsonPrimitive(it)) }
+                })
+                put("location", cleanLocation)
+                put("time_hint", cleanTimeHint)
+                put("consistency_status", consistencyStatus.trim().ifEmpty { "pass" })
+                put("updated_at", now)
+            })
+            val trimmedFacts = facts.takeLast(MAX_ITEMS)
+            val trimmedTimeline = timeline.sortedBy {
+                it.jsonObject["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            }.takeLast(MAX_ITEMS)
+            val updated = buildJsonObject {
+                payload.forEach { (k, v) -> if (k !in setOf("facts", "timeline", "updated_at")) put(k, v) }
+                put("facts", buildJsonArray { trimmedFacts.forEach(::add) })
+                put("timeline", buildJsonArray { trimmedTimeline.forEach(::add) })
+                put("updated_at", now)
+            }
+            write(runId, updated)
+            return updated
+        }
+    }
+
+    /**
+     * 删除会话时清理该会话归属的世界记忆（facts/timeline 中 source_session_id 匹配的条目）。
+     */
+    fun purgeSession(runId: String, sessionId: String) {
+        val safeSessionId = PathSafety.validateStorageId(sessionId, "session_id")
+        synchronized(lockFor(runId)) {
+            val payload = read(runId)
+            val facts = payload["facts"]?.jsonArray ?: JsonArray(emptyList())
+            val remainingFacts = facts.filterNot { item ->
+                runCatching { item.jsonObject["source_session_id"]?.jsonPrimitive?.contentOrNull == safeSessionId }
+                    .getOrDefault(false)
+            }
+            val timeline = payload["timeline"]?.jsonArray ?: JsonArray(emptyList())
+            val remainingTimeline = timeline.filterNot { item ->
+                runCatching { item.jsonObject["source_session_id"]?.jsonPrimitive?.contentOrNull == safeSessionId }
+                    .getOrDefault(false)
+            }
+            if (remainingFacts.size == facts.size && remainingTimeline.size == timeline.size) return
+            write(runId, buildJsonObject {
+                payload.forEach { (k, v) -> if (k !in setOf("facts", "timeline", "updated_at")) put(k, v) }
+                put("facts", buildJsonArray { remainingFacts.forEach(::add) })
+                put("timeline", buildJsonArray { remainingTimeline.forEach(::add) })
+                put("updated_at", Instant.now().toString())
+            })
+        }
     }
 
     private fun read(runId: String): JsonObject {

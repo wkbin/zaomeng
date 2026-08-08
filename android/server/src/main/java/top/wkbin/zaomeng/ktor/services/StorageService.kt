@@ -16,11 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.ktor.models.*
 import java.io.File
-import java.nio.file.StandardCopyOption
-import java.nio.file.Path
 import java.security.MessageDigest
-import kotlin.io.path.*
-import java.nio.file.Files
 
 /**
  * 存储服务
@@ -30,7 +26,17 @@ import java.nio.file.Files
 class StorageService(
     private val storageRoot: File
 ) {
-    private val writeLock = Any()
+    /**
+     * 按路径分片的写锁：不同 run/文件可并行写，同一路径仍串行。
+     * 固定 64 路，避免全局锁串行化与无界锁表增长。
+     */
+    private val writeLocks = Array(64) { Any() }
+
+    private fun lockFor(target: File): Any {
+        val path = target.absolutePath
+        val index = (path.hashCode() and Int.MAX_VALUE) % writeLocks.size
+        return writeLocks[index]
+    }
     /**
      * 从 Context 创建 StorageService
      */
@@ -52,25 +58,32 @@ class StorageService(
 
     /** Serialize writes and replace the destination only after the full payload is on disk. */
     fun writeTextAtomically(target: File, content: String) {
-        synchronized(writeLock) {
+        synchronized(lockFor(target)) {
             target.parentFile?.mkdirs()
             val temp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
             temp.writeText(content)
-            // Windows 上 File.renameTo 无法覆盖已存在目标，统一改用 Files.move(REPLACE_EXISTING)
-            val replaced = runCatching {
-                Files.move(
-                    temp.toPath(),
-                    target.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-                true
-            }.getOrElse {
-                // 兜底：删除旧目标后重命名（极端情况下仍失败则报错并清理临时文件）
-                runCatching { target.delete() }.getOrDefault(false) && temp.renameTo(target)
+            // Android（Linux）上 renameTo 可覆盖已存在目标；Windows 开发/测试环境无法覆盖，
+            // 此时先删除旧目标再重命名作为兜底（仅失败路径，不影响正常原子性）
+            if (!temp.renameTo(target)) {
+                if (!(target.delete() && temp.renameTo(target))) {
+                    temp.delete()
+                    throw IllegalStateException("Unable to replace ${target.name}")
+                }
             }
-            if (!replaced) {
-                temp.delete()
-                throw IllegalStateException("Unable to replace ${target.name}")
+        }
+    }
+
+    /** 字节版原子写入（避免大文件先解码成 String 再回写）。 */
+    fun writeBytesAtomically(target: File, bytes: ByteArray) {
+        synchronized(lockFor(target)) {
+            target.parentFile?.mkdirs()
+            val temp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
+            temp.writeBytes(bytes)
+            if (!temp.renameTo(target)) {
+                if (!(target.delete() && temp.renameTo(target))) {
+                    temp.delete()
+                    throw IllegalStateException("Unable to replace ${target.name}")
+                }
             }
         }
     }
@@ -105,7 +118,7 @@ class StorageService(
      */
     fun writeRunManifest(runId: String, manifest: JsonObject) {
         val manifestFile = getRunManifestPath(runId)
-        manifestFile.parentFile.mkdirs()
+        manifestFile.parentFile?.mkdirs()
         writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), manifest))
     }
 
@@ -281,7 +294,7 @@ class StorageService(
      */
     fun writeModelSettings(settings: ModelSettings) {
         val settingsFile = getModelSettingsPath()
-        settingsFile.parentFile.mkdirs()
+        settingsFile.parentFile?.mkdirs()
         writeTextAtomically(settingsFile, json.encodeToString(settings))
     }
 

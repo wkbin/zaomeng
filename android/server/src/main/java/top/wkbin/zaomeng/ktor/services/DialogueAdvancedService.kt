@@ -382,6 +382,12 @@ class DialogueAdvancedService(
             ?: throw IllegalStateException("续写建议为空")
     }
 
+    private fun stripCodeFences(content: String): String =
+        content.trim()
+            .removePrefix("```json").removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+
     /**
      * 修正最新回复：重新生成最后一条角色回复并替换。
      * 对应 Python: correct_latest_dialogue_turn（走完整 reply 管道 + CORRECTION_CONTEXT，
@@ -515,37 +521,6 @@ class DialogueAdvancedService(
             put("state", SceneProgressState.stateToJsonObject(state))
         })
     }
-
-    /**
-     * 解析生成文本：若 LLM 按 director JSON 格式输出（options[0].direction/suggestion），
-     * 提取可用文本；否则返回去除围栏后的原文。
-     */
-    private fun parseGeneratedText(content: String): String {
-        val fenceStripped = stripCodeFences(content)
-        val fromJson = runCatching {
-            val element = json.parseToJsonElement(fenceStripped)
-            if (element is JsonObject) {
-                val option = element["options"]?.jsonArray?.firstOrNull()?.jsonObject
-                option?.get("direction")?.jsonPrimitive?.contentOrNull
-                    ?: option?.get("suggestion")?.jsonPrimitive?.contentOrNull
-                    ?: element["title"]?.jsonPrimitive?.contentOrNull
-                    ?: element["content"]?.jsonPrimitive?.contentOrNull
-            } else {
-                null
-            }
-        }.getOrNull()
-        if (!fromJson.isNullOrBlank()) return fromJson.trim()
-        return fenceStripped
-            .removeSurrounding("\"", "\"")
-            .removeSurrounding("'", "'")
-            .trim()
-    }
-
-    private fun stripCodeFences(content: String): String =
-        content.trim()
-            .removePrefix("```json").removePrefix("```")
-            .removeSuffix("```")
-            .trim()
 
     /**
      * 深度审校最新回复：调用 LLM 生成一致性审校结果并写入 consistency_monitor。
@@ -811,21 +786,10 @@ class DialogueAdvancedService(
         is JsonArray -> value.map { jsonValueToAny(it) }
         is kotlinx.serialization.json.JsonPrimitive ->
             if (value.isString) value.content else value.contentOrNull ?: value.toString()
-        else -> null
     }
 
     private fun memoryLedgerOf(session: JsonObject): List<JsonObject> =
         session["memory_ledger"]?.jsonArray?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
-
-    private fun formatTranscript(session: JsonObject, maxEntries: Int = 20, excludeLast: Boolean = false): String {
-        var entries = transcriptOf(session)
-        if (excludeLast && entries.isNotEmpty()) entries = entries.dropLast(1)
-        return entries.takeLast(maxEntries).joinToString("\n") { item ->
-            val speaker = item["speaker"]?.jsonPrimitive?.contentOrNull ?: "?"
-            val message = item["message"]?.jsonPrimitive?.contentOrNull ?: ""
-            "$speaker：$message"
-        }
-    }
 
     /**
      * 创建分支会话：复制源会话并截断 transcript。

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.yaml.snakeyaml.Yaml
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Prompt configuration loader.
@@ -21,6 +22,11 @@ class PromptLoader(private val context: Context) {
     }
 
     private val yaml = Yaml(org.yaml.snakeyaml.constructor.SafeConstructor(org.yaml.snakeyaml.LoaderOptions()))
+    /**
+     * 提示词缓存：key = 相对路径，value = Pair<mtime, 解析结果>。
+     * assets 视为构建期静态（mtime=0）；文件系统回退按文件 mtime 失效。
+     */
+    private val promptCache = ConcurrentHashMap<String, Pair<Long, Any?>>()
     private val promptsRoot: File by lazy {
         // 开发机回退路径：prompts 目录位于 Android 项目上级
         val filesDir = context.filesDir
@@ -38,15 +44,13 @@ class PromptLoader(private val context: Context) {
      * Load a prompt configuration file as a Map.
      */
     private fun loadPromptConfig(category: String, name: String): Map<String, Any> {
-        val source = readPromptSource("$category/$name.yaml")
-            ?: throw IllegalStateException("Prompt config not found: $category/$name.yaml")
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            source.use { yaml.load(it) as Map<String, Any> }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse prompt config: $category/$name.yaml", e)
-            throw IllegalStateException("Failed to parse prompt config: $name.yaml", e)
-        }
+        val key = "$category/$name.yaml"
+        @Suppress("UNCHECKED_CAST")
+        return cached(
+            key,
+            source = { readPromptSource(key) },
+            load = { content -> content.use { yaml.load(it) as Map<String, Any> } },
+        ) as? Map<String, Any> ?: throw IllegalStateException("Prompt config not found: $key")
     }
 
     /**
@@ -202,14 +206,53 @@ class PromptLoader(private val context: Context) {
      * 用于整篇文档类提示词（蒸馏/关系的 .md），保持 md 原样。
      */
     fun loadRawPrompt(relativePath: String): String? {
-        readPromptSource(relativePath)?.let { input ->
-            return input.bufferedReader().use { it.readText().trim() }
+        readPromptSource(relativePath)?.let {
+            return cached(
+                relativePath,
+                source = { readPromptSource(relativePath) },
+                load = { content -> content.bufferedReader().use { it.readText().trim() } },
+            ) as? String
         }
         val skillFile = projectRoot.resolve("zaomeng-skill").resolve(relativePath.removePrefix("distill/"))
         if (skillFile.exists()) {
-            return skillFile.readText().trim()
+            return cached(
+                relativePath,
+                source = { skillFile.inputStream() },
+                load = { content -> content.bufferedReader().use { it.readText().trim() } },
+            ) as? String
         }
         return null
+    }
+
+    /**
+     * 按 mtime 缓存的读取辅助：优先 assets（mtime=0，命中即永久复用）；
+     * 文件系统回退路径在 mtime 变化时重新加载。
+     */
+    private fun cached(
+        key: String,
+        source: () -> java.io.InputStream?,
+        load: (java.io.InputStream) -> Any?,
+    ): Any? {
+        val mtime = currentMtime(key)
+        promptCache[key]?.let { (cachedMtime, value) ->
+            if (cachedMtime == mtime) return value
+        }
+        val input = source() ?: return promptCache[key]?.second
+        val loaded = runCatching { load(input) }.getOrElse { e ->
+            Log.e(TAG, "Failed to parse prompt config: $key", e)
+            promptCache[key]?.second
+        }
+        promptCache[key] = mtime to loaded
+        return loaded
+    }
+
+    private fun currentMtime(relativePath: String): Long {
+        val filesystemFile = promptsRoot.resolve(relativePath)
+        if (filesystemFile.exists()) return filesystemFile.lastModified()
+        // 蒸馏 md 的开发机回退路径在 zaomeng-skill/ 下
+        val skillFile = projectRoot.resolve("zaomeng-skill").resolve(relativePath.removePrefix("distill/"))
+        if (skillFile.exists()) return skillFile.lastModified()
+        return 0L // assets：构建期静态，不失效
     }
 
     /** 对话回复/续写建议的 turn-system 文本块。 */

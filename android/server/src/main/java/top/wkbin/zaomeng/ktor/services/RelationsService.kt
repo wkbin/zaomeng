@@ -266,7 +266,6 @@ class RelationsService(private val storage: StorageService) {
             is JsonPrimitive -> element.contentOrNull?.let { content ->
                 content.toIntOrNull() ?: content.toBooleanStrictOrNull() ?: content
             } ?: ""
-            else -> ""
         }
         return payload.mapValues { convert(it.value) }
     }

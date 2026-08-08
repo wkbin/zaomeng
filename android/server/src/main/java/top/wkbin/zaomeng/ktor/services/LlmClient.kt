@@ -44,8 +44,6 @@ class LlmClient(
         private const val DEFAULT_TIMEOUT_SECONDS = 60L
         private const val DEFAULT_MAX_RETRIES = 3
         private const val DEFAULT_TEMPERATURE = 0.7
-        private const val DEFAULT_MAX_TOKENS = 4096
-
         // Retry-able HTTP status codes
         private val RETRYABLE_STATUS_CODES = setOf(408, 429, 500, 502, 503, 504)
 
@@ -343,6 +341,7 @@ class LlmClient(
      * @return Final accumulated response
      * @throws Exception on API errors or network failures
      */
+    @Suppress("DEPRECATION") // readUTF8Line 刻意用于逐行流式（EOF 返回 null），见下方注释
     suspend fun chatCompletionStream(
         messages: List<ChatMessage>,
         onDelta: (String) -> Unit,
@@ -446,6 +445,7 @@ class LlmClient(
      * @return Flow of content deltas
      * @throws Exception on API errors or network failures
      */
+    @Suppress("DEPRECATION") // readUTF8Line 刻意用于逐行流式（EOF 返回 null），见下方注释
     fun chatCompletionStream(
         messages: List<ChatMessage>,
         model: String? = null,

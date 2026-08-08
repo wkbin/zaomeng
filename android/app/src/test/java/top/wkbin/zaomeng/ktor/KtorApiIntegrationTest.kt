@@ -383,7 +383,7 @@ class KtorApiIntegrationTest {
                 .digest("林黛玉".toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             val avatarFile = storage.getRunDirectory("avatar-run").resolve("avatars/$digest.png")
-            avatarFile.parentFile.mkdirs()
+            avatarFile.parentFile?.mkdirs()
             avatarFile.writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
             // 预置会话（对齐 openDialogueSession 成功后的状态）
             val sessionDir = storage.getDialogueSessionsDirectory("avatar-run").resolve("avatar-session")
@@ -524,6 +524,74 @@ class KtorApiIntegrationTest {
             client.get(base) { bearerAuth("test-token") }.bodyAsText(),
         ).jsonObject["facts"]?.jsonArray
         assertTrue(factsAfterDelete == null || factsAfterDelete.isEmpty())
+    }
+
+    @Test
+    fun `session deletion purges its world memory and export without dialogue excludes it`() = testZaomengApplication(
+        setup = { storage ->
+            storage.writeTextAtomically(
+                storage.getRunManifestPath("purge-run"),
+                """{"run_id":"purge-run","novel_id":"novel-purge","title":"清理测试","status":"ready"}""",
+            )
+            storage.writeTextAtomically(
+                storage.getRunDirectory("purge-run").resolve("world_memory.json"),
+                """
+                {
+                  "version": 1,
+                  "facts": [
+                    {"fact_id":"fact-sess1","category":"event","summary":"会话一的事实","source":"dialogue","source_session_id":"sess1","source_turn_id":"t1"},
+                    {"fact_id":"fact-manual","category":"setting","summary":"手动设定","source":"manual"}
+                  ],
+                  "timeline": [
+                    {"timeline_id":"tl-sess1","title":"会话一","turn_key":"sess1:t1","source_session_id":"sess1","source_turn_id":"t1"},
+                    {"timeline_id":"tl-manual","title":"手动条目"}
+                  ],
+                  "updated_at": ""
+                }
+                """.trimIndent(),
+            )
+            storage.writeTextAtomically(
+                storage.getRunDirectory("purge-run").resolve("dialogue/sessions/sess1/session_manifest.json"),
+                """{"session_id":"sess1","run_id":"purge-run","mode":"observe","participants":["贾宝玉"],"title":"会话一"}""",
+            )
+            storage.writeTextAtomically(
+                storage.getRunDirectory("purge-run").resolve("novel.txt"),
+                "测试正文。",
+            )
+        },
+        includeSessions = true,
+        includeWorldMemory = true,
+        includeRunOps = true,
+    ) {
+        val base = "/api/web/runs/purge-run"
+        // 不带会话导出：world_memory.json 不应出现
+        val withoutDialogue = client.get("$base/export?include_dialogue=false") { bearerAuth("test-token") }
+        assertEquals(HttpStatusCode.OK, withoutDialogue.status, withoutDialogue.bodyAsText())
+        val withoutNames = java.util.zip.ZipInputStream(withoutDialogue.bodyAsBytes().inputStream()).use { zip ->
+            generateSequence { zip.nextEntry }.map { it.name }.toList()
+        }
+        assertTrue(withoutNames.none { it == "run/world_memory.json" }, "不带会话导出不应包含 world_memory.json: $withoutNames")
+        assertTrue(withoutNames.none { it.startsWith("run/dialogue/") })
+
+        // 带会话导出：world_memory.json 应包含
+        val withDialogue = client.get("$base/export?include_dialogue=true") { bearerAuth("test-token") }
+        assertEquals(HttpStatusCode.OK, withDialogue.status, withDialogue.bodyAsText())
+        val withNames = java.util.zip.ZipInputStream(withDialogue.bodyAsBytes().inputStream()).use { zip ->
+            generateSequence { zip.nextEntry }.map { it.name }.toList()
+        }
+        assertTrue(withNames.any { it == "run/world_memory.json" })
+
+        // 删除会话后：该会话归属的 facts/timeline 一并清除，手动条目保留
+        val deleted = client.delete("$base/dialogue/sessions/sess1") { bearerAuth("test-token") }
+        assertEquals(HttpStatusCode.OK, deleted.status, deleted.bodyAsText())
+        val memory = json.parseToJsonElement(
+            client.get("$base/world-memory") { bearerAuth("test-token") }.bodyAsText(),
+        ).jsonObject
+        val factIds = memory["facts"]?.jsonArray?.mapNotNull { it.jsonObject["fact_id"]?.jsonPrimitive?.content }.orEmpty()
+        assertEquals(listOf("fact-manual"), factIds)
+        val timelineIds = memory["timeline"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["timeline_id"]?.jsonPrimitive?.content }.orEmpty()
+        assertEquals(listOf("tl-manual"), timelineIds)
     }
 
     @Test
@@ -1207,7 +1275,11 @@ class KtorApiIntegrationTest {
                 runManagementRoutes(RunManagementService(storage, distillExecutor = null), RunPackageService(storage))
                 pluginRoutes(PluginService(storage))
                 if (includePersona) personaRoutes(PersonaService(storage))
-                if (includeSessions) sessionManagementRoutes(SessionManagementService(storage, DialogueService(storage)))
+                if (includeSessions) {
+                    sessionManagementRoutes(
+                        SessionManagementService(storage, DialogueService(storage), WorldMemoryService(storage)),
+                    )
+                }
                 if (includeWorldMemory) worldMemoryRoutes(WorldMemoryService(storage))
                 if (includeDialogueAdvanced) {
                     dialogueAdvancedRoutes(DialogueAdvancedService(storage, llm = null, prompts = null))

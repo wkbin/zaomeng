@@ -72,7 +72,6 @@ class DistillExecutor(
         private const val RELATION_CHUNK_MAX_TOKENS = 800
         private const val RELATION_MERGE_MAX_TOKENS = 1000
         private const val PARALLEL_WORKERS_CAP = 6
-        private const val EXCERPT_MAX_CHARS = 12_000
         private const val RELATION_MAX_CHARS = 12_000
         private const val RELATION_MAX_SENTENCES = 80
     }
@@ -336,18 +335,19 @@ class DistillExecutor(
             return content to mapOf("chunked" to false, "chunk_count" to 1)
         }
         val workers = minOf(PARALLEL_WORKERS_CAP, chunkEntries.size)
+        // 分块进度按角色汇总：进入分块时写一次（1/N），避免每个分块完成都读-改-写整个 manifest
+        applyDistillProgress(
+            runId,
+            "chunking_character",
+            mapOf(
+                "character" to character,
+                "chunk_index" to 1,
+                "chunk_total" to chunkEntries.size,
+                "chunk_label" to chunkEntries.first().label,
+                "parallel_workers" to workers,
+            ),
+        )
         val drafts = runChunkDrafts(chunkEntries, workers) { entry, index ->
-            applyDistillProgress(
-                runId,
-                "chunking_character",
-                mapOf(
-                    "character" to character,
-                    "chunk_index" to index,
-                    "chunk_total" to chunkEntries.size,
-                    "chunk_label" to entry.label,
-                    "parallel_workers" to workers,
-                ),
-            )
             callLlm(
                 DistillPromptBuilder.buildDistillMessages(
                     entry.payload,
@@ -495,17 +495,17 @@ class DistillExecutor(
             return content to mapOf("chunked" to false, "chunk_count" to 1)
         }
         val workers = minOf(PARALLEL_WORKERS_CAP, chunkEntries.size)
+        applyRelationProgress(
+            runId,
+            "chunking_graph",
+            mapOf(
+                "chunk_index" to 1,
+                "chunk_total" to chunkEntries.size,
+                "chunk_label" to chunkEntries.first().label,
+                "parallel_workers" to workers,
+            ),
+        )
         val drafts = runChunkDrafts(chunkEntries, workers) { entry, index ->
-            applyRelationProgress(
-                runId,
-                "chunking_graph",
-                mapOf(
-                    "chunk_index" to index,
-                    "chunk_total" to chunkEntries.size,
-                    "chunk_label" to entry.label,
-                    "parallel_workers" to workers,
-                ),
-            )
             callLlm(
                 DistillPromptBuilder.buildRelationMessages(
                     entry.payload,

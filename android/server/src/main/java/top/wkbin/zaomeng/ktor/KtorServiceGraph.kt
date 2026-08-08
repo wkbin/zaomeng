@@ -11,11 +11,12 @@ class KtorServiceGraph(context: Context) {
     val modelApiKeys = ModelApiKeyService(applicationContext)
     val promptLoader = PromptLoader(applicationContext)
     val llm = LlmClient(applicationContext, modelApiKeys, storage)
-    val dialogue = DialogueService(storage, llm, promptLoader)
+    val worldMemory = WorldMemoryService(storage)
+    val dialogue = DialogueService(storage, llm, promptLoader, worldMemory)
     val dialogueStream = DialogueStreamService(applicationContext, storage, llm, promptLoader, dialogue)
     val suggestions = SuggestionsService(applicationContext, storage, llm, promptLoader)
     val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader)
-    val sessionManagement = SessionManagementService(storage, dialogue)
+    val sessionManagement = SessionManagementService(storage, dialogue, worldMemory)
     val distillExecutor = DistillExecutor(applicationContext, storage, llm, promptLoader)
     val runManagement = RunManagementService(storage, distillExecutor)
     val runPackages = RunPackageService(storage)
@@ -25,7 +26,6 @@ class KtorServiceGraph(context: Context) {
     val cards = CardsService(applicationContext)
     val cardsManagement = CardsManagementService(storage)
     val persona = PersonaService(storage, llm, promptLoader)
-    val worldMemory = WorldMemoryService(storage)
     val relations = RelationsService(storage)
     val runOperations = RunOperationsService(
         storage,

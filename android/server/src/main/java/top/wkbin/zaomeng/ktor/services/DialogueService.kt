@@ -30,7 +30,8 @@ import java.util.UUID
 class DialogueService(
     private val storageService: StorageService,
     private val llmClient: LlmClient? = null,
-    private val promptLoader: PromptLoader? = null
+    private val promptLoader: PromptLoader? = null,
+    private val worldMemory: WorldMemoryService? = null,
 ) {
     companion object {
         private const val TAG = "DialogueService"
@@ -377,6 +378,32 @@ class DialogueService(
         }
 
         storageService.writeTextAtomically(manifestFile, Json.encodeToString(JsonObject.serializer(), updated))
+
+        // 对齐 Python：每轮提交后把本轮的剧情事件/知识账本同步到 run 级世界记忆
+        // （时间线按 turn_key 幂等去重，事实带 source_session_id 便于会话删除时清理）
+        runCatching {
+            worldMemory?.syncCompletedTurn(
+                runId = runId,
+                sessionId = sessionId,
+                turnId = turnId,
+                title = userMessage,
+                participants = (updated["participants"]?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() },
+                events = (updated["state"]?.jsonObject?.get("signals")?.jsonObject
+                    ?.get("recent")?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                    .filter { it["turn_id"]?.jsonPrimitive?.contentOrNull == turnId },
+                location = updated["state"]?.jsonObject?.get("scene")?.jsonObject
+                    ?.get("location")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                timeHint = "",
+                consistencyStatus = updated["consistency_monitor"]?.jsonObject?.get("latest")?.jsonObject
+                    ?.get("status")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                knowledgeLedger = (updated["consistency_monitor"]?.jsonObject
+                    ?.get("knowledge_ledger")?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() },
+                updatedAt = timestamp,
+            )
+        }
         return updated
     }
 }

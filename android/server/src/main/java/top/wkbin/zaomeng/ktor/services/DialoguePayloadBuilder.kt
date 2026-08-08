@@ -3,6 +3,7 @@ package top.wkbin.zaomeng.ktor.services
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -251,7 +252,6 @@ class DialoguePayloadBuilder(
         is JsonArray -> value.map { jsonValueToAny(it) }
         is kotlinx.serialization.json.JsonPrimitive ->
             if (value.isString) value.content else value.contentOrNull ?: value.toString()
-        else -> null
     }
 
     private fun stringList(value: Any?): List<String> =
@@ -446,8 +446,7 @@ class DialoguePayloadBuilder(
 
     private fun loadWorldFactsUncached(file: File): List<Map<String, Any?>> {
         val facts = runCatching {
-            kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-                .parseToJsonElement(file.readText()).jsonObject["facts"]?.jsonArray
+            Json.parseToJsonElement(file.readText()).jsonObject["facts"]?.jsonArray
         }.getOrNull() ?: return emptyList()
         val parsed = facts.mapNotNull { item ->
             val obj = item.jsonObject
