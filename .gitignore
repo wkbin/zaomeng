@@ -63,6 +63,7 @@ data/corrections/*
 !data/relations/.gitkeep
 !data/sessions/.gitkeep
 !data/corrections/.gitkeep
+zaomeng-data/
 logs/
 outputs/
 clawhub-zaomeng-skill/runtime/data/
