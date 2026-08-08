@@ -21,6 +21,8 @@ import top.wkbin.zaomeng.feature.bookshelf.BookshelfScreen
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
 import top.wkbin.zaomeng.feature.chapters.ChaptersScreen
 import top.wkbin.zaomeng.feature.chapters.ChaptersViewModel
+import top.wkbin.zaomeng.feature.chat.ChatScreen
+import top.wkbin.zaomeng.feature.chat.ChatViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsScreen
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 
@@ -69,7 +71,22 @@ fun ZaomengNavHost() {
                 )
             }
             addEntryProvider(clazz = RunDetailDestination::class) { PlaceholderScreen("运行详情（迁移中）") }
-            addEntryProvider(clazz = ChatDestination::class) { PlaceholderScreen("对话（迁移中）") }
+            addEntryProvider(clazz = ChatDestination::class) { destination ->
+                val viewModel: ChatViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId, destination.sessionId) })
+                ChatScreen(
+                    viewModel = viewModel,
+                    runId = destination.runId,
+                    sessionId = destination.sessionId,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenBranch = { runId, sessionId ->
+                        backStack.add(ChatDestination(runId, sessionId))
+                    },
+                    onOpenStoryRecap = {
+                        backStack.add(StoryRecapDestination(destination.runId, destination.sessionId))
+                    },
+                )
+            }
             addEntryProvider(clazz = StoryRecapDestination::class) { PlaceholderScreen("剧情回顾（迁移中）") }
             addEntryProvider(clazz = ChaptersDestination::class) { destination ->
                 val viewModel: ChaptersViewModel =

@@ -29,6 +29,7 @@ import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ContentDisclaimerPreferences
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
 import top.wkbin.zaomeng.feature.chapters.ChaptersViewModel
+import top.wkbin.zaomeng.feature.chat.ChatViewModel
 import top.wkbin.zaomeng.feature.sessions.SessionsViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
@@ -96,4 +97,5 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
             novelConversionForeground = platform.novelConversionForeground,
         )
     }
+    viewModel { ChatViewModel(get(), get()) }
 }
