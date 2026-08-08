@@ -21,6 +21,8 @@ kotlin {
             iosTarget.binaries.framework {
                 baseName = "Shared"
                 isStatic = true
+                // 导出 ViewModel API，Swift 可直接访问（不带 Lifecycle_viewmodel 前缀）
+                export(libs.compose.lifecycle.viewmodel)
             }
         }
     }
@@ -50,7 +52,7 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.lifecycle.runtime)
-            implementation(libs.compose.lifecycle.viewmodel)
+            api(libs.compose.lifecycle.viewmodel)
             implementation(libs.jetbrains.navigation3.ui)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
@@ -77,6 +79,8 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.okhttp)
             implementation(libs.skiko.awt)
+            // viewModelScope 依赖 Dispatchers.Main（桌面端由 coroutines-swing 提供）
+            implementation(libs.kotlinx.coroutines.swing)
         }
         if (isMacHost) {
             getByName("iosMain") {
