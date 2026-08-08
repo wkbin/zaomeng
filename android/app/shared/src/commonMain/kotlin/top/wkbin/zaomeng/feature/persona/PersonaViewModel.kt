@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
 
 data class PersonaFieldSpec(
     val key: String,
@@ -70,6 +69,7 @@ data class PersonaUiState(
 class PersonaViewModel(
     private val repository: ZaomengRepository,
 ) : ViewModel() {
+    private var noticeSequence = 0L
     private val _uiState = MutableStateFlow(PersonaUiState())
     val uiState: StateFlow<PersonaUiState> = _uiState.asStateFlow()
 
@@ -290,7 +290,7 @@ class PersonaViewModel(
         this.runId == runId && this.character == character
 
     private fun notice(message: String): PersonaNotice = PersonaNotice(
-        id = noticeIds.incrementAndGet(),
+        id = ++noticeSequence,
         message = message,
     )
 
@@ -300,9 +300,6 @@ class PersonaViewModel(
             .firstOrNull { it.isNotEmpty() }
             ?: fallback
 
-    private companion object {
-        val noticeIds = AtomicLong(0)
-    }
 }
 
 private fun completePersonaFields(source: Map<String, String>): Map<String, String> =

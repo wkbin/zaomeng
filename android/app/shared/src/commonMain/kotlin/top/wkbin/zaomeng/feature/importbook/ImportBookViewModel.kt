@@ -13,9 +13,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ImportBookUiState(
     val fileName: String = "",
@@ -84,7 +86,11 @@ class ImportBookViewModel(
         fileLoadJob = viewModelScope.launch {
             mutableState.update { it.copy(readingFile = true, error = "") }
             try {
-                selectDocument(classifyDocument(name, bytes, kind))
+                selectDocument(
+                    withContext(Dispatchers.Default) {
+                        ImportDocumentLoader.prepareImportDocument(name, bytes, kind)
+                    },
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {

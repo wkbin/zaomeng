@@ -59,6 +59,7 @@ kotlin {
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
             implementation(libs.okio)
             implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs.compose)
@@ -90,6 +91,7 @@ kotlin {
             getByName("iosMain") {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
+                    implementation(libs.kitearchive)
                 }
             }
         }

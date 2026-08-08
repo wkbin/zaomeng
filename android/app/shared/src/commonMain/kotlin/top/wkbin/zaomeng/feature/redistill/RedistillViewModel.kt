@@ -9,17 +9,19 @@ import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
 import top.wkbin.zaomeng.feature.importbook.ImportDocument
 import top.wkbin.zaomeng.feature.importbook.ImportDocumentKind
-import top.wkbin.zaomeng.feature.importbook.classifyDocument
+import top.wkbin.zaomeng.feature.importbook.ImportDocumentLoader
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.feature.importbook.textStatistics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class RedistillUiState(
     val loading: Boolean = true,
@@ -93,7 +95,13 @@ class RedistillViewModel(
         fileLoadJob = viewModelScope.launch {
             mutableState.update { it.copy(readingFile = true, error = "") }
             try {
-                val document = classifyDocument(name, bytes, ImportDocumentKind.NovelText)
+                val document = withContext(Dispatchers.Default) {
+                    ImportDocumentLoader.prepareImportDocument(
+                        name,
+                        bytes,
+                        ImportDocumentKind.NovelText,
+                    )
+                }
                 selectFile(document)
             } catch (cancelled: CancellationException) {
                 throw cancelled
