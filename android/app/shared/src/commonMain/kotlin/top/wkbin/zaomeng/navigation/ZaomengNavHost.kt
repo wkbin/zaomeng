@@ -49,6 +49,12 @@ import top.wkbin.zaomeng.feature.storyrecap.StoryRecapScreen
 import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineScreen
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
+import top.wkbin.zaomeng.feature.update.AppUpdateScreen
+import top.wkbin.zaomeng.data.update.AppUpdateUiState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 
 /**
  * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
@@ -127,7 +133,18 @@ fun ZaomengNavHost() {
                     onBack = { backStack.removeLastOrNull() },
                 )
             }
-            entry(AppUpdateDestination) { PlaceholderScreen("更新（迁移中）") }
+            entry(AppUpdateDestination) {
+                var startupUpdateCheckDisabled by rememberSaveable { mutableStateOf(false) }
+                // TODO: 跨平台更新服务（Android DownloadManager 移植后接线）
+                AppUpdateScreen(
+                    state = AppUpdateUiState(),
+                    onBack = { backStack.removeLastOrNull() },
+                    onCheck = {},
+                    onDownload = {},
+                    startupUpdateCheckDisabled = startupUpdateCheckDisabled,
+                    onStartupUpdateCheckDisabledChange = { startupUpdateCheckDisabled = it },
+                )
+            }
             entry(CardLibraryDestination) {
                 val viewModel: CardLibraryViewModel = koinViewModel()
                 CardLibraryScreen(
