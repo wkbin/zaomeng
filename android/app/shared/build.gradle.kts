@@ -2,6 +2,9 @@
 // Android 由 androidApp 消费，桌面由 desktopApp 消费；复用 server 的内嵌后端。
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val hostOs = System.getProperty("os.name").lowercase()
+val isMacHost = hostOs == "mac os x" || hostOs == "macos" || hostOs == "darwin"
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kmp.library)
@@ -11,6 +14,16 @@ plugins {
 
 kotlin {
     jvm()
+
+    // Apple target 只能在 macOS 主机上编译；Windows/CI(Linux) 自动跳过，保持本机构建可跑。
+    if (isMacHost) {
+        listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { iosTarget ->
+            iosTarget.binaries.framework {
+                baseName = "Shared"
+                isStatic = true
+            }
+        }
+    }
 
     android {
         namespace = "top.wkbin.zaomeng.app.shared"
@@ -59,6 +72,13 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.okhttp)
+        }
+        if (isMacHost) {
+            getByName("iosMain") {
+                dependencies {
+                    implementation(libs.ktor.client.darwin)
+                }
+            }
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
