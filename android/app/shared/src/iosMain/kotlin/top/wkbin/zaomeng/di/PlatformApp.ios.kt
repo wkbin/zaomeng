@@ -3,6 +3,7 @@ package top.wkbin.zaomeng.di
 import okio.Path
 import okio.Path.Companion.toPath
 import platform.Foundation.NSCachesDirectory
+import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
 import top.wkbin.zaomeng.data.preferences.createDataStore
@@ -15,6 +16,8 @@ object IosAppPlatform : AppPlatform {
     override val serverPlatform = IosServerPlatform()
 
     override val dataStore = createDataStore()
+
+    override val filesDir: Path = documentsDirectory().toPath() / "zaomeng-files"
 
     override val cacheDir: Path = cachesDirectory().toPath() / "zaomeng-cache"
 
@@ -36,4 +39,15 @@ private fun cachesDirectory(): String {
         error = null,
     )
     return requireNotNull(url?.path) { "NSCachesDirectory unavailable" }
+}
+
+private fun documentsDirectory(): String {
+    val url = NSFileManager.defaultManager.URLForDirectory(
+        directory = NSDocumentDirectory,
+        inDomain = NSUserDomainMask,
+        appropriateForURL = null,
+        create = true,
+        error = null,
+    )
+    return requireNotNull(url?.path) { "NSDocumentDirectory unavailable" }
 }

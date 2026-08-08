@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":server"))
     implementation(libs.koin.core)
     implementation(libs.okio)
+    implementation(libs.filekit.core)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.content.negotiation)

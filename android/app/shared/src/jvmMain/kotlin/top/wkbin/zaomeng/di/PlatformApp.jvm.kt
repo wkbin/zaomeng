@@ -13,6 +13,9 @@ class DesktopAppPlatform : AppPlatform {
 
     override val dataStore = createDataStore()
 
+    override val filesDir: Path =
+        (System.getProperty("user.home") ?: ".").toPath() / ".zaomeng" / "files"
+
     override val cacheDir: Path =
         (System.getProperty("java.io.tmpdir") ?: ".").toPath() / "zaomeng-cache"
 

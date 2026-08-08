@@ -17,6 +17,8 @@ class AndroidAppPlatform(context: Context) : AppPlatform {
 
     override val dataStore = createDataStore(appContext)
 
+    override val filesDir: Path = File(appContext.filesDir, "zaomeng-files").absolutePath.toPath()
+
     override val cacheDir: Path = File(appContext.cacheDir, "zaomeng-cache").absolutePath.toPath()
 
     override val backendPort: Int = 8765
