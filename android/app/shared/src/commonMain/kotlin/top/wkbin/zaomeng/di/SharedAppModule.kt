@@ -35,6 +35,13 @@ import top.wkbin.zaomeng.feature.settings.SettingsViewModel
 import top.wkbin.zaomeng.feature.settings.ModelProfileEditorViewModel
 import top.wkbin.zaomeng.feature.settings.ModelProfilesViewModel
 import top.wkbin.zaomeng.feature.settings.PluginsViewModel
+import top.wkbin.zaomeng.feature.cards.CardLibraryViewModel
+import top.wkbin.zaomeng.feature.crossover.CrossoverViewModel
+import top.wkbin.zaomeng.feature.library.OnlineLibraryViewModel
+import top.wkbin.zaomeng.feature.persona.PersonaViewModel
+import top.wkbin.zaomeng.feature.relations.RelationsViewModel
+import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
+import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
@@ -106,4 +113,11 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     viewModel { ModelProfilesViewModel(get()) }
     viewModel { PluginsViewModel(get()) }
     viewModel { parameters -> ModelProfileEditorViewModel(get(), parameters.get()) }
+    viewModel { CardLibraryViewModel(get()) }
+    viewModel { CrossoverViewModel(get()) }
+    viewModel { parameters -> RelationsViewModel(get(), parameters.get()) }
+    viewModel { parameters -> WorldTimelineViewModel(get(), parameters.get()) }
+    viewModel { parameters -> StoryRecapViewModel(get(), parameters.get(), parameters.get()) }
+    viewModel { OnlineLibraryViewModel(get(), get()) }
+    viewModel { PersonaViewModel(get()) }
 }

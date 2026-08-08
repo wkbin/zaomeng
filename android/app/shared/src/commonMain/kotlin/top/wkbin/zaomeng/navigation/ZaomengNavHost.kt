@@ -36,6 +36,19 @@ import top.wkbin.zaomeng.feature.settings.PluginsScreen
 import top.wkbin.zaomeng.feature.settings.SettingsViewModel
 import top.wkbin.zaomeng.feature.settings.SettingsHomeScreen
 import top.wkbin.zaomeng.feature.settings.StartupRecoverySettingsScreen
+import top.wkbin.zaomeng.feature.cards.CardLibraryScreen
+import top.wkbin.zaomeng.feature.cards.CardLibraryViewModel
+import top.wkbin.zaomeng.feature.crossover.CrossoverScreen
+import top.wkbin.zaomeng.feature.crossover.CrossoverViewModel
+import top.wkbin.zaomeng.feature.library.OnlineLibraryScreen
+import top.wkbin.zaomeng.feature.library.OnlineLibraryViewModel
+import top.wkbin.zaomeng.feature.persona.PersonaScreen
+import top.wkbin.zaomeng.feature.relations.RelationsScreen
+import top.wkbin.zaomeng.feature.relations.RelationsViewModel
+import top.wkbin.zaomeng.feature.storyrecap.StoryRecapScreen
+import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
+import top.wkbin.zaomeng.feature.timeline.WorldTimelineScreen
+import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 
 /**
  * nav3 导航宿主：书卷架已迁移，其余目的地为占位页（按 feature 逐个替换）。
@@ -115,8 +128,21 @@ fun ZaomengNavHost() {
                 )
             }
             entry(AppUpdateDestination) { PlaceholderScreen("更新（迁移中）") }
-            entry(CardLibraryDestination) { PlaceholderScreen("卡库（迁移中）") }
-            entry(CrossoverDestination) { PlaceholderScreen("联动（迁移中）") }
+            entry(CardLibraryDestination) {
+                val viewModel: CardLibraryViewModel = koinViewModel()
+                CardLibraryScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+            entry(CrossoverDestination) {
+                val viewModel: CrossoverViewModel = koinViewModel()
+                CrossoverScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
+                )
+            }
             addEntryProvider(clazz = SessionsDestination::class) { destination ->
                 val viewModel: SessionsViewModel = koinViewModel()
                 SessionsScreen(
@@ -163,7 +189,48 @@ fun ZaomengNavHost() {
                     },
                 )
             }
-            addEntryProvider(clazz = PersonaDestination::class) { PlaceholderScreen("人物（迁移中）") }
+            addEntryProvider(clazz = RelationsDestination::class) { destination ->
+                val viewModel: RelationsViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                RelationsScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+            addEntryProvider(clazz = WorldTimelineDestination::class) { destination ->
+                val viewModel: WorldTimelineViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                WorldTimelineScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenChat = { runId, sessionId ->
+                        backStack.add(ChatDestination(runId, sessionId))
+                    },
+                )
+            }
+            addEntryProvider(clazz = StoryRecapDestination::class) { destination ->
+                val viewModel: StoryRecapViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId, destination.sessionId) })
+                StoryRecapScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
+            entry(OnlineLibraryDestination) {
+                val viewModel: OnlineLibraryViewModel = koinViewModel()
+                OnlineLibraryScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onRunImported = { runId -> backStack.add(RunDetailDestination(runId)) },
+                )
+            }
+            addEntryProvider(clazz = PersonaDestination::class) { destination ->
+                PersonaScreen(
+                    runId = destination.runId,
+                    character = destination.character,
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
         },
     )
 }
