@@ -16,7 +16,7 @@ composeMultiplatform = "1.11.1"
 material3 = "1.11.0-alpha07"
 androidxLifecycle = "2.11.0-beta01"
 navigation = "2.9.8"
-navigationCompose = "2.9.2"
+multiplatform-nav3-ui = "1.1.1"
 datastore = "1.2.1"
 koin = "4.1.1"
 okhttp = "4.12.0"
@@ -67,7 +67,7 @@ compose-material3 = { module = "org.jetbrains.compose.material3:material3", vers
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-lifecycle-runtime = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
 compose-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidxLifecycle" }
-compose-navigation = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+jetbrains-navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "multiplatform-nav3-ui" }
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
 koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }

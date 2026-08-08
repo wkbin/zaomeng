@@ -12,10 +12,16 @@ import io.ktor.server.engine.stop
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.app.shared.App
 import top.wkbin.zaomeng.app.shared.ResPromptSource
+import top.wkbin.zaomeng.app.shared.envVar
+import top.wkbin.zaomeng.backend.BackendEndpoint
+import top.wkbin.zaomeng.backend.BackendEndpointProvider
+import top.wkbin.zaomeng.data.api.KtorHealthClient
+import top.wkbin.zaomeng.data.api.KtorHttpClientProvider
 import top.wkbin.zaomeng.ktor.KtorServiceGraph
 import top.wkbin.zaomeng.ktor.plugins.configureObservability
 import top.wkbin.zaomeng.ktor.plugins.configureSecurity
@@ -52,10 +58,13 @@ import top.wkbin.zaomeng.platform.JvmServerPlatform
  */
 fun main() = application {
     val scope = rememberCoroutineScope()
+    val port = System.getenv("ZAOMENG_PORT")?.toIntOrNull() ?: 8765
+    val token = System.getenv("ZAOMENG_TOKEN") ?: "desktop-dev-token"
+    val endpointProvider = DesktopBackendEndpointProvider(port, token)
 
     LaunchedEffect(Unit) {
         if (System.getenv("ZAOMENG_SKIP_BACKEND") != "1") {
-            scope.launch { startBackend() }
+            scope.launch { startBackend(port, token, endpointProvider) }
         }
     }
 
@@ -67,9 +76,22 @@ fun main() = application {
     }
 }
 
-private fun startBackend() {
-    val port = System.getenv("ZAOMENG_PORT")?.toIntOrNull() ?: 8765
-    val token = System.getenv("ZAOMENG_TOKEN") ?: "desktop-dev-token"
+/** 桌面端后端端点：直接指向本进程内嵌的 Ktor 服务。 */
+class DesktopBackendEndpointProvider(
+    private val port: Int,
+    private val token: String,
+) : BackendEndpointProvider {
+    override suspend fun requireKtorEndpoint(): BackendEndpoint =
+        BackendEndpoint("http://127.0.0.1:$port")
+
+    override fun currentToken(): String = token
+}
+
+private fun startBackend(
+    port: Int,
+    token: String,
+    endpointProvider: BackendEndpointProvider,
+) {
     val dataRoot = System.getenv("ZAOMENG_DATA")?.let { it.toPath() }
 
     val services = KtorServiceGraph(
@@ -121,5 +143,14 @@ private fun startBackend() {
     })
 
     println("Zaomeng desktop backend listening on http://127.0.0.1:$port (token: $token)")
-    server.start(wait = true)
+    server.start(wait = false)
+
+    // 用共享数据层客户端自检一次，验证 desktop 端完整调用链路
+    runBlocking {
+        runCatching {
+            val client = KtorHttpClientProvider(endpointProvider)
+            KtorHealthClient(client).check("http://127.0.0.1:$port")
+            println("SHARED CLIENT HEALTH OK")
+        }.onFailure { println("SHARED CLIENT HEALTH FAILED: ${it.message}") }
+    }
 }

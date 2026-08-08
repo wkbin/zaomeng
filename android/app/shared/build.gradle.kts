@@ -37,12 +37,17 @@ kotlin {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.lifecycle.runtime)
             implementation(libs.compose.lifecycle.viewmodel)
-            implementation(libs.compose.navigation)
+            implementation(libs.jetbrains.navigation3.ui)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.client.logging)
+            implementation(libs.ktor.serialization.kotlinx.json)
             implementation(project(":server"))
         }
         androidMain.dependencies {
