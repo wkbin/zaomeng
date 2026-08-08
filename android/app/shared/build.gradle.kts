@@ -77,6 +77,10 @@ kotlin {
             getByName("iosMain") {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
+                    implementation(libs.ktor.server.cio.kmp)
+                    implementation(libs.ktor.server.core)
+                    implementation(libs.ktor.server.content.negotiation)
+                    implementation(libs.ktor.serialization.kotlinx.json)
                 }
             }
         }

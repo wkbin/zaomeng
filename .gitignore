@@ -71,3 +71,9 @@ clawhub-zaomeng-skill/runtime/data/
 # IDE/TOOLS
 .trae/
 .reasonix/
+
+# iOS / Xcode
+**/xcuserdata/
+**/*.xcuserstate
+**/DerivedData/
+.DS_Store

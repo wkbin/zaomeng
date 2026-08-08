@@ -41,11 +41,21 @@ class IosServerPlatform : ServerPlatform {
 class IosPromptSource : PromptSource {
     override fun read(relativePath: String): Pair<String, Long>? {
         val resourceRoot = NSBundle.mainBundle.resourcePath ?: return null
-        val file = resourceRoot + "/" + relativePath.trimStart('/')
-        if (!NSFileManager.defaultManager.fileExistsAtPath(file)) return null
-        return runCatching {
-            FileSystem.SYSTEM.source(file.toPath()).buffer().use { it.readUtf8() } to 0L
-        }.getOrNull()
+        val candidates = listOf(
+            // shared 的 composeResources 打包进 app bundle 后的路径（与 Res.readBytes 一致）
+            "$resourceRoot/compose-resources/files/prompts/" + relativePath.trimStart('/'),
+            // 手动放进 bundle 的 prompts 目录
+            "$resourceRoot/" + relativePath.trimStart('/'),
+        )
+        for (file in candidates) {
+            if (NSFileManager.defaultManager.fileExistsAtPath(file)) {
+                val text = runCatching {
+                    FileSystem.SYSTEM.source(file.toPath()).buffer().use { it.readUtf8() }
+                }.getOrNull() ?: continue
+                return text to 0L
+            }
+        }
+        return null
     }
 }
 
