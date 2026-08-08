@@ -1,11 +1,14 @@
 package top.wkbin.zaomeng.ktor
 
 import top.wkbin.zaomeng.platform.ServerPlatform
+import top.wkbin.zaomeng.db.RoomDocumentStore
+import top.wkbin.zaomeng.db.buildZaomengDatabase
 import top.wkbin.zaomeng.ktor.services.*
 
 /** Application-scoped Ktor services. Routes receive dependencies from this graph. */
 class KtorServiceGraph(platform: ServerPlatform) {
-    val storage = StorageService(platform.dataRoot)
+    private val database = buildZaomengDatabase(platform.databaseBuilder())
+    val storage = StorageService(platform.dataRoot, RoomDocumentStore(database.documentDao()))
     val diagnostics = DiagnosticsService(storage.getStorageRoot(), storage)
     val modelApiKeys = ModelApiKeyService(platform.secureStore())
     val promptLoader = PromptLoader(platform.promptSource)

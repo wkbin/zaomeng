@@ -1,10 +1,12 @@
 package top.wkbin.zaomeng.platform
 
 import io.ktor.client.engine.HttpClientEngine
+import androidx.room3.RoomDatabase
 import kotlinx.coroutines.CoroutineDispatcher
 import okio.ByteString.Companion.decodeBase64
 import okio.ByteString.Companion.toByteString
 import okio.Path
+import top.wkbin.zaomeng.db.ZaomengDatabase
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.TimeSource
@@ -65,11 +67,17 @@ expect val platformIoDispatcher: CoroutineDispatcher
 /** 平台 HTTP 客户端引擎（Android/JVM 均用 OkHttp）。 */
 expect fun createHttpClientEngine(): HttpClientEngine
 
+/** 平台阻塞桥接（JVM/Android 用 runBlocking；Room DAO 为 suspend，服务层保持同步语义）。 */
+expect fun <T> runBlockingPlatform(block: suspend kotlinx.coroutines.CoroutineScope.() -> T): T
+
 /** 服务器运行平台：数据根目录、提示词资源、安全密钥存储。 */
 interface ServerPlatform {
     val dataRoot: Path
     val promptSource: PromptSource
     fun secureStore(): SecureKeyValueStore
+
+    /** Room 数据库构建器（平台只提供路径/Context，驱动与协程上下文在公共代码统一配置）。 */
+    fun databaseBuilder(): RoomDatabase.Builder<ZaomengDatabase>
 }
 
 /** 安全键值存储（Android Keystore 加密；JVM 本地实现）。 */

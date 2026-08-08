@@ -1,9 +1,12 @@
 package top.wkbin.zaomeng.platform
 
 import android.content.Context
+import androidx.room3.RoomDatabase
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.backend.ModelApiKeyStore
+import top.wkbin.zaomeng.db.ZaomengDatabase
+import top.wkbin.zaomeng.db.getDatabaseBuilder
 import java.io.File
 
 /** Android 实现：数据目录 = filesDir/zaomeng，提示词走 assets+文件系统回退，密钥走 Keystore。 */
@@ -19,6 +22,9 @@ class AndroidServerPlatform(
     private val store = ModelApiKeyStore(appContext)
 
     override fun secureStore(): SecureKeyValueStore = store
+
+    override fun databaseBuilder(): RoomDatabase.Builder<ZaomengDatabase> =
+        getDatabaseBuilder(appContext)
 }
 
 private fun File.toOkioPath(): Path = absolutePath.toPath()

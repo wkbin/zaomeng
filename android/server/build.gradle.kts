@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp.library)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.room3)
 }
 
 kotlin {
@@ -31,6 +33,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.okio)
+            implementation(libs.androidx.room3.runtime)
+            implementation(libs.androidx.sqlite.bundled)
             implementation(libs.ktor.server.core)
             implementation(libs.ktor.server.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
@@ -60,4 +64,13 @@ kotlin {
             implementation(libs.kotlin.test.junit)
         }
     }
+}
+
+room3 {
+    schemaDirectory("$projectDir/schemas")
+}
+
+dependencies {
+    add("kspJvm", libs.androidx.room3.compiler)
+    add("kspAndroid", libs.androidx.room3.compiler)
 }

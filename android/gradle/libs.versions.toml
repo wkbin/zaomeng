@@ -18,6 +18,9 @@ androidxLifecycle = "2.11.0-beta01"
 navigation = "2.9.8"
 multiplatform-nav3-ui = "1.1.1"
 datastore = "1.2.1"
+room3 = "3.0.1"
+sqlite = "2.7.0"
+ksp = "2.3.11"
 koin = "4.1.1"
 okhttp = "4.12.0"
 serializationJson = "1.9.0"
@@ -52,6 +55,9 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 androidx-datastore = { module = "androidx.datastore:datastore", version.ref = "datastore" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room3" }
+androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room3" }
+androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
 koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
@@ -88,6 +94,8 @@ snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 [plugins]
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+androidx-room3 = { id = "androidx.room3", version.ref = "room3" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }

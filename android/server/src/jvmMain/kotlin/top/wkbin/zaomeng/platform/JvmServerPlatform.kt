@@ -4,8 +4,11 @@ import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.buffer
+import androidx.room3.RoomDatabase
 import java.io.File
 import java.util.Properties
+import top.wkbin.zaomeng.db.ZaomengDatabase
+import top.wkbin.zaomeng.db.getDatabaseBuilder
 
 /** JVM 实现：数据目录/提示词从仓库根目录解析（开发/测试用），密钥为本地文件存储。 */
 class JvmServerPlatform(
@@ -15,6 +18,9 @@ class JvmServerPlatform(
     private val store = FileSecureKeyValueStore(dataRoot / "secrets.properties")
 
     override fun secureStore(): SecureKeyValueStore = store
+
+    override fun databaseBuilder(): RoomDatabase.Builder<ZaomengDatabase> =
+        getDatabaseBuilder(dataRoot / "zaomeng.db")
 }
 
 private fun defaultDataRoot(): Path {

@@ -16,22 +16,28 @@ import kotlinx.serialization.json.put
 import okio.ByteString.Companion.toByteString
 import okio.FileSystem
 import okio.Path
-import okio.buffer
-import okio.use
+import top.wkbin.zaomeng.db.DocumentStore
+import top.wkbin.zaomeng.db.FileSystemDocumentStore
 import top.wkbin.zaomeng.ktor.models.*
-import top.wkbin.zaomeng.platform.monotonicNanos
+import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.toHex
 
 /**
  * 存储服务
  *
- * 管理运行数据的文件系统访问，对应 Python 的 manifest/store.py。
- * 文件 IO 使用 okio（KMP 通用），平台差异仅剩 FileSystem.SYSTEM 的实际实现。
+ * 管理运行数据的持久化访问，对应 Python 的 manifest/store.py。
+ *
+ * 生产环境统一走 Room（SQLite）文档存储；保留文件系统后端供测试与旧 :app 兼容。
+ * 所有业务路径语义（目录、递归删除、改名、mtime/大小）由 [DocumentStore] 承载。
  */
 class StorageService(
     private val storageRoot: Path,
-    private val fs: FileSystem = FileSystem.SYSTEM,
+    private val store: DocumentStore,
 ) {
+    /** 兼容旧构造：文件系统后端（测试/旧 :app 使用）。 */
+    constructor(storageRoot: Path, fs: FileSystem = FileSystem.SYSTEM) :
+        this(storageRoot, FileSystemDocumentStore(fs))
+
     /**
      * 按路径分片的写锁：不同 run/文件可并行写，同一路径仍串行。
      * 固定 64 路，避免全局锁串行化与无界锁表增长。
@@ -51,12 +57,12 @@ class StorageService(
     }
 
     private val runsRoot: Path
-        get() = (storageRoot / "runs").also { fs.createDirectories(it) }
+        get() = (storageRoot / "runs").also { store.mkdirs(it) }
 
     /** 获取存储根目录（供外部访问） */
     fun getStorageRoot(): Path = storageRoot
 
-    /** Serialize writes and replace the destination only after the full payload is on disk. */
+    /** 原子写入：先落完整内容再替换（Room 后端即事务 upsert）。 */
     fun writeTextAtomically(target: Path, content: String) {
         writeBytesAtomically(target, content.encodeToByteArray())
     }
@@ -64,97 +70,64 @@ class StorageService(
     /** 字节版原子写入（避免大文件先解码成 String 再回写）。 */
     fun writeBytesAtomically(target: Path, bytes: ByteArray) {
         synchronized(lockFor(target)) {
-            runCatching { fs.createDirectories(target.parent!!) }
-            val temp = target.parent!! / ".${target.name}.${monotonicNanos()}.tmp"
-            fs.sink(temp).buffer().use { sink -> sink.write(bytes) }
-            // Android（Linux）上 rename 可覆盖已存在目标；Windows 开发/测试环境无法覆盖，
-            // 此时先删除旧目标再重命名作为兜底（仅失败路径，不影响正常原子性）
-            if (!replace(temp, target)) {
-                runCatching { fs.delete(target) }
-                if (!replace(temp, target)) {
-                    runCatching { fs.delete(temp) }
-                    throw IllegalStateException("Unable to replace ${target.name}")
-                }
-            }
+            store.writeBytes(target, bytes, nowEpochMillis())
         }
     }
 
-    private fun replace(source: Path, target: Path): Boolean = try {
-        fs.atomicMove(source, target)
-        true
-    } catch (e: Exception) {
-        false
-    }
-
     /** 读取文本文件；不存在返回 null。 */
-    fun readTextOrNull(path: Path): String? {
-        if (!fs.exists(path)) return null
-        return runCatching { fs.source(path).buffer().use { it.readUtf8() } }.getOrNull()
-    }
+    fun readTextOrNull(path: Path): String? = store.readBytes(path)?.decodeToString()
 
     /** 读取整个文件字节；不存在/失败抛 IllegalStateException。 */
-    fun readBytes(path: Path): ByteArray {
-        if (!fs.exists(path)) throw IllegalStateException("File not found: $path")
-        return fs.source(path).buffer().use { it.readByteArray() }
-    }
+    fun readBytes(path: Path): ByteArray =
+        store.readBytes(path) ?: throw IllegalStateException("File not found: $path")
 
     // ------------------------------------------------------------------
     // 通用文件助手（供各服务做跨平台文件 IO，语义对齐 java.io.File）
     // ------------------------------------------------------------------
 
-    fun exists(path: Path): Boolean = fs.exists(path)
+    fun exists(path: Path): Boolean = store.exists(path)
 
-    fun isDirectory(path: Path): Boolean = fs.metadataOrNull(path)?.isDirectory == true
+    fun isDirectory(path: Path): Boolean = store.isDirectory(path)
 
-    fun isFile(path: Path): Boolean = fs.metadataOrNull(path)?.isRegularFile == true
+    fun isFile(path: Path): Boolean = store.isFile(path)
 
     /** 读取文本文件；不存在/失败抛 IllegalStateException（对齐 File.readText）。 */
     fun readText(path: Path): String =
         readTextOrNull(path) ?: throw IllegalStateException("File not found: $path")
 
     fun writeText(path: Path, content: String) {
-        runCatching { fs.createDirectories(path.parent!!) }
-        fs.sink(path).buffer().use { sink -> sink.writeUtf8(content) }
+        writeTextAtomically(path, content)
     }
 
     fun writeBytes(path: Path, bytes: ByteArray) {
-        runCatching { fs.createDirectories(path.parent!!) }
-        fs.sink(path).buffer().use { sink -> sink.write(bytes) }
+        writeBytesAtomically(path, bytes)
     }
 
     /** 追加文本（创建文件或续写；对齐 File.appendText）。 */
     fun appendText(path: Path, content: String) {
-        runCatching { fs.createDirectories(path.parent!!) }
-        fs.appendingSink(path).buffer().use { sink -> sink.writeUtf8(content) }
+        val existing = store.readBytes(path) ?: ByteArray(0)
+        writeBytesAtomically(path, existing + content.encodeToByteArray())
     }
 
     fun mkdirs(path: Path) {
-        fs.createDirectories(path)
+        store.mkdirs(path)
     }
 
     fun deleteFile(path: Path) {
-        runCatching { fs.delete(path) }
+        store.deleteFile(path)
     }
 
     fun deleteRecursively(path: Path) {
-        runCatching { fs.deleteRecursively(path) }
+        store.deleteRecursively(path)
     }
 
-    fun listFiles(path: Path): List<Path> =
-        if (fs.exists(path)) fs.list(path) else emptyList()
+    fun listFiles(path: Path): List<Path> = store.listFiles(path)
 
-    fun lastModifiedMillis(path: Path): Long =
-        fs.metadataOrNull(path)?.lastModifiedAtMillis ?: 0L
+    fun lastModifiedMillis(path: Path): Long = store.updatedAtMillis(path) ?: 0L
 
-    fun fileSize(path: Path): Long =
-        fs.metadataOrNull(path)?.size ?: 0L
+    fun fileSize(path: Path): Long = store.fileSize(path)
 
-    fun rename(source: Path, target: Path): Boolean = try {
-        fs.atomicMove(source, target)
-        true
-    } catch (e: Exception) {
-        false
-    }
+    fun rename(source: Path, target: Path): Boolean = store.rename(source, target)
 
     /**
      * 获取运行目录
@@ -184,7 +157,7 @@ class StorageService(
      */
     fun writeRunManifest(runId: String, manifest: JsonObject) {
         val manifestFile = getRunManifestPath(runId)
-        runCatching { fs.createDirectories(manifestFile.parent!!) }
+        store.mkdirs(manifestFile.parent!!)
         writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), manifest))
     }
 
@@ -192,12 +165,12 @@ class StorageService(
      * 列出所有运行 ID
      */
     fun listRunIds(): List<String> {
-        if (!fs.exists(runsRoot)) {
+        if (!store.isDirectory(runsRoot)) {
             return emptyList()
         }
 
-        return fs.list(runsRoot)
-            .filter { dir -> fs.metadataOrNull(dir)?.isDirectory == true && fs.exists(dir / "run_manifest.json") }
+        return store.listFiles(runsRoot)
+            .filter { dir -> store.isDirectory(dir) && store.isFile(dir / "run_manifest.json") }
             .mapNotNull { it.name }
             .sorted()
     }
@@ -206,19 +179,19 @@ class StorageService(
      * 列出所有运行清单（按修改时间倒序）
      */
     fun listRunManifests(): List<JsonObject> {
-        if (!fs.exists(runsRoot)) {
+        if (!store.isDirectory(runsRoot)) {
             return emptyList()
         }
 
-        return fs.list(runsRoot)
-            .filter { dir -> fs.metadataOrNull(dir)?.isDirectory == true }
+        return store.listFiles(runsRoot)
+            .filter { dir -> store.isDirectory(dir) }
             .mapNotNull { dir ->
                 val manifestFile = dir / "run_manifest.json"
                 val content = readTextOrNull(manifestFile)
                 if (content != null) {
                     try {
                         val manifest = json.parseToJsonElement(content).jsonObject
-                        manifest to (fs.metadataOrNull(manifestFile)?.lastModifiedAtMillis ?: 0L)
+                        manifest to lastModifiedMillis(manifestFile)
                     } catch (e: Exception) {
                         null
                     }
@@ -235,7 +208,7 @@ class StorageService(
      */
     fun runExists(runId: String): Boolean {
         return try {
-            fs.exists(getRunManifestPath(runId))
+            store.isFile(getRunManifestPath(runId))
         } catch (e: InvalidStorageIdentifierException) {
             false
         }
@@ -258,12 +231,12 @@ class StorageService(
      */
     fun listDialogueSessionIds(runId: String): List<String> {
         val sessionsDir = getDialogueSessionsDirectory(runId)
-        if (!fs.exists(sessionsDir)) {
+        if (!store.isDirectory(sessionsDir)) {
             return emptyList()
         }
 
-        return fs.list(sessionsDir)
-            .filter { fs.metadataOrNull(it)?.isDirectory == true }
+        return store.listFiles(sessionsDir)
+            .filter { store.isDirectory(it) }
             .mapNotNull { it.name }
             .filter { PathSafety.STORAGE_ID_PATTERN.matches(it) }
             .sorted()
@@ -301,12 +274,12 @@ class StorageService(
      */
     fun listChapterIds(runId: String): List<String> {
         val chaptersDir = getChaptersDirectory(runId)
-        if (!fs.exists(chaptersDir)) {
+        if (!store.isDirectory(chaptersDir)) {
             return emptyList()
         }
 
-        return fs.list(chaptersDir)
-            .filter { fs.metadataOrNull(it)?.isRegularFile == true && it.name.endsWith(".json") }
+        return store.listFiles(chaptersDir)
+            .filter { store.isFile(it) && it.name.endsWith(".json") }
             .mapNotNull { it.name.removeSuffix(".json") }
             .sorted()
     }
@@ -352,7 +325,7 @@ class StorageService(
      */
     fun writeModelSettings(settings: ModelSettings) {
         val settingsFile = getModelSettingsPath()
-        runCatching { fs.createDirectories(settingsFile.parent!!) }
+        store.mkdirs(settingsFile.parent!!)
         writeTextAtomically(settingsFile, json.encodeToString(settings))
     }
 
@@ -427,9 +400,8 @@ class StorageService(
     /** 头像版本号：mtime-大小；无头像文件返回空串（与 Python avatar_version 语义一致）。 */
     fun avatarVersion(runId: String, character: String): String {
         val file = avatarFile(runId, character)
-        val metadata = fs.metadataOrNull(file)
-        return if (metadata?.isRegularFile == true) {
-            "${metadata.lastModifiedAtMillis ?: 0}-${metadata.size}"
+        return if (store.isFile(file)) {
+            "${store.updatedAtMillis(file) ?: 0}-${store.fileSize(file)}"
         } else {
             ""
         }

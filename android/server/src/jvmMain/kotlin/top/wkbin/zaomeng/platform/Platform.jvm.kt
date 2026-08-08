@@ -3,7 +3,9 @@ package top.wkbin.zaomeng.platform
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import okio.Path
 import org.yaml.snakeyaml.DumperOptions
 import org.yaml.snakeyaml.Yaml
@@ -94,3 +96,6 @@ actual fun systemProperty(name: String): String? = System.getProperty(name)
 actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.IO
 
 actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
+
+actual fun <T> runBlockingPlatform(block: suspend CoroutineScope.() -> T): T =
+    runBlocking(block = block)
