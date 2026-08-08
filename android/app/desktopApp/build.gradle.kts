@@ -11,6 +11,7 @@ plugins {
 dependencies {
     implementation(project(":app:shared"))
     implementation(project(":server"))
+    implementation(libs.koin.core)
     implementation(libs.okio)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.core)

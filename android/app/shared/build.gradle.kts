@@ -45,6 +45,7 @@ kotlin {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
+            implementation(libs.compose.material.icons.extended)
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.ui.tooling.preview)
@@ -63,6 +64,9 @@ kotlin {
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.client.logging)
             implementation(libs.ktor.serialization.kotlinx.json)
+            implementation(libs.ktor.server.cio.kmp)
+            implementation(libs.ktor.server.core)
+            implementation(libs.ktor.server.content.negotiation)
             implementation(project(":server"))
         }
         androidMain.dependencies {
@@ -77,10 +81,6 @@ kotlin {
             getByName("iosMain") {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
-                    implementation(libs.ktor.server.cio.kmp)
-                    implementation(libs.ktor.server.core)
-                    implementation(libs.ktor.server.content.negotiation)
-                    implementation(libs.ktor.serialization.kotlinx.json)
                 }
             }
         }

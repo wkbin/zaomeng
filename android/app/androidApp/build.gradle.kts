@@ -19,6 +19,7 @@ android {
     defaultConfig {
         applicationId = "top.wkbin.zaomeng.app"
         minSdk = libs.versions.android.minSdk.get().toInt()
+        //noinspection OldTargetApi
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0.0"
@@ -49,6 +50,7 @@ android {
 dependencies {
     implementation(project(":app:shared"))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.koin.core)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
 }
