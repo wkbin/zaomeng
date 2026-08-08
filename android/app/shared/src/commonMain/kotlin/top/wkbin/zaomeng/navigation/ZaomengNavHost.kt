@@ -1,17 +1,8 @@
 package top.wkbin.zaomeng.navigation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -243,7 +234,6 @@ fun ZaomengNavHost(
                     },
                 )
             }
-            addEntryProvider(clazz = StoryRecapDestination::class) { PlaceholderScreen("剧情回顾（迁移中）") }
             addEntryProvider(clazz = ChaptersDestination::class) { destination ->
                 val viewModel: ChaptersViewModel =
                     koinViewModel(parameters = { parametersOf(destination.runId) })
@@ -302,19 +292,4 @@ fun ZaomengNavHost(
             }
         },
     )
-}
-
-@Composable
-private fun PlaceholderScreen(title: String) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
-        Text(
-            "该页面迁移中，后续 feature 会替换此占位。",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
 }
