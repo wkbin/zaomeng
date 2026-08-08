@@ -44,6 +44,7 @@ import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 import top.wkbin.zaomeng.feature.importbook.ImportBookViewModel
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
+import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
@@ -124,4 +125,7 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     viewModel { PersonaViewModel(get()) }
     viewModel { ImportBookViewModel(get(), get()) }
     viewModel { parameters -> RedistillViewModel(get(), parameters.get(), get()) }
+    viewModel { parameters ->
+        RunDetailViewModel(get(), parameters.get(), platform.cacheDir, get())
+    }
 }

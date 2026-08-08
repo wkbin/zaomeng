@@ -55,6 +55,8 @@ import top.wkbin.zaomeng.feature.importbook.ImportBookScreen
 import top.wkbin.zaomeng.feature.importbook.ImportBookViewModel
 import top.wkbin.zaomeng.feature.redistill.RedistillScreen
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
+import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
+import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -187,7 +189,23 @@ fun ZaomengNavHost() {
                     },
                 )
             }
-            addEntryProvider(clazz = RunDetailDestination::class) { PlaceholderScreen("运行详情（迁移中）") }
+            addEntryProvider(clazz = RunDetailDestination::class) { destination ->
+                val viewModel: RunDetailViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                RunDetailScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenPersona = { runId, character ->
+                        backStack.add(PersonaDestination(runId, character))
+                    },
+                    onOpenSessions = { runId -> backStack.add(SessionsDestination(runId)) },
+                    onOpenChapters = { runId -> backStack.add(ChaptersDestination(runId)) },
+                    onOpenRelations = { runId -> backStack.add(RelationsDestination(runId)) },
+                    onOpenWorldTimeline = { runId -> backStack.add(WorldTimelineDestination(runId)) },
+                    onOpenRedistill = { runId -> backStack.add(RedistillDestination(runId)) },
+                    onDeleted = { backStack.removeLastOrNull() },
+                )
+            }
             addEntryProvider(clazz = RedistillDestination::class) { destination ->
                 val viewModel: RedistillViewModel =
                     koinViewModel(parameters = { parametersOf(destination.runId) })
