@@ -48,12 +48,16 @@ import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 import org.koin.core.parameter.parametersOf
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.ServerPlatform
+import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.NovelConversionForeground
 
 /** 跨平台 Koin 模块：数据层 + 书卷架 ViewModel（feature 逐个追加）。 */
 fun sharedAppModule(platform: AppPlatform): Module = module {
     single<DataStore<Preferences>> { platform.dataStore }
     single<ServerPlatform> { platform.serverPlatform }
     single<SecureKeyValueStore> { platform.serverPlatform.secureStore() }
+    single<DistillationForeground> { platform.distillationForeground }
+    single<NovelConversionForeground> { platform.novelConversionForeground }
     single<BackendController> {
         LocalBackendController(platform.serverPlatform, platform.backendPort, platform.backendToken)
     }

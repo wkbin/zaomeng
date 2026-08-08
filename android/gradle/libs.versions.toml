@@ -28,6 +28,7 @@ ktor = "3.5.2"
 snakeyaml = "2.0"
 snakeyamlEngineKmp = "4.0.1"
 kitearchive = "0.1.0"
+slf4j = "2.0.17"
 desugarJdkLibs = "2.1.5"
 okio = "3.9.1"
 filekit = "0.14.2"
@@ -105,6 +106,7 @@ ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negoti
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 snakeyaml-engine-kmp = { module = "it.krzeminski:snakeyaml-engine-kmp", version.ref = "snakeyamlEngineKmp" }
 kitearchive = { module = "io.github.yuroyami:kitearchive", version.ref = "kitearchive" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 [plugins]
