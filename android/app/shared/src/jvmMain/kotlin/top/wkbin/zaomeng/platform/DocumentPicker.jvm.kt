@@ -1,0 +1,30 @@
+package top.wkbin.zaomeng.platform
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.swing.JFileChooser
+
+@Composable
+actual fun rememberDocumentPicker(onPicked: (name: String, bytes: ByteArray) -> Unit): () -> Unit {
+    val scope = rememberCoroutineScope()
+    return remember {
+        {
+            scope.launch {
+                val picked = withContext(Dispatchers.IO) {
+                    val chooser = JFileChooser()
+                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                        val file = chooser.selectedFile
+                        file.name to file.readBytes()
+                    } else {
+                        null
+                    }
+                }
+                if (picked != null) onPicked(picked.first, picked.second)
+            }
+        }
+    }
+}

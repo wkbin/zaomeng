@@ -6,7 +6,7 @@ import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.data.preferences.createDataStore
 import top.wkbin.zaomeng.platform.AndroidServerPlatform
 import top.wkbin.zaomeng.platform.AndroidNovelConversionForeground
-import top.wkbin.zaomeng.platform.NoopDistillationForeground
+import top.wkbin.zaomeng.platform.AndroidDistillationForeground
 import java.io.File
 
 /** Android 平台依赖：应用私有目录 + 内嵌后端（CIO）。 */
@@ -23,7 +23,7 @@ class AndroidAppPlatform(context: Context) : AppPlatform {
 
     override val backendToken: String = "android-dev-token"
 
-    override val distillationForeground = NoopDistillationForeground
+    override val distillationForeground = AndroidDistillationForeground(appContext)
 
     override val novelConversionForeground = AndroidNovelConversionForeground(appContext)
 }

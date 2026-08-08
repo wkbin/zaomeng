@@ -51,6 +51,10 @@ import top.wkbin.zaomeng.feature.timeline.WorldTimelineScreen
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 import top.wkbin.zaomeng.feature.update.AppUpdateScreen
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
+import top.wkbin.zaomeng.feature.importbook.ImportBookScreen
+import top.wkbin.zaomeng.feature.importbook.ImportBookViewModel
+import top.wkbin.zaomeng.feature.redistill.RedistillScreen
+import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -82,7 +86,16 @@ fun ZaomengNavHost() {
                     onOpenRun = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
             }
-            entry(ImportBookDestination) { PlaceholderScreen("导入书（迁移中）") }
+            entry(ImportBookDestination) {
+                val viewModel: ImportBookViewModel = koinViewModel()
+                ImportBookScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onOpenSettings = { backStack.add(ModelSettingsDestination) },
+                    onOpenOnlineLibrary = { backStack.add(OnlineLibraryDestination) },
+                    onRunCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
+                )
+            }
             entry(ModelSettingsDestination) {
                 SettingsHomeScreen(
                     onBack = { backStack.removeLastOrNull() },
@@ -175,6 +188,15 @@ fun ZaomengNavHost() {
                 )
             }
             addEntryProvider(clazz = RunDetailDestination::class) { PlaceholderScreen("运行详情（迁移中）") }
+            addEntryProvider(clazz = RedistillDestination::class) { destination ->
+                val viewModel: RedistillViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                RedistillScreen(
+                    viewModel = viewModel,
+                    onBack = { backStack.removeLastOrNull() },
+                    onStarted = { backStack.removeLastOrNull() },
+                )
+            }
             addEntryProvider(clazz = ChatDestination::class) { destination ->
                 val viewModel: ChatViewModel =
                     koinViewModel(parameters = { parametersOf(destination.runId, destination.sessionId) })

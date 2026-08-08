@@ -5,10 +5,15 @@ interface DistillationForeground {
     fun start()
 
     fun stopAll()
+
+    /** 是否已授予通知权限（Android 检查；其余平台恒真）。 */
+    fun hasNotificationPermission(): Boolean
 }
 
 object NoopDistillationForeground : DistillationForeground {
     override fun start() = Unit
 
     override fun stopAll() = Unit
+
+    override fun hasNotificationPermission(): Boolean = true
 }
