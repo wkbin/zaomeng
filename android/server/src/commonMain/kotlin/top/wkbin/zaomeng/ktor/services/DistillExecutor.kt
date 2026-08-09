@@ -27,6 +27,7 @@ import kotlinx.serialization.json.put
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.dumpYaml
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.parseYaml
@@ -77,15 +78,21 @@ class DistillExecutor(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val scope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
     private val running = HashMap<String, Job>()
+    private val runningLock = SimpleLock()
 
     /** 启动蒸馏任务（幂等：同一 run 已有任务则不重复启动）。 */
     fun start(runId: String, characters: List<String>) {
         val normalized = characters.map(String::trim).filter(String::isNotEmpty).distinct()
         if (normalized.isEmpty()) return
-        synchronized(running) {
-            if (running.containsKey(runId)) return
-            running[runId] = Job() // 占位，避免并发双启动
+        val alreadyRunning = runningLock.withLock {
+            if (running.containsKey(runId)) {
+                true
+            } else {
+                running[runId] = Job() // 占位，避免并发双启动
+                false
+            }
         }
+        if (alreadyRunning) return
         val job = scope.launch {
             try {
                 execute(runId, normalized)
@@ -93,14 +100,14 @@ class DistillExecutor(
                 PlatformLog.e(TAG, "Distillation failed for run=$runId: ${e.message}", e)
                 fail(runId, e.message ?: "蒸馏失败")
             } finally {
-                synchronized(running) { running.remove(runId) }
+                runningLock.withLock { running.remove(runId) }
             }
         }
-        synchronized(running) { running[runId] = job }
+        runningLock.withLock { running[runId] = job }
     }
 
     /** 是否正在蒸馏。 */
-    fun isRunning(runId: String): Boolean = synchronized(running) { running.containsKey(runId) }
+    fun isRunning(runId: String): Boolean = runningLock.withLock { running.containsKey(runId) }
 
     /** 模型是否已配置（对齐 Python restart_run_distill 的 model_is_configured 校验）。 */
     fun isConfigured(): Boolean =

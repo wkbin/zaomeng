@@ -12,6 +12,7 @@ import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.parseYaml
 import top.wkbin.zaomeng.platform.randomUuid
+import top.wkbin.zaomeng.platform.SimpleLock
 
 /**
  * 对话 LLM payload 构建（迁移自 Python src/web/chat/service.py 的
@@ -35,19 +36,19 @@ class DialoguePayloadBuilder(
      */
     private companion object {
         private val fileCache = HashMap<String, Pair<Long, Any?>>()
+        private val fileCacheLock = SimpleLock()
 
         /** 按 mtime 缓存文件解析结果；文件未变时复用，否则重新加载并更新缓存。 */
         fun <T> cachedFileResult(key: String, mtime: Long, loader: () -> T): T {
-            synchronized(fileCache) {
-                fileCache[key]?.let { (cachedMtime, cached) ->
-                    if (cachedMtime == mtime) {
-                        @Suppress("UNCHECKED_CAST")
-                        return cached as T
-                    }
-                }
+            val cached = fileCacheLock.withLock {
+                fileCache[key]?.takeIf { (cachedMtime, _) -> cachedMtime == mtime }?.second
+            }
+            if (cached != null) {
+                @Suppress("UNCHECKED_CAST")
+                return cached as T
             }
             val loaded = loader()
-            synchronized(fileCache) {
+            fileCacheLock.withLock {
                 fileCache[key] = mtime to loaded
             }
             return loaded

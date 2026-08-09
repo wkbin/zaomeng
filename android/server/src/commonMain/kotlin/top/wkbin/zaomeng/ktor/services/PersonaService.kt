@@ -279,7 +279,7 @@ class PersonaService(
                 val item = element.jsonObject
                 if (item["name"]?.jsonPrimitive?.contentOrNull == character) {
                     found = true
-                    add(buildJsonObject { item.forEach(::put); put("avatar_version", version) })
+                    add(buildJsonObject { item.forEach(::put); put("avatar_version", JsonPrimitive(version)) })
                 } else add(item)
             }
         }
@@ -291,7 +291,7 @@ class PersonaService(
     private fun isSupportedImage(bytes: ByteArray): Boolean =
         bytes.startsWith(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47)) ||
             bytes.startsWith(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte())) ||
-            (bytes.size >= 12 && bytes.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) && bytes.copyOfRange(8, 12).contentEquals("WEBP".toByteArray()))
+            (bytes.size >= 12 && bytes.copyOfRange(0, 4).contentEquals("RIFF".encodeToByteArray()) && bytes.copyOfRange(8, 12).contentEquals("WEBP".encodeToByteArray()))
 
     private fun ByteArray.startsWith(prefix: ByteArray) = size >= prefix.size && copyOfRange(0, prefix.size).contentEquals(prefix)
     private fun String.frontmatter(): String? = if (startsWith("---")) split("---", limit = 3).getOrNull(1) else null

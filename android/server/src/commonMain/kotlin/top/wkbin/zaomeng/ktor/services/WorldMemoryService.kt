@@ -18,12 +18,15 @@ import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldFactDto
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
+import top.wkbin.zaomeng.platform.SimpleLock
 
 class WorldMemoryService(private val storage: StorageService) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
-    private val runLocks = HashMap<String, Any>()
+    private val runLocks = HashMap<String, SimpleLock>()
+    private val runLocksLock = SimpleLock()
 
-    private fun lockFor(runId: String): Any = synchronized(runLocks) { runLocks.getOrPut(runId) { Any() } }
+    private fun lockFor(runId: String): SimpleLock =
+        runLocksLock.withLock { runLocks.getOrPut(runId) { SimpleLock() } }
 
     private val eventCategory = mapOf(
         "scene_transition" to "location",
@@ -115,7 +118,7 @@ class WorldMemoryService(private val storage: StorageService) {
         val cleanLocation = location.trim().take(100)
         val cleanTimeHint = timeHint.trim().take(80)
 
-        synchronized(lockFor(runId)) {
+        val updated = lockFor(runId).withLock {
             val payload = read(runId)
             val facts = (payload["facts"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
             val bySourceKey = LinkedHashMap<String, Int>()
@@ -235,8 +238,9 @@ class WorldMemoryService(private val storage: StorageService) {
                 put("updated_at", now)
             }
             write(runId, updated)
-            return updated
+            updated
         }
+        return updated
     }
 
     /**
@@ -244,7 +248,7 @@ class WorldMemoryService(private val storage: StorageService) {
      */
     fun purgeSession(runId: String, sessionId: String) {
         val safeSessionId = PathSafety.validateStorageId(sessionId, "session_id")
-        synchronized(lockFor(runId)) {
+        lockFor(runId).withLock {
             val payload = read(runId)
             val facts = payload["facts"]?.jsonArray ?: JsonArray(emptyList())
             val remainingFacts = facts.filterNot { item ->
@@ -256,7 +260,7 @@ class WorldMemoryService(private val storage: StorageService) {
                 runCatching { item.jsonObject["source_session_id"]?.jsonPrimitive?.contentOrNull == safeSessionId }
                     .getOrDefault(false)
             }
-            if (remainingFacts.size == facts.size && remainingTimeline.size == timeline.size) return
+            if (remainingFacts.size == facts.size && remainingTimeline.size == timeline.size) return@withLock
             write(runId, buildJsonObject {
                 payload.forEach { (k, v) -> if (k !in setOf("facts", "timeline", "updated_at")) put(k, v) }
                 put("facts", buildJsonArray { remainingFacts.forEach(::add) })

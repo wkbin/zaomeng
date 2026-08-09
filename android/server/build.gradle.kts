@@ -34,7 +34,6 @@ kotlin {
     if (isMacHost) {
         iosArm64()
         iosSimulatorArm64()
-        iosX64()
     }
 
     sourceSets {

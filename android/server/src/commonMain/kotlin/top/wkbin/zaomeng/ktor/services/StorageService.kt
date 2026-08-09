@@ -21,6 +21,7 @@ import top.wkbin.zaomeng.db.DocumentStore
 import top.wkbin.zaomeng.db.FileSystemDocumentStore
 import top.wkbin.zaomeng.ktor.models.*
 import top.wkbin.zaomeng.platform.nowEpochMillis
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.toHex
 
 /**
@@ -44,9 +45,9 @@ class StorageService(
      * 按路径分片的写锁：不同 run/文件可并行写，同一路径仍串行。
      * 固定 64 路，避免全局锁串行化与无界锁表增长。
      */
-    private val writeLocks = Array(64) { Any() }
+    private val writeLocks = Array(64) { SimpleLock() }
 
-    private fun lockFor(target: Path): Any {
+    private fun lockFor(target: Path): SimpleLock {
         val path = target.toString()
         val index = (path.hashCode() and Int.MAX_VALUE) % writeLocks.size
         return writeLocks[index]
@@ -71,7 +72,7 @@ class StorageService(
 
     /** 字节版原子写入（避免大文件先解码成 String 再回写）。 */
     fun writeBytesAtomically(target: Path, bytes: ByteArray) {
-        synchronized(lockFor(target)) {
+        lockFor(target).withLock {
             val mtime = nowEpochMillis()
             store.writeBytes(target, bytes, mtime)
             domain?.onWrite(target, bytes, mtime)

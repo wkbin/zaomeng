@@ -143,8 +143,8 @@ fun Route.chapterManagementRoutes(service: ChapterManagementService) {
                 ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
             )
             call.respondBytes(
-                rendered.toByteArray(Charsets.UTF_8),
-                ContentType.Text.Plain.withCharset(Charsets.UTF_8),
+                rendered.encodeToByteArray(),
+                ContentType.Text.Plain.withParameter("charset", "UTF-8"),
             )
         } catch (e: NoSuchElementException) {
             call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))

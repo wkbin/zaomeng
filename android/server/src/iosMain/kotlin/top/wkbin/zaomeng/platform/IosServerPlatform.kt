@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package top.wkbin.zaomeng.platform
 
 import androidx.room3.RoomDatabase
@@ -70,25 +72,25 @@ class IosFileSecureStore(
     private val file: Path,
 ) : SecureKeyValueStore {
     private val fs = FileSystem.SYSTEM
-    private val lock = Any()
+    private val lock = SimpleLock()
 
-    override fun get(key: String): String? = synchronized(lock) { load()[key] }
+    override fun get(key: String): String? = lock.withLock { load()[key] }
 
     override fun put(key: String, value: String) {
-        synchronized(lock) {
+        lock.withLock {
             val next = load().toMutableMap().apply { put(key, value) }
             save(next)
         }
     }
 
     override fun remove(key: String) {
-        synchronized(lock) {
+        lock.withLock {
             val next = load().toMutableMap().apply { remove(key) }
             save(next)
         }
     }
 
-    override fun entries(): Map<String, String> = synchronized(lock) { load() }
+    override fun entries(): Map<String, String> = lock.withLock { load() }
 
     private fun load(): Map<String, String> {
         if (!fs.exists(file)) return emptyMap()

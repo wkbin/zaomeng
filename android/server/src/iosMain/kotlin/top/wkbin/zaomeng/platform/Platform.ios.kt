@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package top.wkbin.zaomeng.platform
 
 import io.ktor.client.engine.HttpClientEngine
@@ -82,7 +84,7 @@ actual fun systemProperty(name: String): String? = when (name) {
     else -> null
 }
 
-actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.IO
+actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.Default
 
 actual fun createHttpClientEngine(): HttpClientEngine = Darwin.create()
 

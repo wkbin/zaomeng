@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.ktor.services
 
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.PromptSource
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.parseYaml
 
 /**
@@ -25,6 +26,7 @@ class PromptLoader(private val source: PromptSource) {
      * 提示词缓存：key = 相对路径，value = Pair<mtime, 解析结果>。
      */
     private val promptCache = HashMap<String, Pair<Long, Any?>>()
+    private val promptCacheLock = SimpleLock()
 
     /**
      * Load a prompt configuration file as a Map.
@@ -192,18 +194,20 @@ class PromptLoader(private val source: PromptSource) {
         load: (String) -> Any?,
     ): Any? {
         val mtime = source.lastModified(key) ?: 0L
-        synchronized(promptCache) {
+        var hit: Any? = null
+        promptCacheLock.withLock {
             promptCache[key]?.let { (cachedMtime, value) ->
-                if (cachedMtime == mtime) return value
+                if (cachedMtime == mtime) hit = value
             }
         }
-        val entry = source.read(key) ?: return synchronized(promptCache) { promptCache[key]?.second }
+        if (hit != null) return hit
+        val entry = source.read(key) ?: return promptCacheLock.withLock { promptCache[key]?.second }
         val text = entry.first
         val loaded = runCatching { load(text) }.getOrElse { e ->
             PlatformLog.e(TAG, "Failed to parse prompt config: $key", e)
-            synchronized(promptCache) { promptCache[key]?.second }
+            return promptCacheLock.withLock { promptCache[key]?.second }
         }
-        synchronized(promptCache) {
+        promptCacheLock.withLock {
             promptCache[key] = entry.second to loaded
         }
         return loaded

@@ -23,7 +23,7 @@ kotlin {
 
     // Apple target 只能在 macOS 主机上编译；Windows/CI(Linux) 自动跳过，保持本机构建可跑。
     if (isMacHost) {
-        listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { iosTarget ->
+        listOf(iosArm64(), iosSimulatorArm64()).forEach { iosTarget ->
             iosTarget.binaries.framework {
                 baseName = "Shared"
                 isStatic = true
