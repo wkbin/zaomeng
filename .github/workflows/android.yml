@@ -39,4 +39,12 @@ jobs:
 
       - name: Run Android checks
         working-directory: android
-        run: .\gradlew.bat testDebugUnitTest lintDebug assembleDebug --no-daemon --stacktrace
+        shell: pwsh
+        run: |
+          .\gradlew.bat testDebugUnitTest jvmTest lintDebug assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\gradle-ci.log"
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content "$env:RUNNER_TEMP\gradle-ci.log" |
+              Select-String -Pattern 'What went wrong|Caused by:|FAILURE:|Could not|> Task .* FAILED|error:|Exception|not found' |
+              Select-Object -First 40 | ForEach-Object { Write-Output "::error::$_" }
+            exit $LASTEXITCODE
+          }
