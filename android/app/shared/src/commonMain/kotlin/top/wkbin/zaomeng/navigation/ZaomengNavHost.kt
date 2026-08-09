@@ -58,6 +58,7 @@ import top.wkbin.zaomeng.feature.redistill.RedistillScreen
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
+import top.wkbin.zaomeng.platform.PlatformBackHandler
 /**
  * nav3 导航宿主：按窗口宽度自适应布局。
  *
@@ -79,6 +80,10 @@ fun ZaomengNavHost(
     onChaptersLaunchConsumed: () -> Unit = {},
     /** Android 预测性返回开关切换回调（参考 KernelSU），桌面/iOS 无此能力。 */
     onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
+    /** Android 预测性返回是否开启：关闭时 N3 的 OnBackInvoked 回调会被系统拒绝注册，
+     *  需要 AndroidX BackHandler（OnBackPressedDispatcher，走 legacy KEYCODE_BACK 路径）兜底；
+     *  开启时交给 NavDisplay 的预测返回回调，避免双触发。 */
+    predictiveBackEnabled: Boolean = false,
 ) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
 
@@ -104,6 +109,14 @@ fun ZaomengNavHost(
             backStack.removeLastOrNull()
         }
     }
+
+    // 预测返回关闭（默认）时，N3 注册的普通 OnBackInvokedCallback 会被系统拒绝，
+    // 系统退回 legacy KEYCODE_BACK → Activity.onBackPressed → OnBackPressedDispatcher 路径，
+    // 因此用 AndroidX BackHandler 兜底，保证返回键/手势始终可用（参考 KernelSU：栈深 >1 才拦截）。
+    PlatformBackHandler(
+        enabled = !predictiveBackEnabled && backStack.size > 1,
+        onBack = popBack,
+    )
 
     val navEntryProvider = entryProvider<NavKey> {
             entry(BookshelfDestination) {

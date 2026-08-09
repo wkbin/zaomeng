@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                 initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
                 initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
+                initialPredictiveBackEnabled = initialPreferences.predictiveBackEnabled,
                 onPredictiveBackEnabledChange = { enabled ->
                     lifecycleScope.launch {
                         GlobalContext.get().get<AppPreferencesRepository>()

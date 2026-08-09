@@ -41,6 +41,8 @@ fun App(
     initialUiScale: Float = UI_SCALE_DEFAULT,
     /** Android 预测性返回开关切换回调（参考 KernelSU）：由平台入口持久化并重建 Activity 生效。 */
     onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
+    /** 平台入口在启动时同步读取的持久化预测性返回开关（默认关闭），用于导航返回兜底。 */
+    initialPredictiveBackEnabled: Boolean = false,
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
@@ -54,6 +56,9 @@ fun App(
     )
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(
         initialValue = initialUiScale,
+    )
+    val predictiveBackEnabled by preferencesRepository.predictiveBackEnabled.collectAsStateWithLifecycle(
+        initialValue = initialPredictiveBackEnabled,
     )
     val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -84,6 +89,7 @@ fun App(
                 launchChaptersRunId = launchChaptersRunId,
                 onChaptersLaunchConsumed = onChaptersLaunchConsumed,
                 onPredictiveBackEnabledChange = onPredictiveBackEnabledChange,
+                predictiveBackEnabled = predictiveBackEnabled,
             )
         }
     }
