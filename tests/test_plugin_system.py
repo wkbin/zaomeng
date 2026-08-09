@@ -174,10 +174,10 @@ def _plugin_package_bytes(
 
 class PluginSystemTests(unittest.TestCase):
     def test_android_bundle_extracts_builtin_plugins_with_src_package(self):
-        settings_script = Path("android/settings.gradle.kts").read_text(encoding="utf-8")
+        settings_script = Path("kmp/settings.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('include(":builtin-plugins")', settings_script)
         builtin_registry = Path(
-            "android/builtin-plugins/src/commonMain/kotlin/"
+            "kmp/builtin-plugins/src/commonMain/kotlin/"
             "top/wkbin/zaomeng/plugins/builtin/BuiltinPlugins.kt"
         ).read_text(encoding="utf-8")
         self.assertIn("AiAssociationPlugin()", builtin_registry)
@@ -395,7 +395,7 @@ class PluginSystemTests(unittest.TestCase):
 
     def test_app_surfaces_plugin_management_entries(self):
         settings_home = Path(
-            "android/app/shared/src/commonMain/kotlin/"
+            "kmp/app/shared/src/commonMain/kotlin/"
             "top/wkbin/zaomeng/feature/settings/SettingsHomeScreen.kt"
         ).read_text(encoding="utf-8")
         web_modal = Path("src/web/static/fragments/settings-modal.html").read_text(
@@ -621,7 +621,7 @@ class PluginSystemTests(unittest.TestCase):
             self.assertEqual(result["suggestion"], "installed")
     def test_android_chat_surfaces_plugins_in_a_dedicated_menu(self):
         chat_screen = Path(
-            "android/app/shared/src/commonMain/kotlin/"
+            "kmp/app/shared/src/commonMain/kotlin/"
             "top/wkbin/zaomeng/feature/chat/ChatScreen.kt"
         ).read_text(encoding="utf-8")
 
@@ -629,7 +629,7 @@ class PluginSystemTests(unittest.TestCase):
         self.assertIn("state.pluginActions.forEach", chat_screen)
         self.assertIn("state.generationEnhancers.forEach", chat_screen)
         chat_view_model = Path(
-            "android/app/shared/src/commonMain/kotlin/"
+            "kmp/app/shared/src/commonMain/kotlin/"
             "top/wkbin/zaomeng/feature/chat/ChatViewModel.kt"
         ).read_text(encoding="utf-8")
         self.assertIn("temporaryNpcGenerators", chat_view_model)

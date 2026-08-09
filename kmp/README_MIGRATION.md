@@ -71,7 +71,7 @@ curl http://127.0.0.1:<PORT>/api/web/health
 ## 📁 项目结构
 
 ```
-android/
+kmp/
 ├── app/src/main/java/top/wkbin/zaomeng/
 │   ├── backend/
 │   │   └── BackendManager.kt          # 后端切换管理

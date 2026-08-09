@@ -5,11 +5,11 @@ on:
     branches:
       - main
     paths:
-      - "android/**"
+      - "kmp/**"
       - ".github/workflows/desktop.yml"
   pull_request:
     paths:
-      - "android/**"
+      - "kmp/**"
       - ".github/workflows/desktop.yml"
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Compile desktop app
-        working-directory: android
+        working-directory: kmp
         shell: bash
         run: |
           ./gradlew :app:desktopApp:compileKotlin --no-daemon --stacktrace --console=plain > /tmp/gradle-desktop.log 2>&1 || {

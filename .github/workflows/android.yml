@@ -5,11 +5,11 @@ on:
     branches:
       - main
     paths:
-      - "android/**"
+      - "kmp/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
-      - "android/**"
+      - "kmp/**"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run Android checks
-        working-directory: android
+        working-directory: kmp
         shell: pwsh
         run: |
           .\gradlew.bat testDebugUnitTest jvmTest lintDebug assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\gradle-ci.log"
