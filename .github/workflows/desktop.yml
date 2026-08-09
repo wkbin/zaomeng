@@ -1,0 +1,43 @@
+name: Desktop CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "android/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile desktop app
+        working-directory: android
+        shell: bash
+        run: |
+          ./gradlew :app:desktopApp:compileKotlin --no-daemon --stacktrace --console=plain > /tmp/gradle-desktop.log 2>&1 || {
+            grep -E 'What went wrong|Caused by:|FAILURE:|not found|Could not|error:|Exception|> Task .* FAILED' /tmp/gradle-desktop.log | head -40 | sed 's/^/::error::/' || true
+            tail -40 /tmp/gradle-desktop.log | sed 's/^/::error::tail /' || true
+            exit 1
+          }

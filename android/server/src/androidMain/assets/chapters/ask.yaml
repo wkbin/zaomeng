@@ -1,0 +1,2 @@
+# 问书卷 user 提示词模板（迁移自 Ktor ChapterManagementService.ask）
+template: "只依据以下书卷证据回答问题；没有证据就说明不知道。不要编造。\n问题：{question}\n\n证据：\n{evidence}"

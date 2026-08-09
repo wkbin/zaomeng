@@ -1,0 +1,2 @@
+# 章节改写 user 提示词模板（迁移自 Ktor ChapterService.rewrite）
+template: "请改写以下章节，保持事实、人物和叙事视角一致。\n{instruction_line}{context_line}原文：\n{original}"

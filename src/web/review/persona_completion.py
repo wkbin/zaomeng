@@ -8,6 +8,8 @@ from typing import Any, Callable
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
+from prompts.loader import get_persona_completion_prompt
+
 
 PERSONA_REVIEW_FIELD_LABELS = {
     "core_identity": "核心身份",
@@ -191,11 +193,7 @@ def build_persona_field_completion_messages(
                 "严格返回 JSON：{\"status\":\"filled\"|\"insufficient\",\"value\":\"...\",\"reason\":\"...\"}",
             ]
         )
-        system_content = (
-            "你是人物资料补全助手。任务是优先根据模型已有知识，为单个角色字段生成可直接写入表单的短内容。"
-            "只有在你对角色有稳定把握时才可填写；只要不确定，就必须返回 insufficient。"
-            "禁止在 value 中复述任务、解释推理、列出要求，value 必须是可直接粘贴进表单的最终中文。"
-        )
+        system_content = get_persona_completion_prompt("knowledge_based")
     else:
         user_prompt = "\n".join(
             [
@@ -219,11 +217,7 @@ def build_persona_field_completion_messages(
                 "严格返回 JSON：{\"status\":\"filled\"|\"insufficient\",\"value\":\"...\",\"reason\":\"...\"}",
             ]
         )
-        system_content = (
-            "你是人物资料补全助手。任务是根据给定的网页摘录，为单个角色字段生成可直接写入表单的短内容。"
-            "只有在网页摘录能支撑时才可填写；只要证据不足，就必须返回 insufficient。"
-            "禁止在 value 中复述任务、解释推理、列出要求，value 必须是可直接粘贴进表单的最终中文。"
-        )
+        system_content = get_persona_completion_prompt("web_based")
     return [
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_prompt},
@@ -281,7 +275,7 @@ def build_persona_field_retry_messages(
             ]
         )
     return [
-        {"role": "system", "content": "你是人物资料补全助手。只返回最终结果本身，不要附加格式。"},
+        {"role": "system", "content": get_persona_completion_prompt("simple")},
         {"role": "user", "content": user_prompt},
     ]
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 系统深色模式下冷启动/转场的窗口底色，与 Material3 深色 background 一致 -->
+    <style name="Theme.MyApplication" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF141218</item>
+    </style>
+</resources>

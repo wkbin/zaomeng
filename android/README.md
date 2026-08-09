@@ -1,18 +1,18 @@
 # 造梦 Android
 
-造梦 Android 将现有 Python/FastAPI 服务直接打包进 APK。业务接口只监听设备回环地址，书卷、人物和会话数据保存在 App 私有目录中，不需要部署中心服务器。模型推理仍会按用户配置访问对应的模型供应商；除这类模型请求外，Android 界面与 FastAPI 之间的通信都在手机本机完成。
+造梦 Android 内置 Kotlin Ktor 服务端（`:server` 模块），业务接口只监听设备回环地址，书卷、人物和会话数据保存在 App 私有目录中，不需要部署中心服务器。模型推理仍会按用户配置访问对应的模型供应商；除这类模型请求外，Android 界面与 Ktor 服务之间的通信都在手机本机完成。
 
 ## 运行架构
 
-1. `ZaomengApplication` 继承 Chaquopy 的 `PyApplication`，并通过 Koin 初始化依赖注入。
-2. `EmbeddedBackendController` 启动内嵌 Python 运行时，将数据根目录设为 App 私有目录，并让 `zaomeng_android.server` 在随机的 `127.0.0.1` 端口启动 Uvicorn/FastAPI。
-3. 每次安装生成的本机接口 Token 由 Android Keystore 保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Retrofit/OkHttp 客户端并附加认证信息。
+1. `androidApp` 的 `ZaomengApplication` 通过 Koin 初始化依赖注入；Ktor 服务端代码位于独立 `:server` KMP module（routes/services/models/plugins/认证，Room 持久化）。
+2. `KtorBackendController` 在随机 `127.0.0.1` 端口启动内嵌 Ktor (CIO) 服务，数据根目录设为 App 私有目录；服务端日志由 `CallLogging` 和 `StatusPages` 统一处理。
+3. 每次安装生成的本机接口 Token 由 Android Keystore 保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Retrofit/OkHttp 或 Ktor Client 并附加认证信息。
 4. Compose 界面采用 ViewModel 和 Repository 分层；Koin 提供 Repository、ViewModel、本机后端控制器及其他依赖。
 5. Navigation Compose 使用类型安全路由连接书架、导入、模型设置、书卷详情、人物资料、关系校对、卡片库、增量蒸馏、会话列表和聊天页面。
 6. Preferences DataStore 保存导入默认人物、自动蒸馏选项、聊天字号、紧凑显示模式以及最近访问的书卷和会话等轻量偏好；敏感的本机接口 Token 不存入 DataStore。
 7. 长时间蒸馏由 Android 前台服务监控，在通知中显示进度并可直接停止全部任务；结束、停止或失败时会发送结果通知，点击可回到书架。进程意外退出后，遗留任务会在下次启动时标记为已中断，并在书架提示可从未完成人物继续蒸馏，避免一直停留在运行中。
 
-Gradle 构建会把仓库根目录的 `src/`、`rules/` 和 `zaomeng-skill/` 同步进 APK。`builtin_novels/` 仅供 Web 端使用，不会打进 Android APK；首次启动时，只读资源会初始化到 App 私有目录，已经存在的用户文件不会被覆盖。
+对话、审校等 LLM 功能使用 `prompts/` 目录下的提示词 YAML 配置，该目录已打包进 APK 的 assets 供真机读取；`builtin_novels/` 仅供 Web 端使用，不会打进 Android APK。
 
 ## 已实现功能
 
@@ -31,19 +31,11 @@ Gradle 构建会把仓库根目录的 `src/`、`rules/` 和 `zaomeng-skill/` 同
 
 ## 构建
 
-Chaquopy 使用 Python 3.11 构建依赖。Windows 默认调用 PATH 中的 `python`，也可以在个人 `gradle.properties` 中指定解释器：
-
-```properties
-chaquopyBuildPython=C:/path/to/python.exe
-```
-
-不要在该文件中写入仓库级密钥或模型 API Key。
-
-命令行构建：
+需要 JDK 17+（如 Android Studio 自带的 JBR）与 Android SDK。命令行构建：
 
 ```powershell
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:androidApp:assembleDebug
 ```
 
 Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。

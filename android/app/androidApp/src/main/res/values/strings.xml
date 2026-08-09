@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">造梦</string>
+    <string name="content_disclaimer_title">内容使用声明</string>
+    <string name="content_disclaimer_message">本应用仅供个人学习、创作及整理已获授权的内容。请勿使用本应用处理、生成、存储或传播违法、淫秽色情、暴力恐怖、侵权或其他有害内容。\n\n你应对导入、蒸馏、生成及分享的全部内容承担责任。继续使用即表示你已阅读并同意以上声明。</string>
+    <string name="content_disclaimer_accept">我已知悉并同意</string>
+    <string name="content_disclaimer_decline">不同意并退出</string>
+</resources>

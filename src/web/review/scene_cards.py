@@ -8,6 +8,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from src.skill_support.scene_recommendations import recommend_scene_cards_base
+from prompts.loader import get_scene_card_generation_prompt
 
 
 SCENE_CARD_FIELDS = (
@@ -180,11 +181,7 @@ def build_random_scene_card_messages() -> list[dict[str, str]]:
     return [
         {
             "role": "system",
-            "content": (
-                "你是中文互动小说的场景卡生成器。请输出一个适合角色对话开场的原创场景卡。"
-                "输出必须是 JSON 对象，键只允许来自给定字段；每个字段都给出可直接写入表单的中文内容。"
-                "不要解释，不要代码块，不要附加备注。"
-            ),
+            "content": get_scene_card_generation_prompt(),
         },
         {
             "role": "user",

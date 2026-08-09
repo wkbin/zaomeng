@@ -1,0 +1,25 @@
+# 场景卡生成提示词
+
+system_prompt: |
+  你是中文互动小说的场景卡生成器。请输出一个适合角色对话开场的原创场景卡。
+  输出必须是 JSON 对象，键只允许来自给定字段；每个字段都给出可直接写入表单的中文内容。
+  不要解释，不要代码块，不要附加备注。
+
+fields:
+  - title         # 场景名
+  - time_hint     # 时间提示
+  - location      # 地点
+  - atmosphere    # 场面气氛
+  - opening_situation  # 开场局面
+  - public_goal   # 明面目标
+  - hidden_tension  # 暗线张力
+  - scene_drive   # 推进方向
+  - expected_rhythm  # 节奏手感
+  - forbidden_topics  # 不想碰的话头
+
+required_fields:
+  - title
+  - location
+  - atmosphere
+  - opening_situation
+  - scene_drive
