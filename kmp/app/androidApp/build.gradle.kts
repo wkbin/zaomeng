@@ -25,12 +25,12 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "top.wkbin.zaomeng.app"
+        applicationId = "top.wkbin.zaomeng"
         minSdk = libs.versions.android.minSdk.get().toInt()
         //noinspection OldTargetApi
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 7
-        versionName = "1.5.0"
+        versionCode = 8
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
