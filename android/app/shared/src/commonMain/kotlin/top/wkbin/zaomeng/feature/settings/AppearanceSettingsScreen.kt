@@ -30,11 +30,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +51,9 @@ import org.koin.compose.koinInject
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ThemeMode
 import top.wkbin.zaomeng.data.preferences.ThemeSeedColor
+import top.wkbin.zaomeng.data.preferences.UI_SCALE_DEFAULT
+import top.wkbin.zaomeng.data.preferences.UI_SCALE_MAX
+import top.wkbin.zaomeng.data.preferences.UI_SCALE_MIN
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -55,7 +63,10 @@ fun AppearanceSettingsScreen(
 ) {
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(0L)
+    val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(UI_SCALE_DEFAULT)
+    var uiScaleDraft by remember { mutableFloatStateOf(uiScale) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(uiScale) { uiScaleDraft = uiScale }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -125,6 +136,46 @@ fun AppearanceSettingsScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            item {
+                Column {
+                    Text(
+                        "界面缩放",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
+                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                "拖动滑杆调整整个应用的界面大小（参考 KernelSU 页面缩放），不影响系统设置。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "${(uiScaleDraft * 100).toInt()}%",
+                                modifier = Modifier.align(Alignment.End),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Slider(
+                                value = uiScaleDraft,
+                                onValueChange = { uiScaleDraft = it },
+                                onValueChangeFinished = {
+                                    scope.launch { preferencesRepository.setUiScale(uiScaleDraft) }
+                                },
+                                valueRange = UI_SCALE_MIN..UI_SCALE_MAX,
+                            )
                         }
                     }
                 }

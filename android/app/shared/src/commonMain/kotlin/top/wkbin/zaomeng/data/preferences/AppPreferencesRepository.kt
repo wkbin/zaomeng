@@ -20,6 +20,11 @@ const val CHAT_FONT_SCALE_MIN = 0.8f
 const val CHAT_FONT_SCALE_MAX = 1.3f
 const val CHAT_FONT_SCALE_DEFAULT = 1f
 
+/** 全局界面缩放（参考 KernelSU pageScale）：1f 为标准大小。 */
+const val UI_SCALE_MIN = 0.85f
+const val UI_SCALE_MAX = 1.25f
+const val UI_SCALE_DEFAULT = 1f
+
 data class ChatDisplayPreferences(
     val fontSizeScale: Float = CHAT_FONT_SCALE_DEFAULT,
     val compactMode: Boolean = false,
@@ -38,6 +43,7 @@ data class AppPreferences(
     val chatDisplay: ChatDisplayPreferences = ChatDisplayPreferences(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val themeSeedColorArgb: Long = 0L,
+    val uiScale: Float = UI_SCALE_DEFAULT,
 )
 
 /** 跨平台偏好仓库：全部平台统一走官方 KMP DataStore（Preferences）。 */
@@ -68,6 +74,7 @@ class AppPreferencesRepository(
                 ),
                 themeMode = ThemeMode.fromStorageValue(values[KEY_THEME_MODE]),
                 themeSeedColorArgb = values[KEY_THEME_SEED_COLOR] ?: 0L,
+                uiScale = (values[KEY_UI_SCALE] ?: UI_SCALE_DEFAULT).coerceIn(UI_SCALE_MIN, UI_SCALE_MAX),
             )
         }
 
@@ -81,6 +88,10 @@ class AppPreferencesRepository(
 
     val themeSeedColorArgb: Flow<Long> = preferences
         .map { it.themeSeedColorArgb }
+        .distinctUntilChanged()
+
+    val uiScale: Flow<Float> = preferences
+        .map { it.uiScale }
         .distinctUntilChanged()
 
     /**
@@ -202,6 +213,12 @@ class AppPreferencesRepository(
         }
     }
 
+    suspend fun setUiScale(scale: Float) {
+        dataStore.edit { values ->
+            values[KEY_UI_SCALE] = scale.coerceIn(UI_SCALE_MIN, UI_SCALE_MAX)
+        }
+    }
+
     private companion object {
         val KEY_DEFAULT_CHARACTERS = stringPreferencesKey("default_characters")
         val KEY_AUTO_DISTILL = booleanPreferencesKey("auto_distill")
@@ -218,6 +235,7 @@ class AppPreferencesRepository(
         val KEY_CHAT_BACKGROUND_BLUR_RADIUS = floatPreferencesKey("chat_background_blur_radius")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_THEME_SEED_COLOR = longPreferencesKey("theme_seed_color")
+        val KEY_UI_SCALE = floatPreferencesKey("ui_scale")
     }
 }
 
