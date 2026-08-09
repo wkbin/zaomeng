@@ -38,6 +38,10 @@ actual fun applySystemBars(darkTheme: Boolean) {
     val view = LocalView.current
     SideEffect {
         val window = (context as Activity).window
+        // 关闭系统在导航栏上自动叠加的对比度遮罩，让内容真正铺满（参考 KernelSU 边缘到边缘）。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         WindowCompat.getInsetsController(window, view).apply {
             isAppearanceLightStatusBars = !darkTheme
             isAppearanceLightNavigationBars = !darkTheme

@@ -93,9 +93,15 @@ fun ZaomengNavHost(
     val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
     val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
-    // 桌面 tab 语义：返回只在栈深 >1 时弹栈，顶级页（侧栏 tab）不会清空返回栈导致 NavDisplay 崩溃
+    // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回首页而不是退出；
+    // 首页（栈深 1）时不做任何事，由系统处理退出。顶级页不会被清空导致 NavDisplay 崩溃。
     val popBack: () -> Unit = {
-        if (backStack.size > 1) backStack.removeLastOrNull()
+        if (backStack.size > 1) {
+            backStack.removeLastOrNull()
+        } else if (backStack.firstOrNull() != BookshelfDestination) {
+            backStack.clear()
+            backStack.add(BookshelfDestination)
+        }
     }
 
     val navEntryProvider = entryProvider<NavKey> {
