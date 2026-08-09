@@ -63,6 +63,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +79,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -113,6 +116,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
+import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -124,6 +128,7 @@ import top.wkbin.zaomeng.platform.PlatformBackHandler
 import top.wkbin.zaomeng.platform.rememberClipboardTextWriter
 import top.wkbin.zaomeng.platform.rememberPlatformImage
 import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
+import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
@@ -170,6 +175,7 @@ private val directorActionOptions = listOf(
     DirectorActionOption("viewpoint", "切换视角"),
 )
 
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
@@ -178,8 +184,11 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenBranch: (runId: String, sessionId: String) -> Unit,
     onOpenStoryRecap: () -> Unit,
+    onSelectSession: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
@@ -300,7 +309,16 @@ fun ChatScreen(
             opacity = state.chatDisplay.backgroundOpacity,
             blurRadius = state.chatDisplay.backgroundBlurRadius,
         )
-        Scaffold(
+        Row(Modifier.fillMaxSize()) {
+            if (wideLayout) {
+                ChatSessionPane(
+                    sessions = state.runSessions,
+                    activeSessionId = sessionId,
+                    onSelect = onSelectSession,
+                )
+            }
+            Box(Modifier.weight(1f)) {
+                Scaffold(
         containerColor = Color.Transparent,
         topBar = {
             Surface(color = chromeMaskColor) {
@@ -418,7 +436,96 @@ fun ChatScreen(
                 }
             }
         }
+            }
+        }
     }
+}
+
+/** 桌面端聊天主从布局左侧面板：本卷会话列表，点击切换到其他会话。 */
+@Composable
+private fun ChatSessionPane(
+    sessions: List<DialogueSessionDto>,
+    activeSessionId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val sorted = remember(sessions) {
+        sessions.sortedByDescending { it.updatedAt }
+    }
+    Surface(
+        modifier = modifier.width(280.dp).fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Text(
+                text = "本卷会话",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (sorted.isEmpty()) {
+                Text(
+                    text = "暂无会话",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(sorted, key = DialogueSessionDto::sessionId) { session ->
+                        val selected = session.sessionId == activeSessionId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !selected) { onSelect(session.sessionId) }
+                                .background(
+                                    if (selected) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                    },
+                                )
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = session.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${chatSessionModeLabel(session.mode)} · ${session.updatedAt.toLocalDateTimeDisplay()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(
+                                text = if (session.status == "ready") "可继续" else "待处理",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (session.status == "ready") {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.tertiary
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun chatSessionModeLabel(mode: String): String = when (mode) {
+    "act" -> "扮演"
+    "insert" -> "入场"
+    else -> "旁观"
 }
 
 @Composable

@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -839,6 +842,7 @@ private fun ErrorCard(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun NewSessionDialog(
     state: SessionsUiState,
     onDismiss: () -> Unit,
@@ -911,11 +915,15 @@ private fun NewSessionDialog(
                 item {
                     Text("出场人物", style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(4.dp))
-                    Column {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         state.availableCharacters.forEach { character ->
                             Row(
                                 modifier = Modifier
-                                    .fillMaxWidth()
+                                    .width(190.dp)
                                     .clickable(enabled = !state.creating) { onToggleParticipant(character) },
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -924,7 +932,7 @@ private fun NewSessionDialog(
                                     onCheckedChange = null,
                                     enabled = !state.creating,
                                 )
-                                Text(character)
+                                Text(character, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -933,19 +941,25 @@ private fun NewSessionDialog(
                 if (state.draft.mode == "act") {
                     item {
                         Text("你要扮演谁", style = MaterialTheme.typography.labelLarge)
-                        state.draft.participants.forEach { character ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !state.creating) { onSelectControlled(character) },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(
-                                    selected = state.draft.controlledCharacter == character,
-                                    onClick = null,
-                                    enabled = !state.creating,
-                                )
-                                Text(character)
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            state.draft.participants.forEach { character ->
+                                Row(
+                                    modifier = Modifier
+                                        .width(190.dp)
+                                        .clickable(enabled = !state.creating) { onSelectControlled(character) },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = state.draft.controlledCharacter == character,
+                                        onClick = null,
+                                        enabled = !state.creating,
+                                    )
+                                    Text(character, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }

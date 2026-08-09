@@ -114,6 +114,8 @@ data class ChatUiState(
     val includeInnerThoughts: Boolean = false,
     val toolBusy: String = "",
     val session: DialogueSessionDto? = null,
+    /** 本卷会话列表（桌面端主从布局左侧面板用）。 */
+    val runSessions: List<DialogueSessionDto> = emptyList(),
     val avatarBytes: Map<String, ByteArray> = emptyMap(),
     val sceneCards: List<ReusableCardDto> = emptyList(),
     val pluginActions: List<ChatPluginAction> = emptyList(),
@@ -276,6 +278,8 @@ class ChatViewModel(
         }
         loadJob = viewModelScope.launch {
             try {
+                val runSessions = runCatching { repository.listSessions(normalizedRunId) }
+                    .getOrDefault(emptyList())
                 val loadedSession = repository.getSession(normalizedRunId, normalizedSessionId)
                 val session = if (loadedSession.status == "ready") {
                     loadedSession
@@ -293,6 +297,7 @@ class ChatViewModel(
                         loading = false,
                         refreshing = false,
                         session = session,
+                        runSessions = runSessions,
                         avatarBytes = avatars,
                         pluginActions = plugins.actions,
                         generationEnhancers = plugins.enhancers,

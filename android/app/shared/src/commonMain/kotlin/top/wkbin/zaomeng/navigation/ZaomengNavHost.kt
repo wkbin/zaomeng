@@ -255,6 +255,14 @@ fun ZaomengNavHost(
                     onOpenStoryRecap = {
                         backStack.add(StoryRecapDestination(destination.runId, destination.sessionId))
                     },
+                    onSelectSession = { newSessionId ->
+                        if (newSessionId != destination.sessionId) {
+                            // 桌面端主从布局：原地替换当前聊天条目，per-entry ViewModelStore
+                            // 会重建 VM 并加载新会话
+                            backStack.removeLastOrNull()
+                            backStack.add(ChatDestination(destination.runId, newSessionId))
+                        }
+                    },
                 )
             }
             addEntryProvider(clazz = ChaptersDestination::class) { destination ->
