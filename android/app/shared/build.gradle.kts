@@ -99,7 +99,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.swing)
         }
         if (isMacHost) {
-            getByName("iosMain") {
+            iosMain {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
                     implementation(libs.kitearchive)

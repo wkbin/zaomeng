@@ -75,7 +75,7 @@ kotlin {
             implementation(libs.ktor.server.test.host)
         }
         if (isMacHost) {
-            getByName("iosMain") {
+            iosMain {
                 dependencies {
                     implementation(libs.ktor.client.darwin)
                     implementation(libs.snakeyaml.engine.kmp)
