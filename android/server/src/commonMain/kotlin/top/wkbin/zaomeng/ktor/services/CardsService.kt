@@ -2,6 +2,8 @@ package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * 场景卡字段清单（对齐 Python src/web/review/scene_cards.py:SCENE_CARD_FIELDS）。
@@ -91,15 +93,26 @@ class CardsService(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    suspend fun generateSceneCard(): JsonObject = generate(
-        prompts.getSceneCardGenerationPrompt(),
-        buildSceneCardInstruction()
+    suspend fun generateSceneCard(): JsonObject = generateCard(
+        kind = "scene",
+        system = prompts.getSceneCardGenerationPrompt(),
+        instruction = buildSceneCardInstruction(),
     )
 
-    suspend fun generateSelfCard(): JsonObject = generate(
-        prompts.getSelfCardGenerationPrompt(),
-        buildSelfCardInstruction()
+    suspend fun generateSelfCard(): JsonObject = generateCard(
+        kind = "self",
+        system = prompts.getSelfCardGenerationPrompt(),
+        instruction = buildSelfCardInstruction(),
     )
+
+    /**
+     * 生成并包装为卡片响应（fields + preview，对齐 Python generate_*_card 返回形状）。
+     * 客户端按 ReusableCardDto 解码，缺 fields 包装会得到空白卡。
+     */
+    private suspend fun generateCard(kind: String, system: String, instruction: String): JsonObject {
+        val fields = generate(system, instruction)
+        return cardResponse(kind, fields)
+    }
 
     /**
      * 场景卡 user prompt（对齐 Python build_random_scene_card_messages）。
@@ -148,4 +161,28 @@ class CardsService(
             throw IllegalStateException("LLM returned invalid card JSON", error)
         }
     }
+}
+
+/** 卡片生成响应包装（fields + preview；客户端按 ReusableCardDto 解码）。 */
+internal fun cardResponse(kind: String, fields: JsonObject): JsonObject = buildJsonObject {
+    put("card_id", "")
+    put("kind", kind)
+    put("fields", fields)
+    put("preview", cardPreview(kind, fields))
+    put("created_at", "")
+    put("updated_at", "")
+}
+
+internal fun cardPreview(kind: String, fields: JsonObject): JsonObject = buildJsonObject {
+    val keys = when (kind) {
+        "scene" -> listOf(
+            "title", "time_hint", "location", "atmosphere",
+            "opening_situation", "scene_drive", "expected_rhythm",
+        )
+        else -> listOf(
+            "display_name", "scene_identity", "core_identity", "story_role",
+            "temperament_type", "speech_style", "soul_goal",
+        )
+    }
+    keys.forEach { key -> fields[key]?.let { put(key, it) } }
 }
