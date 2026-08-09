@@ -10,7 +10,8 @@ import java.util.Properties
 import top.wkbin.zaomeng.db.ZaomengDatabase
 import top.wkbin.zaomeng.db.getDatabaseBuilder
 
-/** JVM 实现：数据目录/提示词从仓库根目录解析（开发/测试用），密钥为本地文件存储。 */
+/** JVM 实现：数据目录/提示词优先从仓库根目录解析（开发/测试用），
+ *  打包安装后自动落到用户可写目录，密钥为本地文件存储。 */
 class JvmServerPlatform(
     override val dataRoot: Path = defaultDataRoot(),
     override val promptSource: PromptSource = JvmPromptSource(),
@@ -23,54 +24,65 @@ class JvmServerPlatform(
         getDatabaseBuilder(dataRoot / "zaomeng.db")
 }
 
-private fun defaultDataRoot(): Path {
-    val repoRoot = File(System.getProperty("user.dir")).let { cwd ->
-        sequence {
-            var dir: File? = cwd
-            while (dir != null) {
-                yield(dir)
-                dir = dir.parentFile
-            }
-        }.firstOrNull { File(it, "prompts").isDirectory }
-            ?: cwd
+internal fun defaultDataRoot(cwd: File = File(System.getProperty("user.dir"))): Path {
+    val repoRoot = findRepoRoot(cwd)
+    return if (repoRoot != null) {
+        // 开发/测试：数据目录留在仓库根，复用已有 zaomeng-data
+        File(repoRoot, "zaomeng-data").absolutePath.toPath()
+    } else {
+        // 打包安装（如 C:\Program Files\造梦）不可写：落到用户目录
+        val home = System.getProperty("user.home").takeIf { it.isNotBlank() }
+            ?: cwd.absolutePath
+        File(home, ".zaomeng/server").absolutePath.toPath()
     }
-    return File(repoRoot, "zaomeng-data").absolutePath.toPath()
 }
 
-/** JVM 提示词读取：仓库根 prompts/ 与 zaomeng-skill/（无 assets）。 */
-class JvmPromptSource : PromptSource {
-    private val repoRoot: File by lazy {
-        File(System.getProperty("user.dir")).let { cwd ->
-            sequence {
-                var dir: File? = cwd
-                while (dir != null) {
-                    yield(dir)
-                    dir = dir.parentFile
-                }
-            }.firstOrNull { File(it, "prompts").isDirectory }
-                ?: throw IllegalStateException("Could not locate prompts directory")
-        }
+internal fun findRepoRoot(cwd: File): File? = sequence {
+    var dir: File? = cwd
+    while (dir != null) {
+        yield(dir)
+        dir = dir.parentFile
+    }
+}.firstOrNull { File(it, "prompts").isDirectory }
+
+/**
+ * JVM 提示词读取：
+ * 1. 仓库根 prompts/ 与 zaomeng-skill/（开发/测试）；
+ * 2. 打包后回退到 classpath 内的 composeResources 提示词（随 shared jar 分发）。
+ */
+class JvmPromptSource(
+    private val cwd: File = File(System.getProperty("user.dir")),
+) : PromptSource {
+    private val repoRoot: File? by lazy {
+        findRepoRoot(cwd)
     }
 
-    private fun resolveFile(relativePath: String): File? {
-        val configFile = File(repoRoot, "prompts").resolve(relativePath)
+    private fun resolveRepoFile(relativePath: String): File? {
+        val root = repoRoot ?: return null
+        val configFile = File(root, "prompts").resolve(relativePath)
         if (configFile.exists()) return configFile
         // zaomeng-skill 的蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录
         val skillName = relativePath.removePrefix("distill/")
         return listOf(
-            File(repoRoot, "zaomeng-skill").resolve(skillName),
-            File(repoRoot, "zaomeng-skill/prompts").resolve(skillName),
-            File(repoRoot, "zaomeng-skill/references").resolve(skillName),
+            File(root, "zaomeng-skill").resolve(skillName),
+            File(root, "zaomeng-skill/prompts").resolve(skillName),
+            File(root, "zaomeng-skill/references").resolve(skillName),
         ).firstOrNull { it.exists() }
     }
 
+    private fun resourcePath(relativePath: String): String =
+        "composeResources/zaomeng.app.shared.generated.resources/files/prompts/$relativePath"
+
     override fun read(relativePath: String): Pair<String, Long>? {
-        val file = resolveFile(relativePath) ?: return null
-        return file.readText() to file.lastModified()
+        resolveRepoFile(relativePath)?.let { return it.readText() to it.lastModified() }
+        val stream = javaClass.classLoader.getResourceAsStream(resourcePath(relativePath))
+            ?: return null
+        return stream.use { it.readBytes().decodeToString() } to 0L
     }
 
     override fun lastModified(relativePath: String): Long? {
-        return resolveFile(relativePath)?.lastModified()
+        resolveRepoFile(relativePath)?.let { return it.lastModified() }
+        return if (javaClass.classLoader.getResource(resourcePath(relativePath)) != null) 0L else null
     }
 }
 

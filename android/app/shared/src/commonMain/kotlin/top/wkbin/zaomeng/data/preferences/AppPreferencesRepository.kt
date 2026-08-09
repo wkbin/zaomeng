@@ -13,23 +13,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import okio.IOException
 
-enum class ChatFontSize(
-    val storageValue: String,
-    val scale: Float,
-) {
-    SMALL("small", 0.9f),
-    STANDARD("standard", 1f),
-    LARGE("large", 1.15f),
-    ;
-
-    companion object {
-        fun fromStorageValue(value: String?): ChatFontSize =
-            entries.firstOrNull { it.storageValue == value } ?: STANDARD
-    }
-}
+/** 消息字号连续缩放比例：1f 为标准大小。 */
+const val CHAT_FONT_SCALE_MIN = 0.8f
+const val CHAT_FONT_SCALE_MAX = 1.3f
+const val CHAT_FONT_SCALE_DEFAULT = 1f
 
 data class ChatDisplayPreferences(
-    val fontSize: ChatFontSize = ChatFontSize.STANDARD,
+    val fontSizeScale: Float = CHAT_FONT_SCALE_DEFAULT,
     val compactMode: Boolean = false,
     val showModelReasoning: Boolean = false,
     val backgroundImageUri: String = "",
@@ -63,7 +53,10 @@ class AppPreferencesRepository(
                 lastRunId = values[KEY_LAST_RUN_ID].orEmpty(),
                 lastSessionId = values[KEY_LAST_SESSION_ID].orEmpty(),
                 chatDisplay = ChatDisplayPreferences(
-                    fontSize = ChatFontSize.fromStorageValue(values[KEY_CHAT_FONT_SIZE]),
+                    fontSizeScale = chatFontScaleFrom(
+                        values[KEY_CHAT_FONT_SCALE],
+                        values[KEY_CHAT_FONT_SIZE],
+                    ),
                     compactMode = values[KEY_CHAT_COMPACT_MODE] ?: false,
                     showModelReasoning = values[KEY_CHAT_SHOW_MODEL_REASONING] ?: false,
                     backgroundImageUri = values[KEY_CHAT_BACKGROUND_IMAGE_URI].orEmpty(),
@@ -134,8 +127,10 @@ class AppPreferencesRepository(
         }
     }
 
-    suspend fun setChatFontSize(fontSize: ChatFontSize) {
-        dataStore.edit { values -> values[KEY_CHAT_FONT_SIZE] = fontSize.storageValue }
+    suspend fun setChatFontSize(scale: Float) {
+        dataStore.edit { values ->
+            values[KEY_CHAT_FONT_SCALE] = scale.coerceIn(CHAT_FONT_SCALE_MIN, CHAT_FONT_SCALE_MAX)
+        }
     }
 
     suspend fun setCompactChatMode(enabled: Boolean) {
@@ -167,7 +162,8 @@ class AppPreferencesRepository(
 
     suspend fun saveChatDisplayPreferences(preferences: ChatDisplayPreferences) {
         dataStore.edit { values ->
-            values[KEY_CHAT_FONT_SIZE] = preferences.fontSize.storageValue
+            values[KEY_CHAT_FONT_SCALE] = preferences.fontSizeScale
+                .coerceIn(CHAT_FONT_SCALE_MIN, CHAT_FONT_SCALE_MAX)
             values[KEY_CHAT_COMPACT_MODE] = preferences.compactMode
             values[KEY_CHAT_SHOW_MODEL_REASONING] = preferences.showModelReasoning
             if (preferences.backgroundImageUri.isBlank()) values.remove(KEY_CHAT_BACKGROUND_IMAGE_URI)
@@ -191,6 +187,8 @@ class AppPreferencesRepository(
         val KEY_RESTORE_LAST_LOCATION = booleanPreferencesKey("restore_last_location")
         val KEY_LAST_RUN_ID = stringPreferencesKey("last_run_id")
         val KEY_LAST_SESSION_ID = stringPreferencesKey("last_session_id")
+        val KEY_CHAT_FONT_SCALE = floatPreferencesKey("chat_font_scale")
+        // 旧版枚举字号（small/standard/large）仅用于迁移读取
         val KEY_CHAT_FONT_SIZE = stringPreferencesKey("chat_font_size")
         val KEY_CHAT_COMPACT_MODE = booleanPreferencesKey("chat_compact_mode")
         val KEY_CHAT_SHOW_MODEL_REASONING = booleanPreferencesKey("chat_show_model_reasoning")
@@ -199,4 +197,13 @@ class AppPreferencesRepository(
         val KEY_CHAT_BACKGROUND_BLUR_RADIUS = floatPreferencesKey("chat_background_blur_radius")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
     }
+}
+
+private fun chatFontScaleFrom(scale: Float?, legacy: String?): Float =
+    (scale ?: legacyFontScale(legacy)).coerceIn(CHAT_FONT_SCALE_MIN, CHAT_FONT_SCALE_MAX)
+
+private fun legacyFontScale(value: String?): Float = when (value) {
+    "small" -> 0.9f
+    "large" -> 1.15f
+    else -> CHAT_FONT_SCALE_DEFAULT
 }

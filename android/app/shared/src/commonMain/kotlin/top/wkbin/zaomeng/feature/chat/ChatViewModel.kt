@@ -908,13 +908,9 @@ class ChatViewModel(
                             }
                             updateSendState(snapshot, operationId) { current ->
                                 val base = current.session?.transcript ?: baseline
-                                val merged = when {
-                                    event.replayed && appended.isNotEmpty() -> {
-                                        val appendedTurnId = appended.first().turnId
-                                        base.filterNot { it.turnId == appendedTurnId } + appended
-                                    }
-                                    else -> base + appended
-                                }
+                                // 按 turn_id 幂等合并：断连重试/补齐时已存在的条目替换而非重复追加，
+                                // 避免“整个历史重复一遍”（重新进会话不受影响是因为服务端数据本身没重复）
+                                val merged = mergeTranscript(base, appended)
                                 // 新格式：流式 complete 始终为轻量会话（transcript_count 由服务端携带）
                                 val session = event.session.copy(
                                     transcript = merged,
@@ -1057,7 +1053,7 @@ class ChatViewModel(
             it.copy(
                 sending = false,
                 session = refreshed?.copy(
-                    transcript = baseline + committedAppend,
+                    transcript = mergeTranscript(baseline, committedAppend),
                     transcriptCount = refreshed.transcriptCount,
                 ) ?: it.session,
                 draft = if (responseWasCommitted) "" else it.draft,
@@ -1159,7 +1155,7 @@ class ChatViewModel(
                             transcript = if (recovered.transcript.isNotEmpty()) {
                                 recovered.transcript
                             } else {
-                                baseline + committedAppend
+                                mergeTranscript(baseline, committedAppend)
                             },
                             transcriptCount = recovered.transcriptCount,
                         ),
@@ -1242,7 +1238,7 @@ class ChatViewModel(
                             transcript = if (refreshed.transcript.isNotEmpty()) {
                                 refreshed.transcript
                             } else {
-                                baseline + committedAppend
+                                mergeTranscript(baseline, committedAppend)
                             },
                             transcriptCount = refreshed.transcriptCount,
                         ),
@@ -1845,6 +1841,21 @@ internal fun committedAppend(
     return appended.takeIf { items ->
         items.any { it.role != "user" && it.message.isNotBlank() }
     }.orEmpty()
+}
+
+/**
+ * 按 turn_id 幂等合并 transcript：append 中已存在于 base 的条目替换而非重复追加。
+ * 断连重试 / 失败恢复时，base 可能已经包含部分或全部本轮条目（本地已拼过、服务端已提交），
+ * 直接 `base + append` 会把整段历史重复一遍；按 turn_id 去重后天然幂等。
+ */
+internal fun mergeTranscript(
+    base: List<TranscriptItemDto>,
+    append: List<TranscriptItemDto>,
+): List<TranscriptItemDto> {
+    if (append.isEmpty()) return base
+    val appendedTurnIds = append.map { it.turnId }.filter { it.isNotBlank() }.toSet()
+    if (appendedTurnIds.isEmpty()) return base + append
+    return base.filterNot { it.turnId in appendedTurnIds } + append
 }
 
 private fun hasCommittedContent(items: List<TranscriptItemDto>): Boolean =

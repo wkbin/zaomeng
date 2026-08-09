@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,8 +35,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
+import top.wkbin.zaomeng.data.preferences.CHAT_FONT_SCALE_MAX
+import top.wkbin.zaomeng.data.preferences.CHAT_FONT_SCALE_MIN
 import top.wkbin.zaomeng.data.preferences.ChatDisplayPreferences
-import top.wkbin.zaomeng.data.preferences.ChatFontSize
 import top.wkbin.zaomeng.feature.chat.ChatBackgroundImage
 import top.wkbin.zaomeng.platform.rememberImagePicker
 
@@ -54,9 +54,13 @@ fun ChatDisplaySettingsCard(
     var error by remember { mutableStateOf("") }
     var backgroundOpacity by remember { mutableFloatStateOf(preferences.backgroundOpacity) }
     var backgroundBlurRadius by remember { mutableFloatStateOf(preferences.backgroundBlurRadius) }
+    var fontSizeScale by remember { mutableFloatStateOf(preferences.fontSizeScale) }
+    var compactMode by remember { mutableStateOf(preferences.compactMode) }
 
     LaunchedEffect(preferences.backgroundOpacity) { backgroundOpacity = preferences.backgroundOpacity }
     LaunchedEffect(preferences.backgroundBlurRadius) { backgroundBlurRadius = preferences.backgroundBlurRadius }
+    LaunchedEffect(preferences.fontSizeScale) { fontSizeScale = preferences.fontSizeScale }
+    LaunchedEffect(preferences.compactMode) { compactMode = preferences.compactMode }
 
     fun persist(change: suspend () -> Unit) {
         if (saving) return
@@ -86,36 +90,40 @@ fun ChatDisplaySettingsCard(
         SettingsGroupCard {
             Column(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text("消息字号", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "调整对话中文字的阅读尺寸。",
+                    "拖动滑杆调整对话文字大小，效果在下方聊天背景预览中实时查看。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ChatFontSize.entries.forEach { fontSize ->
-                        FilterChip(
-                            selected = preferences.fontSize == fontSize,
-                            onClick = { persist { preferencesRepository.setChatFontSize(fontSize) } },
-                            enabled = !saving,
-                            label = { Text(fontSize.displayLabel) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
+                Text(
+                    "${(fontSizeScale * 100).toInt()}%",
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = fontSizeScale,
+                    onValueChange = { fontSizeScale = it },
+                    onValueChangeFinished = {
+                        persist { preferencesRepository.setChatFontSize(fontSizeScale) }
+                    },
+                    valueRange = CHAT_FONT_SCALE_MIN..CHAT_FONT_SCALE_MAX,
+                    enabled = !saving,
+                )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingSwitchRow(
                 title = "紧凑显示",
                 description = "缩小消息间距，在一屏内查看更多内容。",
-                checked = preferences.compactMode,
+                checked = compactMode,
                 enabled = !saving,
-                onCheckedChange = { persist { preferencesRepository.setCompactChatMode(it) } },
+                onCheckedChange = { checked ->
+                    compactMode = checked
+                    persist { preferencesRepository.setCompactChatMode(checked) }
+                },
             )
         }
 
@@ -126,8 +134,7 @@ fun ChatDisplaySettingsCard(
             ) {
                 Text("聊天背景", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (preferences.backgroundImageUri.isBlank()) "选择一张本地图片作为聊天背景。"
-                    else "预览会实时显示当前透明度与模糊效果。",
+                    "预览同时反映背景、字号与紧凑模式，拖动上方滑杆或开关会实时更新。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -135,6 +142,8 @@ fun ChatDisplaySettingsCard(
                     imageUri = preferences.backgroundImageUri,
                     opacity = backgroundOpacity,
                     blurRadius = backgroundBlurRadius,
+                    fontSizeScale = fontSizeScale,
+                    compactMode = compactMode,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
@@ -265,9 +274,69 @@ private fun ChatBackgroundPreview(imageUri: String, opacity: Float, blurRadius: 
     }
 }
 
-private val ChatFontSize.displayLabel: String
-    get() = when (this) {
-        ChatFontSize.SMALL -> "小"
-        ChatFontSize.STANDARD -> "标准"
-        ChatFontSize.LARGE -> "大"
+/** 聊天背景预览：同时反映背景图片、字号缩放与紧凑模式（无背景图时也能预览文字效果）。 */
+@Composable
+private fun ChatBackgroundPreview(
+    imageUri: String,
+    opacity: Float,
+    blurRadius: Float,
+    fontSizeScale: Float,
+    compactMode: Boolean,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val verticalPadding = if (compactMode) 5.dp else 9.dp
+    val bubbleSpacing = if (compactMode) 4.dp else 10.dp
+    val messageStyle = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = MaterialTheme.typography.bodyMedium.fontSize * fontSizeScale,
+    )
+    Box(
+        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {}
+        ChatBackgroundImage(imageUri = imageUri, opacity = opacity, blurRadius = blurRadius)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(bubbleSpacing),
+        ) {
+            Surface(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    "旁白 · 雨夜茶馆",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            Surface(
+                modifier = Modifier.align(Alignment.End),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text(
+                    "今晚的雨似乎不会停。",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = verticalPadding),
+                    style = messageStyle,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Surface(
+                modifier = Modifier.align(Alignment.Start),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text(
+                    "那就再等一会儿，等雨把街灯洗亮。",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = verticalPadding),
+                    style = messageStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
+}

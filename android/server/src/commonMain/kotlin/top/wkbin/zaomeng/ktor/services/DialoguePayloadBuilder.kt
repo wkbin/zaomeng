@@ -206,7 +206,9 @@ class DialoguePayloadBuilder(
             } else {
                 "优先让被点名、与当前行动直接相关或较久未发言的在场角色自然介入；"
             }
-            ) + "不要为了平均分配而强迫无关角色说话。"
+            ) + "不要为了平均分配而强迫无关角色说话。" +
+            "同一角色不要连续发言：上一轮或本条回复中刚开口的角色，应让其他在场角色先接话；" +
+            "只有剧情明确需要独白或连续动作时才允许同一角色再次开口。"
         return mapOf(
             "order" to ordered,
             "recommended_speakers" to recommended,

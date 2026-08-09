@@ -35,8 +35,17 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "zaomeng-desktop"
+            packageName = "造梦"
             packageVersion = "1.0.0"
+            // 运行期用到 sun.misc.Unsafe（jpackage 裁剪运行时默认不含 jdk.unsupported）
+            modules("jdk.unsupported")
+            windows {
+                // 安装包图标、桌面快捷方式与开始菜单项
+                iconFile.set(file("packaging/zaomeng_logo.ico"))
+                shortcut = true
+                menu = true
+                menuGroup = "造梦"
+            }
         }
     }
 }

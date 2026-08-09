@@ -68,7 +68,24 @@ object DialogueResponseParser {
         if (clean.isEmpty()) {
             throw IllegalArgumentException("Model reply did not contain usable character responses.")
         }
-        return clean
+        // 群聊兜底：同一角色连续多条时合并成一条，避免同一人连着发消息
+        return mergeConsecutiveSpeakers(clean)
+    }
+
+    private fun mergeConsecutiveSpeakers(responses: List<DialogueResponse>): List<DialogueResponse> {
+        val merged = mutableListOf<DialogueResponse>()
+        for (response in responses) {
+            val last = merged.lastOrNull()
+            if (last != null && last.speaker == response.speaker) {
+                merged[merged.lastIndex] = last.copy(
+                    message = last.message + "\n" + response.message,
+                    innerThought = last.innerThought ?: response.innerThought,
+                )
+            } else {
+                merged += response
+            }
+        }
+        return merged
     }
 
     private fun loadLlmJson(text: String): JsonElement {

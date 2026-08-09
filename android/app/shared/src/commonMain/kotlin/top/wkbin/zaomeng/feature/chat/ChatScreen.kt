@@ -33,6 +33,15 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.material.icons.Icons
@@ -1585,7 +1594,7 @@ private fun TranscriptBubble(
     var menuExpanded by remember(item.turnId, item.message) { mutableStateOf(false) }
     val verticalPadding = if (displayPreferences.compactMode) 6.dp else 9.dp
     val messageStyle = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = MaterialTheme.typography.bodyMedium.fontSize * displayPreferences.fontSize.scale,
+        fontSize = MaterialTheme.typography.bodyMedium.fontSize * displayPreferences.fontSizeScale,
     )
 
     if (isScene) {
@@ -2154,7 +2163,8 @@ private fun ChatComposer(
                 Box {
                     OutlinedButton(
                         onClick = { toolsOpen = true },
-                        enabled = inputEnabled,
+                        // 连续旁观期间也要能打开工具菜单（暂停入口在里面）
+                        enabled = inputEnabled || state.continuousObserveEnabled,
                         modifier = Modifier.height(36.dp),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp),
@@ -2222,7 +2232,26 @@ private fun ChatComposer(
                     draftValue = resolved
                     onDraftChange(resolved.text)
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    // PC 端回车直接发送；Shift/修饰键+回车保留默认行为（如换行）
+                    .onPreviewKeyEvent { keyEvent ->
+                        if (
+                            keyEvent.type == KeyEventType.KeyDown &&
+                            keyEvent.key == Key.Enter &&
+                            !keyEvent.isShiftPressed &&
+                            !keyEvent.isCtrlPressed &&
+                            !keyEvent.isAltPressed &&
+                            !keyEvent.isMetaPressed &&
+                            // 输入法组合候选词时回车用于确认候选，不发送
+                            draftValue.composition == null
+                        ) {
+                            if (state.canSend) onSend()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 enabled = draftInputEnabled,
                 visualTransformation = mentionTransformation,
                 placeholder = {
@@ -2241,19 +2270,33 @@ private fun ChatComposer(
                 keyboardActions = KeyboardActions(onSend = { if (state.canSend) onSend() }),
             )
             Spacer(Modifier.size(2.dp))
-            IconButton(
-                onClick = onSend,
-                enabled = state.canSend,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "发送",
-                    tint = if (state.canSend) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                    },
-                )
+            if (state.continuousObserveEnabled) {
+                // 连续旁观中：发送区替换为常驻“暂停旁观”，保证随时可以停下
+                Button(
+                    onClick = onToggleContinuousObserve,
+                    modifier = Modifier.height(40.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                ) {
+                    Icon(Icons.Default.Pause, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("暂停")
+                }
+            } else {
+                IconButton(
+                    onClick = onSend,
+                    enabled = state.canSend,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "发送",
+                        tint = if (state.canSend) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        },
+                    )
+                }
             }
         }
 
