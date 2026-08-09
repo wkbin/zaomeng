@@ -79,6 +79,7 @@ import top.wkbin.zaomeng.data.api.KtorRunOpsClient
 import top.wkbin.zaomeng.data.api.SaveChapterRequest
 import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
+import top.wkbin.zaomeng.data.api.SessionsResponse
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldRequest
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldResponse
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
@@ -643,9 +644,37 @@ class ZaomengRepository(
         response["recommended_card_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
     }
 
+    /** 全量读取会话列表（聊天页会话切换/章节归档等需要完整列表）；内部按分页接口循环取完。 */
     suspend fun listSessions(runId: String? = null): List<DialogueSessionDto> = request {
-        if (runId.isNullOrBlank()) ktorSessions.listRecent().items
-        else ktorSessions.listForRun(runId).items
+        val items = mutableListOf<DialogueSessionDto>()
+        var offset = 0
+        val pageSize = 200
+        while (true) {
+            val page = if (runId.isNullOrBlank()) {
+                ktorSessions.listRecent(offset = offset, limit = pageSize)
+            } else {
+                ktorSessions.listForRun(runId, offset = offset, limit = pageSize)
+            }
+            items += page.items
+            if (!page.hasMore || page.items.isEmpty()) break
+            offset += page.items.size
+        }
+        items
+    }
+
+    /** 分页读取会话列表（Paging 3 数据源）。 */
+    suspend fun listSessionsPage(
+        runId: String? = null,
+        offset: Int = 0,
+        limit: Int = 50,
+        query: String = "",
+        sort: String = "recent",
+    ): SessionsResponse = request {
+        if (runId.isNullOrBlank()) {
+            ktorSessions.listRecent(offset = offset, limit = limit, query = query, sort = sort)
+        } else {
+            ktorSessions.listForRun(runId, offset = offset, limit = limit, query = query, sort = sort)
+        }
     }
 
     suspend fun createSession(

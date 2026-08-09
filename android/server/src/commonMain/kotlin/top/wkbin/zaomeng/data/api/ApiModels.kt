@@ -632,7 +632,13 @@ data class SuggestPersonaFieldResponse(
 )
 
 @Serializable
-data class SessionsResponse(val items: List<DialogueSessionDto> = emptyList())
+data class SessionsResponse(
+    val items: List<DialogueSessionDto> = emptyList(),
+    /** 当前过滤/排序条件下的会话总数（不含 offset/limit 截断）。 */
+    val total: Int = 0,
+    /** 是否还有下一页（Paging 3 据此决定 nextKey）。 */
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
 
 @Serializable
 data class SessionRefDto(

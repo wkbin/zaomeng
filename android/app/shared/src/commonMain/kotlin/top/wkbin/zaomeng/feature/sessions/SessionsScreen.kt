@@ -77,6 +77,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
 import top.wkbin.zaomeng.platform.PlatformBackHandler
 import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
@@ -109,6 +112,7 @@ fun SessionsScreen(
     onOpenStoryRecap: (runId: String, sessionId: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val lazySessions = viewModel.sessions.collectAsLazyPagingItems()
     var pendingDeletion by remember { mutableStateOf<DialogueSessionDto?>(null) }
     var pendingRename by remember { mutableStateOf<DialogueSessionDto?>(null) }
     var renameTitle by remember { mutableStateOf("") }
@@ -122,8 +126,10 @@ fun SessionsScreen(
         keyboardController?.hide()
         Unit
     }
-    val visibleSessions = remember(state.sessions, state.searchQuery, state.sort) {
-        filterSessions(state)
+    val visibleSessions = buildList {
+        repeat(lazySessions.itemCount) { index ->
+            lazySessions[index]?.let(::add)
+        }
     }
     val visibleSessionKeys = visibleSessions.mapTo(mutableSetOf(), DialogueSessionDto::key)
     val allVisibleSelected = visibleSessionKeys.isNotEmpty() &&
@@ -159,10 +165,13 @@ fun SessionsScreen(
             keyboardController?.show()
         }
     }
-    LaunchedEffect(state.sessions, state.deletingSessionKeys) {
+    LaunchedEffect(lazySessions.itemCount, state.deletingSessionKeys) {
         pendingDeletion?.let { pending ->
-            if (state.sessions.none { it.key == pending.key }) pendingDeletion = null
+            if (visibleSessions.none { it.key == pending.key }) pendingDeletion = null
         }
+    }
+    LaunchedEffect(lazySessions.itemCount) {
+        viewModel.ensureAvatars(visibleSessions)
     }
 
     Scaffold(
@@ -218,7 +227,7 @@ fun SessionsScreen(
                 actions = {
                     if (state.selectionMode) {
                         IconButton(
-                            onClick = viewModel::toggleAllVisibleSessions,
+                            onClick = { viewModel.toggleAllVisibleSessions(visibleSessionKeys) },
                             enabled = visibleSessionKeys.isNotEmpty() && !state.deletingSelection,
                         ) {
                             Icon(
@@ -243,13 +252,13 @@ fun SessionsScreen(
                     } else {
                         IconButton(
                             onClick = { searchExpanded = true },
-                            enabled = state.sessions.isNotEmpty() && state.deletingSessionKeys.isEmpty(),
+                            enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "搜索会话")
                         }
                         IconButton(
                             onClick = viewModel::enterSelectionMode,
-                            enabled = state.sessions.isNotEmpty() && state.deletingSessionKeys.isEmpty(),
+                            enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
                         ) {
                             Icon(Icons.Default.Checklist, contentDescription = "多选管理会话")
                         }
@@ -286,6 +295,7 @@ fun SessionsScreen(
             )
             else -> SessionsContent(
                 state = state,
+                lazySessions = lazySessions,
                 visibleSessions = visibleSessions,
                 onOpenChat = onOpenChat,
                 onDelete = { pendingDeletion = it },
@@ -297,6 +307,7 @@ fun SessionsScreen(
                 onSearchQueryChange = viewModel::updateSearchQuery,
                 onSelectSort = viewModel::selectSort,
                 onDismissError = viewModel::clearError,
+                onRetry = lazySessions::retry,
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -463,6 +474,7 @@ private fun SessionsSearchTopBar(
 @Composable
 private fun SessionsContent(
     state: SessionsUiState,
+    lazySessions: LazyPagingItems<DialogueSessionDto>,
     visibleSessions: List<DialogueSessionDto>,
     onOpenChat: (String, String) -> Unit,
     onDelete: (DialogueSessionDto) -> Unit,
@@ -471,6 +483,7 @@ private fun SessionsContent(
     onSearchQueryChange: (String) -> Unit,
     onSelectSort: (SessionsSort) -> Unit,
     onDismissError: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val runsById = remember(state.runs) { state.runs.associateBy(RunManifestDto::runId) }
@@ -481,6 +494,12 @@ private fun SessionsContent(
                 ?: session.novelId.ifBlank { "未命名书卷" }
         }
     }
+    val refreshState = lazySessions.loadState.refresh
+    val appendState = lazySessions.loadState.append
+    val initialLoading = refreshState is LoadState.Loading && lazySessions.itemCount == 0
+    val isEmpty = lazySessions.itemCount == 0 &&
+        refreshState is LoadState.NotLoading &&
+        appendState.endOfPaginationReached
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 380.dp),
         modifier = modifier.fillMaxSize(),
@@ -494,74 +513,127 @@ private fun SessionsContent(
             }
         }
 
-        if (state.sessions.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SessionListControls(
-                    sort = state.sort,
-                    visibleCount = visibleSessions.size,
-                    totalCount = state.sessions.size,
-                    enabled = !state.deletingSelection,
-                    onSelectSort = onSelectSort,
+        when {
+            initialLoading -> item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(240.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+
+            refreshState is LoadState.Error && lazySessions.itemCount == 0 -> item(
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                ErrorCard(
+                    message = refreshState.error.message
+                        ?.takeIf(String::isNotBlank)
+                        ?: "会话加载失败，请稍后重试。",
+                    onDismiss = onRetry,
                 )
             }
-        }
 
-        if (state.sessions.isEmpty() && state.error.isBlank()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ),
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+            isEmpty -> if (state.searchQuery.isNotBlank()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    NoSessionMatches(onClearSearch = { onSearchQueryChange("") })
+                }
+            } else {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Chat,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text("还没有聊天记录", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "选择一本已蒸馏的书，就能让人物在新的场景里开口。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Chat,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text("还没有聊天记录", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "选择一本已蒸馏的书，就能让人物在新的场景里开口。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
-        } else if (visibleSessions.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+
+            visibleSessions.isEmpty() && refreshState is LoadState.NotLoading -> item(
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
                 NoSessionMatches(onClearSearch = { onSearchQueryChange("") })
             }
-        } else {
-            sessionGroups.forEach { (bookTitle, sessions) ->
-                item(key = "book-$bookTitle", span = { GridItemSpan(maxLineSpan) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(bookTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "${sessions.size} 段会话",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+            else -> {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SessionListControls(
+                        sort = state.sort,
+                        visibleCount = visibleSessions.size,
+                        totalCount = state.totalSessions ?: visibleSessions.size,
+                        enabled = !state.deletingSelection,
+                        onSelectSort = onSelectSort,
+                    )
+                }
+                sessionGroups.forEach { (bookTitle, sessions) ->
+                    item(key = "book-$bookTitle", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(bookTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${sessions.size} 段会话",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(sessions, key = DialogueSessionDto::key) { session ->
+                        SessionCard(
+                            session = session,
+                            avatarBytes = state.avatarBytes,
+                            deleting = session.key in state.deletingSessionKeys,
+                            selectionMode = state.selectionMode,
+                            selected = session.key in state.selectedSessionKeys,
+                            onOpen = { onOpenChat(session.runId, session.sessionId) },
+                            onDelete = { onDelete(session) },
+                            onRename = { onRename(session) },
+                            onToggleSelection = { onToggleSelection(session.key) },
                         )
                     }
                 }
-                items(sessions, key = DialogueSessionDto::key) { session ->
-                    SessionCard(
-                        session = session,
-                        avatarBytes = state.avatarBytes,
-                        deleting = session.key in state.deletingSessionKeys,
-                        selectionMode = state.selectionMode,
-                        selected = session.key in state.selectedSessionKeys,
-                        onOpen = { onOpenChat(session.runId, session.sessionId) },
-                        onDelete = { onDelete(session) },
-                        onRename = { onRename(session) },
-                        onToggleSelection = { onToggleSelection(session.key) },
-                    )
+                when {
+                    appendState is LoadState.Loading -> item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    appendState is LoadState.Error -> item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = appendState.error.message
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: "加载更多会话失败",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = onRetry) { Text("重试") }
+                        }
+                    }
                 }
             }
         }

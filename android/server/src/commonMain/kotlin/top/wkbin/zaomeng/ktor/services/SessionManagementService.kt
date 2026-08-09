@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -248,14 +249,48 @@ class SessionManagementService(
     /**
      * 列出对话会话
      */
-    fun listDialogueSessions(runId: String): List<JsonObject> {
-        return storageService.listDialogueSessions(runId)
+    fun listDialogueSessions(
+        runId: String,
+        offset: Int = 0,
+        limit: Int = 50,
+        query: String = "",
+        sort: String = "recent",
+    ): SessionsPage {
+        val runTitle = storageService.listRunManifests()
+            .firstOrNull { it["run_id"]?.jsonPrimitive?.contentOrNull == runId }
+            ?.let { it["title"]?.jsonPrimitive?.contentOrNull }
+            .orEmpty()
+        val sessions = storageService.listDialogueSessions(runId).map { session ->
+            if (session["run_id"] != null) session else buildJsonObject {
+                session.forEach { (key, value) -> put(key, value) }
+                put("run_id", JsonPrimitive(runId))
+            }
+        }
+        return pageSessions(
+            sessions = sessions,
+            runTitles = mapOf(runId to runTitle),
+            offset = offset,
+            limit = limit,
+            query = query,
+            sort = sort,
+        )
     }
 
     fun runExists(runId: String): Boolean = storageService.runExists(runId)
 
-    fun listRecentSessions(): List<JsonObject> {
-        return storageService.listFiles(storageService.runsDir)
+    fun listRecentSessions(
+        offset: Int = 0,
+        limit: Int = 50,
+        query: String = "",
+        sort: String = "recent",
+    ): SessionsPage {
+        val runTitles = storageService.listRunManifests()
+            .mapNotNull { manifest ->
+                val runId = manifest["run_id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                runId to manifest["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            }
+            .toMap()
+        val sessions = storageService.listFiles(storageService.runsDir)
             .asSequence()
             .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
             .flatMap { runDir ->
@@ -266,8 +301,83 @@ class SessionManagementService(
                     }
                 }
             }
-            .sortedByDescending { it["updated_at"]?.toString().orEmpty() }
             .toList()
+        return pageSessions(
+            sessions = sessions,
+            runTitles = runTitles,
+            offset = offset,
+            limit = limit,
+            query = query,
+            sort = sort,
+        )
+    }
+
+    /**
+     * 统一的会话列表分页：先过滤（q）、再排序（recent/title）、最后切片。
+     * 过滤字段与 Android 端此前客户端过滤保持一致：书卷标题/novel_id/模式/参与人/受控角色/最后一条预览。
+     */
+    private fun pageSessions(
+        sessions: List<JsonObject>,
+        runTitles: Map<String, String>,
+        offset: Int,
+        limit: Int,
+        query: String,
+        sort: String,
+    ): SessionsPage {
+        val normalizedQuery = query.trim()
+        val filtered = if (normalizedQuery.isBlank()) {
+            sessions
+        } else {
+            sessions.filter { session ->
+                val runId = session["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val participants = (session["participants"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    .orEmpty()
+                listOf(
+                    runTitles[runId].orEmpty(),
+                    session["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    session["mode"]?.jsonPrimitive?.contentOrNull
+                        ?.let(::sessionModeSearchLabel)
+                        .orEmpty(),
+                    participants.joinToString(" "),
+                    session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    session["last_entry_preview"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                ).any { value -> value.contains(normalizedQuery, ignoreCase = true) }
+            }
+        }
+        val sorted = when (sort) {
+            "title" -> filtered.sortedWith { left, right ->
+                val leftTitle = runTitles[left["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()]
+                    ?.takeIf { it.isNotBlank() }
+                    ?: left["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val rightTitle = runTitles[right["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()]
+                    ?.takeIf { it.isNotBlank() }
+                    ?: right["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val titleOrder = leftTitle.compareTo(rightTitle, ignoreCase = true)
+                if (titleOrder != 0) {
+                    titleOrder
+                } else {
+                    right.updatedAtValue().compareTo(left.updatedAtValue())
+                }
+            }
+            else -> filtered.sortedByDescending { it.updatedAtValue() }
+        }
+        val total = sorted.size
+        val items = sorted.drop(offset).take(limit)
+        return SessionsPage(
+            items = items,
+            total = total,
+            hasMore = offset + items.size < total,
+        )
+    }
+
+    private fun JsonObject.updatedAtValue(): String =
+        this["updated_at"]?.toString().orEmpty()
+
+    private fun sessionModeSearchLabel(mode: String): String = when (mode) {
+        "act" -> "扮演人物"
+        "insert" -> "自设入场"
+        else -> "旁观群聊"
     }
 
     fun deleteDialogueSession(runId: String, sessionId: String): Boolean {
@@ -356,3 +466,10 @@ class SessionManagementService(
     }
 
 }
+
+/** 会话列表分页结果：保持原始 JSON 透传（manifest 字段/角色头像），由客户端按 DTO 解码。 */
+data class SessionsPage(
+    val items: List<JsonObject>,
+    val total: Int,
+    val hasMore: Boolean,
+)

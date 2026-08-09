@@ -10,6 +10,7 @@ import top.wkbin.zaomeng.ktor.services.*
 import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
+import top.wkbin.zaomeng.data.api.SessionsResponse
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
 
@@ -21,7 +22,10 @@ import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
 fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
 
     get("/api/web/sessions") {
-        call.respond(mapOf("items" to sessionService.listRecentSessions()))
+        val page = call.sessionPageParams()
+        call.respond(sessionPageResponse(
+            sessionService.listRecentSessions(page.offset, page.limit, page.query, page.sort),
+        ))
     }
 
     delete("/api/web/sessions") {
@@ -91,7 +95,10 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         val runId = call.parameters["run_id"].orEmpty()
         if (runId.isBlank()) return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
         if (!sessionService.runExists(runId)) return@get call.respond(HttpStatusCode.NotFound, mapOf("detail" to "Run not found"))
-        call.respond(mapOf("items" to sessionService.listDialogueSessions(runId)))
+        val page = call.sessionPageParams()
+        call.respond(sessionPageResponse(
+            sessionService.listDialogueSessions(runId, page.offset, page.limit, page.query, page.sort),
+        ))
     }
 
     delete("/api/web/runs/{run_id}/dialogue/sessions/{session_id}") {
@@ -164,3 +171,27 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         }
     }
 }
+
+/** 会话列表分页参数：offset/limit/q/sort，均有安全默认值。 */
+private data class SessionPageParams(
+    val offset: Int,
+    val limit: Int,
+    val query: String,
+    val sort: String,
+)
+
+private fun io.ktor.server.application.ApplicationCall.sessionPageParams(): SessionPageParams {
+    val offset = request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+    val limit = (request.queryParameters["limit"]?.toIntOrNull() ?: 50).coerceIn(1, 200)
+    val query = request.queryParameters["q"].orEmpty().trim().take(120)
+    val sort = request.queryParameters["sort"].orEmpty().trim().takeIf { it in setOf("recent", "title") }
+        ?: "recent"
+    return SessionPageParams(offset = offset, limit = limit, query = query, sort = sort)
+}
+
+/** 会话列表响应：与旧格式兼容（items），并新增分页字段。 */
+private fun sessionPageResponse(page: SessionsPage): Map<String, Any> = mapOf(
+    "items" to page.items,
+    "total" to page.total,
+    "has_more" to page.hasMore,
+)

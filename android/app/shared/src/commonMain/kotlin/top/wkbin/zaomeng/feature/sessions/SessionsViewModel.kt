@@ -2,6 +2,10 @@ package top.wkbin.zaomeng.feature.sessions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.ReusableCardKind
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
@@ -12,9 +16,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -47,8 +55,9 @@ data class SessionsUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val creating: Boolean = false,
-    val sessions: List<DialogueSessionDto> = emptyList(),
     val avatarBytes: Map<String, ByteArray> = emptyMap(),
+    /** 当前过滤/排序条件下会话总数（首屏分页返回后填充，用于列表计数展示）。 */
+    val totalSessions: Int? = null,
     val runs: List<RunManifestDto> = emptyList(),
     val searchQuery: String = "",
     val sort: SessionsSort = SessionsSort.Recent,
@@ -88,8 +97,23 @@ class SessionsViewModel(
     private val mutableState = MutableStateFlow(SessionsUiState())
     val state: StateFlow<SessionsUiState> = mutableState.asStateFlow()
 
+    /**
+     * 会话列表分页流。runId / 搜索词 / 排序变化时重建 Pager（查询身份变化），
+     * 其余刷新走 PagingSource.invalidate()，保留已加载缓存与滚动位置。
+     */
+    private val pagerFlow = MutableStateFlow<Pager<Int, DialogueSessionDto>?>(null)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val sessions: Flow<PagingData<DialogueSessionDto>> = pagerFlow
+        .filterNotNull()
+        .flatMapLatest { pager -> pager.flow.cachedIn(viewModelScope) }
+
+    private var pagerParams: PagerParams? = null
+    private var currentSource: SessionsPagingSource? = null
     private var loadJob: Job? = null
+    private var searchJob: Job? = null
+    private var avatarJob: Job? = null
     private var hasResumed = false
+    private val loadedAvatarKeys = mutableSetOf<String>()
 
     fun load(runId: String? = null, force: Boolean = false) {
         val normalizedRunId = runId?.trim()?.takeIf(String::isNotEmpty)
@@ -100,8 +124,8 @@ class SessionsViewModel(
         loadJob = viewModelScope.launch {
             mutableState.update {
                 it.copy(
-                    loading = it.sessions.isEmpty(),
-                    refreshing = it.sessions.isNotEmpty(),
+                    loading = it.runs.isEmpty(),
+                    refreshing = it.runs.isNotEmpty(),
                     scopedRunId = normalizedRunId,
                     error = "",
                 )
@@ -109,13 +133,11 @@ class SessionsViewModel(
             try {
                 val loaded = coroutineScope {
                     val runsRequest = async { repository.listRuns() }
-                    val sessionsRequest = async { repository.listSessions(normalizedRunId) }
                     val scenesRequest = async { loadOptionalCards(ReusableCardKind.Scene) }
                     val selvesRequest = async { loadOptionalCards(ReusableCardKind.Self) }
                     val presetsRequest = async { loadOptionalCards(ReusableCardKind.Opening) }
                     LoadedSessionResources(
                         runs = runsRequest.await(),
-                        sessions = sessionsRequest.await(),
                         sceneCards = scenesRequest.await(),
                         selfCards = selvesRequest.await(),
                         openingPresets = presetsRequest.await(),
@@ -134,7 +156,6 @@ class SessionsViewModel(
                         loading = false,
                         refreshing = false,
                         runs = loaded.runs,
-                        sessions = loaded.sessions,
                         sceneCards = loaded.sceneCards,
                         selfCards = loaded.selfCards,
                         openingPresets = loaded.openingPresets,
@@ -148,7 +169,7 @@ class SessionsViewModel(
                         error = "",
                     )
                 }
-                loadSessionAvatars(loaded.sessions)
+                rebuildPagerIfNeeded()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -177,19 +198,13 @@ class SessionsViewModel(
         }
         viewModelScope.launch {
             try {
-                val updated = repository.updateSessionTitle(
+                repository.updateSessionTitle(
                     runId = session.runId,
                     sessionId = session.sessionId,
                     title = normalizedTitle,
                 )
-                mutableState.update { current ->
-                    current.copy(
-                        sessions = current.sessions.map { item ->
-                            if (item.key == updated.key) updated else item
-                        },
-                        error = "",
-                    )
-                }
+                mutableState.update { it.copy(error = "") }
+                rebuildPagerIfNeeded()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -201,27 +216,21 @@ class SessionsViewModel(
     }
 
     fun updateSearchQuery(value: String) {
-        mutableState.update { current ->
-            val updated = current.copy(searchQuery = value.take(120))
-            if (updated.selectionMode) {
-                updated.copy(
-                    selectedSessionKeys = visibleSelectionKeys(
-                        state = updated,
-                        candidateKeys = updated.selectedSessionKeys,
-                    ),
-                )
-            } else {
-                updated
-            }
+        mutableState.update { it.copy(searchQuery = value.take(120)) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
+            rebuildPagerIfNeeded()
         }
     }
 
     fun selectSort(sort: SessionsSort) {
         mutableState.update { it.copy(sort = sort) }
+        rebuildPagerIfNeeded()
     }
 
     fun enterSelectionMode() {
-        if (state.value.sessions.isEmpty() || state.value.deletingSessionKeys.isNotEmpty()) return
+        if (state.value.deletingSessionKeys.isNotEmpty()) return
         mutableState.update { it.copy(selectionMode = true, error = "") }
     }
 
@@ -251,13 +260,12 @@ class SessionsViewModel(
         }
     }
 
-    fun toggleAllVisibleSessions() {
+    /** 全选/取消全选当前已加载的可见会话（Paging 只保证已加载窗口可枚举）。 */
+    fun toggleAllVisibleSessions(visibleKeys: Set<String>) {
         mutableState.update { current ->
-            if (!current.selectionMode || current.deletingSelection) {
+            if (!current.selectionMode || current.deletingSelection || visibleKeys.isEmpty()) {
                 current
             } else {
-                val visibleKeys = filterSessions(current)
-                    .mapTo(mutableSetOf(), DialogueSessionDto::key)
                 current.copy(
                     selectedSessionKeys = toggleVisibleSelection(
                         selectedKeys = current.selectedSessionKeys,
@@ -542,10 +550,7 @@ class SessionsViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                snapshot.sessions
-                    .asSequence()
-                    .filter { it.runId == draft.runId }
-                    .mapTo(mutableSetOf(), DialogueSessionDto::key)
+                emptySet()
             }
             try {
                 val created = repository.createSession(
@@ -564,7 +569,8 @@ class SessionsViewModel(
                 mutableState.update { current ->
                     current.afterSessionCreated(created)
                 }
-                loadSessionAvatars(listOf(created))
+                ensureAvatars(listOf(created))
+                rebuildPagerIfNeeded()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -583,6 +589,7 @@ class SessionsViewModel(
                         error = error.readableMessage("创建会话失败，请检查模型配置后重试。"),
                     )
                 }
+                if (recovered != null) rebuildPagerIfNeeded()
             }
         }
     }
@@ -607,11 +614,9 @@ class SessionsViewModel(
             try {
                 repository.deleteSession(session.runId, session.sessionId)
                 mutableState.update {
-                    it.copy(
-                        sessions = it.sessions.filterNot { item -> item.key == key },
-                        deletingSessionKeys = it.deletingSessionKeys - key,
-                    )
+                    it.copy(deletingSessionKeys = it.deletingSessionKeys - key)
                 }
+                rebuildPagerIfNeeded()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -625,7 +630,6 @@ class SessionsViewModel(
                 mutableState.update { current ->
                     if (sessionStillExists == false) {
                         current.copy(
-                            sessions = current.sessions.filterNot { it.key == key },
                             deletingSessionKeys = current.deletingSessionKeys - key,
                             error = "",
                         )
@@ -636,6 +640,7 @@ class SessionsViewModel(
                         )
                     }
                 }
+                if (sessionStillExists == false) rebuildPagerIfNeeded()
             }
         }
     }
@@ -643,11 +648,9 @@ class SessionsViewModel(
     fun deleteSelectedSessions() {
         val snapshot = state.value
         if (!snapshot.selectionMode || snapshot.deletingSelection) return
-        val selectedSessions = snapshot.sessions.filter { it.key in snapshot.selectedSessionKeys }
-        if (selectedSessions.isEmpty()) return
+        val selectedKeys = snapshot.selectedSessionKeys
+        if (selectedKeys.isEmpty()) return
 
-        val selectedKeys = selectedSessions.mapTo(mutableSetOf(), DialogueSessionDto::key)
-        val refs = selectedSessions.map { SessionRefDto(runId = it.runId, sessionId = it.sessionId) }
         loadJob?.cancel()
         mutableState.update {
             it.copy(
@@ -659,8 +662,28 @@ class SessionsViewModel(
             )
         }
         viewModelScope.launch {
+            // 已选中的会话可能位于未加载的页面之外；先从服务端取回完整列表定位 run/session 映射。
+            val selectedRefs = try {
+                repository.listSessions(snapshot.scopedRunId)
+                    .filter { it.key in selectedKeys }
+                    .map { SessionRefDto(runId = it.runId, sessionId = it.sessionId) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            if (selectedRefs.isEmpty()) {
+                mutableState.update {
+                    it.copy(
+                        deletingSelection = false,
+                        deletingSessionKeys = it.deletingSessionKeys - selectedKeys,
+                        error = "批量删除失败：无法定位选中会话，请刷新后重试。",
+                    )
+                }
+                return@launch
+            }
             try {
-                val result = repository.deleteSessions(refs)
+                val result = repository.deleteSessions(selectedRefs)
                 val handledKeys = handledSessionKeys(
                     selectedKeys = selectedKeys,
                     refs = result.deleted + result.notFound,
@@ -668,7 +691,6 @@ class SessionsViewModel(
                 val remainingKeys = selectedKeys - handledKeys
                 mutableState.update { current ->
                     current.copy(
-                        sessions = current.sessions.filterNot { it.key in handledKeys },
                         selectionMode = remainingKeys.isNotEmpty(),
                         selectedSessionKeys = remainingKeys,
                         deletingSelection = false,
@@ -680,6 +702,7 @@ class SessionsViewModel(
                         },
                     )
                 }
+                rebuildPagerIfNeeded()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -700,16 +723,10 @@ class SessionsViewModel(
                     } else {
                         val remoteKeys = recovered.mapTo(mutableSetOf(), DialogueSessionDto::key)
                         val remainingKeys = selectedKeys.intersect(remoteKeys)
-                        val recoveredState = current.copy(sessions = recovered)
-                        val visibleRemainingKeys = visibleSelectionKeys(
-                            state = recoveredState,
-                            candidateKeys = remainingKeys,
-                        )
                         val deletedCount = selectedKeys.size - remainingKeys.size
                         current.copy(
-                            sessions = recovered,
-                            selectionMode = visibleRemainingKeys.isNotEmpty(),
-                            selectedSessionKeys = visibleRemainingKeys,
+                            selectionMode = remainingKeys.isNotEmpty(),
+                            selectedSessionKeys = remainingKeys,
                             deletingSelection = false,
                             deletingSessionKeys = current.deletingSessionKeys - selectedKeys,
                             error = when {
@@ -720,12 +737,44 @@ class SessionsViewModel(
                         )
                     }
                 }
+                rebuildPagerIfNeeded()
             }
         }
     }
 
     fun clearError() {
         mutableState.update { it.copy(error = "") }
+    }
+
+    /** 为当前可见会话补齐缺失的头像（Paging 加载新页面时由 UI 触发）。 */
+    fun ensureAvatars(sessions: List<DialogueSessionDto>) {
+        val targets = sessions.asSequence()
+            .flatMap { session ->
+                session.characterAvatars.asSequence().map { (character, version) ->
+                    SessionAvatarReference(session.runId, character, version)
+                }
+            }
+            .filter { it.runId.isNotBlank() && it.character.isNotBlank() && it.version.isNotBlank() }
+            .filter { it.key !in loadedAvatarKeys }
+            .distinct()
+            .toList()
+        if (targets.isEmpty()) return
+        avatarJob?.cancel()
+        avatarJob = viewModelScope.launch {
+            targets.forEach { avatar ->
+                loadedAvatarKeys += avatar.key
+                val bytes = try {
+                    repository.getPersonaAvatar(avatar.runId, avatar.character, avatar.version)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    null
+                } ?: return@forEach
+                mutableState.update { current ->
+                    current.copy(avatarBytes = current.avatarBytes + (avatar.key to bytes))
+                }
+            }
+        }
     }
 
     private fun selectInitialRunId(runs: List<RunManifestDto>, preferredRunId: String?): String {
@@ -752,44 +801,57 @@ class SessionsViewModel(
         emptyList()
     }
 
-    private suspend fun loadSessionAvatars(sessions: List<DialogueSessionDto>) {
-        sessions
-            .asSequence()
-            .flatMap { session ->
-                session.characterAvatars.asSequence().map { (character, version) ->
-                    SessionAvatarReference(session.runId, character, version)
-                }
-            }
-            .filter { it.runId.isNotBlank() && it.character.isNotBlank() && it.version.isNotBlank() }
-            .distinct()
-            .forEach { avatar ->
-                val bytes = try {
-                    repository.getPersonaAvatar(avatar.runId, avatar.character, avatar.version)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                    null
-                } ?: return@forEach
-                mutableState.update { current ->
-                    current.copy(avatarBytes = current.avatarBytes + (avatar.key to bytes))
-                }
-            }
+    /**
+     * 查询身份变化（runId/搜索词/排序）时重建 Pager；否则仅刷新，保留已加载缓存与滚动位置。
+     */
+    private fun rebuildPagerIfNeeded() {
+        val current = state.value
+        val params = PagerParams(
+            runId = current.scopedRunId,
+            query = current.searchQuery.trim(),
+            sort = current.sort.serverValue(),
+        )
+        if (params == pagerParams) {
+            currentSource?.invalidate()
+            return
+        }
+        pagerParams = params
+        val newPager = Pager(
+            config = PagingConfig(
+                pageSize = 30,
+                initialLoadSize = 30,
+                prefetchDistance = 10,
+                enablePlaceholders = false,
+            ),
+            pagingSourceFactory = {
+                val source = SessionsPagingSource(
+                    fetcher = { offset, limit ->
+                        repository.listSessionsPage(
+                            runId = params.runId,
+                            offset = offset,
+                            limit = limit,
+                            query = params.query,
+                            sort = params.sort,
+                        )
+                    },
+                    onFirstPage = { total ->
+                        mutableState.update { it.copy(totalSessions = total) }
+                    },
+                )
+                currentSource = source
+                source
+            },
+        )
+        pagerFlow.value = newPager
     }
 
-    private fun SessionsUiState.afterSessionCreated(created: DialogueSessionDto): SessionsUiState {
-        val belongsToScope = scopedRunId == null || scopedRunId == created.runId
-        return copy(
+    private fun SessionsUiState.afterSessionCreated(created: DialogueSessionDto): SessionsUiState =
+        copy(
             creating = false,
             createDialogVisible = false,
-            sessions = if (belongsToScope) {
-                listOf(created) + sessions.filterNot { it.key == created.key }
-            } else {
-                sessions
-            },
             createdSession = created,
             error = "",
         )
-    }
 
     private fun DialogueSessionDto.matches(draft: NewSessionDraft): Boolean =
         runId == draft.runId &&
@@ -829,7 +891,6 @@ private fun NewSessionDraft.sceneRecommendationContext() = SceneRecommendationCo
 
 private data class LoadedSessionResources(
     val runs: List<RunManifestDto>,
-    val sessions: List<DialogueSessionDto>,
     val sceneCards: List<ReusableCardDto>,
     val selfCards: List<ReusableCardDto>,
     val openingPresets: List<ReusableCardDto>,
@@ -844,35 +905,15 @@ private data class SessionAvatarReference(
         get() = "$runId|$character"
 }
 
-internal fun filterSessions(state: SessionsUiState): List<DialogueSessionDto> {
-    val runTitles = state.runs.associate { it.runId to it.title }
-    val query = state.searchQuery.trim()
-    val filtered = if (query.isBlank()) {
-        state.sessions
-    } else {
-        state.sessions.filter { session ->
-            listOf(
-                runTitles[session.runId].orEmpty(),
-                session.novelId,
-                session.modeDisplay,
-                session.mode.chineseSearchLabel(),
-                session.participants.joinToString(" "),
-                session.controlledCharacter,
-                session.lastEntryPreview,
-            ).any { value -> value.contains(query, ignoreCase = true) }
-        }
-    }
-    return when (state.sort) {
-        SessionsSort.Recent -> filtered.sortedWith(
-            compareByDescending<DialogueSessionDto> { it.updatedAt }
-                .thenByDescending { it.createdAt },
-        )
-        SessionsSort.Title -> filtered.sortedWith { left, right ->
-            val titleOrder = sessionTitle(left, runTitles)
-                .compareTo(sessionTitle(right, runTitles), ignoreCase = true)
-            if (titleOrder != 0) titleOrder else right.updatedAt.compareTo(left.updatedAt)
-        }
-    }
+private data class PagerParams(
+    val runId: String?,
+    val query: String,
+    val sort: String,
+)
+
+internal fun SessionsSort.serverValue(): String = when (this) {
+    SessionsSort.Recent -> "recent"
+    SessionsSort.Title -> "title"
 }
 
 internal fun toggleVisibleSelection(
@@ -884,13 +925,6 @@ internal fun toggleVisibleSelection(
     selectedKeys + visibleKeys
 }
 
-internal fun visibleSelectionKeys(
-    state: SessionsUiState,
-    candidateKeys: Set<String>,
-): Set<String> = candidateKeys.intersect(
-    filterSessions(state).mapTo(mutableSetOf(), DialogueSessionDto::key),
-)
-
 internal fun handledSessionKeys(
     selectedKeys: Set<String>,
     refs: List<SessionRefDto>,
@@ -898,25 +932,12 @@ internal fun handledSessionKeys(
     .mapTo(mutableSetOf()) { "${it.runId}::${it.sessionId}" }
     .intersect(selectedKeys)
 
-private fun sessionTitle(
-    session: DialogueSessionDto,
-    runTitles: Map<String, String>,
-): String = runTitles[session.runId]
-    ?.takeIf(String::isNotBlank)
-    ?: session.novelId.ifBlank { session.sessionId }
-
-private fun String.chineseSearchLabel(): String = when (this) {
-    "act" -> "扮演人物"
-    "insert" -> "自设入场"
-    else -> "旁观群聊"
-}
+internal val DialogueSessionDto.key: String
+    get() = "$runId::$sessionId"
 
 private fun JsonObject.stringValue(key: String): String = this[key]
     ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
     .orEmpty()
-
-internal val DialogueSessionDto.key: String
-    get() = "$runId::$sessionId"
 
 private fun Throwable.readableMessage(fallback: String): String = message
     ?.trim()

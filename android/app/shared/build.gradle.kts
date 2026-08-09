@@ -62,6 +62,8 @@ kotlin {
             api(libs.compose.lifecycle.viewmodel)
             implementation(libs.compose.lifecycle.viewmodel.navigation3)
             implementation(libs.jetbrains.navigation3.ui)
+            api(libs.paging.common)
+            implementation(libs.paging.compose)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
@@ -105,6 +107,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.paging.common)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

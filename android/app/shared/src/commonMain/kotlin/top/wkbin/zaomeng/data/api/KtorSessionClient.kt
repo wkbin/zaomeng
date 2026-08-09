@@ -3,6 +3,7 @@ package top.wkbin.zaomeng.data.api
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.delete
+import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -28,12 +29,27 @@ class KtorSessionClient(
                 throw error
             }
     }
-    suspend fun listForRun(runId: String): SessionsResponse = request { endpoint ->
-        http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/sessions"))
+    suspend fun listForRun(
+        runId: String,
+        offset: Int = 0,
+        limit: Int = 50,
+        query: String = "",
+        sort: String = "recent",
+    ): SessionsResponse = request { endpoint ->
+        http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/sessions")) {
+            pageParameters(offset, limit, query, sort)
+        }
     }.body()
 
-    suspend fun listRecent(): SessionsResponse = request { endpoint ->
-        http.client.get(url(endpoint, "/api/web/sessions"))
+    suspend fun listRecent(
+        offset: Int = 0,
+        limit: Int = 50,
+        query: String = "",
+        sort: String = "recent",
+    ): SessionsResponse = request { endpoint ->
+        http.client.get(url(endpoint, "/api/web/sessions")) {
+            pageParameters(offset, limit, query, sort)
+        }
     }.body()
 
     suspend fun delete(runId: String, sessionId: String): DeleteStatusDto = request { endpoint ->
@@ -74,6 +90,18 @@ class KtorSessionClient(
     }
 
     private fun url(endpoint: BackendEndpoint, path: String) = endpoint.baseUrl.trimEnd('/') + path
+
+    private fun io.ktor.client.request.HttpRequestBuilder.pageParameters(
+        offset: Int,
+        limit: Int,
+        query: String,
+        sort: String,
+    ) {
+        parameter("offset", offset)
+        parameter("limit", limit)
+        parameter("sort", sort)
+        if (query.isNotBlank()) parameter("q", query)
+    }
 
     private companion object {
         const val TAG = "KtorSessionClient"
