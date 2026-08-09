@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           ./gradlew :server:compileKotlinIosSimulatorArm64 :app:shared:compileKotlinIosSimulatorArm64 :app:shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace --console=plain > /tmp/gradle-ios.log 2>&1 || {
-            grep -E 'What went wrong|Caused by:|FAILURE:|not found|Could not|error:|Exception|> Task .* FAILED' /tmp/gradle-ios.log | head -40 | sed 's/^/::error::/'
-            tail -40 /tmp/gradle-ios.log | sed 's/^/::error::tail /'
+            grep -E 'What went wrong|Caused by:|FAILURE:|not found|Could not|error:|Exception|> Task .* FAILED|^e: |^w: ' /tmp/gradle-ios.log | head -80 | sed 's/^/::error::/'
+            tail -60 /tmp/gradle-ios.log | sed 's/^/::error::tail /'
             exit 1
           }
