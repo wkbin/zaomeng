@@ -68,7 +68,6 @@ android {
         debug {
             applicationIdSuffix = ".test"
             isMinifyEnabled = false
-            isShrinkResources = false
         }
     }
     compileOptions {

@@ -42,4 +42,23 @@ class ResPromptSource(
             }.getOrNull()
         }
     }
+
+    override fun lastModified(relativePath: String): Long? {
+        val devDir = env("ZAOMENG_PROMPTS_DIR")
+        if (!devDir.isNullOrBlank()) {
+            val file = "$devDir/$relativePath".toPath()
+            return if (fs.exists(file)) {
+                fs.metadataOrNull(file)?.lastModifiedAtMillis ?: 0L
+            } else {
+                null
+            }
+        }
+        // composeResources 打包后为静态内容（mtime=0）：探测资源是否存在
+        return runBlocking {
+            runCatching {
+                Res.readBytes("files/prompts/$relativePath")
+                0L
+            }.getOrNull()
+        }
+    }
 }
