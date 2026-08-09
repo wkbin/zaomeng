@@ -94,13 +94,12 @@ fun ZaomengNavHost(
     val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
     // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回首页而不是退出；
-    // 首页（栈深 1）时不做任何事，由系统处理退出。顶级页不会被清空导致 NavDisplay 崩溃。
+    // 首页（栈深 1）时不做任何事，由系统处理退出。
+    // 书卷架始终作为栈底（tab 切换只替换其上的内容），因此任何 tab 下返回都有真实的
+    // 应用内上一页可供预测返回预览，而不是直接预览"退出应用"。
     val popBack: () -> Unit = {
         if (backStack.size > 1) {
             backStack.removeLastOrNull()
-        } else if (backStack.firstOrNull() != BookshelfDestination) {
-            backStack.clear()
-            backStack.add(BookshelfDestination)
         }
     }
 
@@ -330,12 +329,16 @@ fun ZaomengNavHost(
     if (wideLayout) {
         Row(Modifier.fillMaxSize()) {
             AppTopLevelRail(
-                selectedDestination = backStack.firstOrNull(),
+                selectedDestination = backStack.lastOrNull { it.isTopLevelDestination() }
+                    ?: BookshelfDestination,
                 onSelectDestination = { destination ->
-                    // 已在该 tab 且没有子页时不做任何事，避免重置页面状态
-                    if (backStack.firstOrNull() != destination || backStack.size != 1) {
-                        backStack.clear()
-                        backStack.addAll(listOf(destination))
+                    // 保留书卷架为栈底：先弹掉其上所有内容，再压入所选 tab。
+                    // 已在该 tab 根部时不做任何事，避免重置页面状态。
+                    while (backStack.size > 1) {
+                        backStack.removeLastOrNull()
+                    }
+                    if (backStack.lastOrNull() != destination) {
+                        backStack.add(destination)
                     }
                 },
             )
@@ -362,4 +365,17 @@ fun ZaomengNavHost(
             ),
         )
     }
+}
+
+/** 判断栈内条目是否为顶级导航目的地（侧栏 tab）。会话列表页视为顶级，书卷专属会话页不算。 */
+private fun NavKey.isTopLevelDestination(): Boolean = when (this) {
+    BookshelfDestination,
+    CardLibraryDestination,
+    CrossoverDestination,
+    OnlineLibraryDestination,
+    ModelSettingsDestination,
+    -> true
+
+    is SessionsDestination -> runId.isBlank()
+    else -> false
 }

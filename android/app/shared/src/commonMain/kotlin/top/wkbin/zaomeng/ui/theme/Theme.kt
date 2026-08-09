@@ -37,7 +37,7 @@ fun MyApplicationTheme(
         seedColorArgb = themeSeedColorArgb,
     )
         ?: if (darkTheme) DarkColorScheme else LightColorScheme
-    applySystemBars(darkTheme)
+    applySystemBars(darkTheme, colorScheme.background)
 
     MaterialTheme(
         colorScheme = colorScheme,

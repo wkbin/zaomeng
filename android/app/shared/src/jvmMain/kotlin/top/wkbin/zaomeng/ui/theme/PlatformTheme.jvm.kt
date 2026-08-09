@@ -19,4 +19,4 @@ actual fun platformColorScheme(
 }
 
 @Composable
-actual fun applySystemBars(darkTheme: Boolean) = Unit
+actual fun applySystemBars(darkTheme: Boolean, windowBackground: Color) = Unit

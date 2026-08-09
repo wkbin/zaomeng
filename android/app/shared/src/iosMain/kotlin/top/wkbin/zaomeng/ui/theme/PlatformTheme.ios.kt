@@ -21,4 +21,4 @@ actual fun platformColorScheme(
 
 /** iOS 系统栏由系统管理，无需适配。 */
 @Composable
-actual fun applySystemBars(darkTheme: Boolean) = Unit
+actual fun applySystemBars(darkTheme: Boolean, windowBackground: Color) = Unit
