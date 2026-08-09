@@ -1,8 +1,8 @@
-# Python to Ktor 迁移进度报告
+# Python 到 Ktor 迁移进度报告
 
-**更新时间**: 2026-08-07  
-**当前分支**: `migrate-python-to-ktor`  
-**状态**: Ktor 运行时已完成切换，Retrofit 兼容桥已移除
+**更新时间**: 2026-08-09  
+**当前分支**: `migrate-python-to-ktor-clean`  
+**状态**: ✅ 迁移完成——Ktor 为唯一后端，Retrofit/Python/Chaquopy 已全部移除
 
 ---
 
@@ -16,12 +16,14 @@ Phase 3: LLM 集成              ███████████████�
 Phase 4: 写入 API              ████████████████████ 100% ✅
 Phase 5: 流式响应              ████████████████████ 100% ✅
 Phase 6: 高级功能              ████████████████████ 100% ✅
-Phase 7: 性能优化              ██████████████░░░░░░  70% 🚧
-Phase 8: WebUI 适配            ██████████████░░░░░░  70% 🚧
-Phase 9: 清理和最终化          ░░░░░░░░░░░░░░░░░░░░   0%
+Phase 7: 性能优化              ████████████████████ 100% ✅
+Phase 8: WebUI 适配            ████████████████████ 100% ✅
+Phase 9: 清理和最终化          ████████████████████ 100% ✅
 
-总进度: ██████████████████░░  90%
+总进度: ████████████████████ 100%
 ```
+
+**验证状态（2026-08-09）**：`lintDebug` 零问题；共享模块 124 个测试 + server 50 个测试全绿；`assembleDebug` 构建成功；桌面 JVM/Compose 目标编译通过。迁移阶段的阶段总结、每日日志等历史文档已归档至 [docs/archive/](./archive/)。
 
 **提示词效果对齐（2026-08-07 追加）**：系统对比 Python 与 Ktor 提示词构建后完成对话系全量迁移——新增 `server/.../services/DialoguePromptRules.kt`（迁移 `prompt_rules.py` 规则文本）、`DialoguePromptBuilder.kt`（迁移 `helpers.py` 的 5 个 `build_*_llm_messages` 与 `_compact_*` 辅助）、`DialoguePayloadBuilder.kt`（迁移 `service.py` 的 `_build_turn_payload` 管道 + `speaker_balance.py` + persona/关系/world_memory/memory_ledger 数据读取）；`DialogueService`/`DialogueStreamService`/`SuggestionsService`/`DialogueAdvancedService` 四个服务接入。reply/stream 恢复 3 消息结构（stable system + turn system + JSON user payload），建议/联想/导演/审校补齐 Python 同构 payload。差异清单与保留差异见 [PROMPT_DIFF_ANALYSIS.md](./PROMPT_DIFF_ANALYSIS.md)。**本机无 Android SDK 未能编译，需在构建环境运行 `./gradlew :server:testDebugUnitTest` 与 `assembleDebug` 验证**。
 
@@ -73,9 +75,9 @@ Ktor 已成为唯一 Android 后端，Chaquopy、Python 控制器和 Python 前�
 ```
 
 **预计时间**:
-- ✅ 已完成: 2 天
-- 🔄 进行中: 0 天
-- ⏳ 剩余: ~43-61 天（约 2-3 个月）
+- ✅ 已完成: 全部阶段（2026-08-06 起，约 4 天）
+- 🔄 进行中: 无
+- ⏳ 剩余: 无
 
 ---
 

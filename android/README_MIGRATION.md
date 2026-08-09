@@ -90,12 +90,9 @@ android/
 │   └── data/
 │       └── ZaomengRepository.kt       # 使用 BackendManager
 ├── docs/                               # 文档目录
-│   ├── MIGRATION_PLAN.md              # 完整迁移计划
-│   ├── PROJECT_STATUS.md              # 当前状态
-│   ├── MIGRATION_PROGRESS.md          # 综合进度
-│   ├── PHASE_*_SUMMARY.md             # 各阶段总结
-│   ├── DAILY_LOG_*.md                 # 工作日志
-│   └── ACHIEVEMENT_REPORT_*.md        # 成就报告
+│   ├── MIGRATION_PROGRESS.md          # 综合进度（已更新为完成状态）
+│   ├── PROMPT_DIFF_ANALYSIS.md        # 提示词差异分析
+│   └── archive/                       # 迁移历史归档（阶段总结/日志）
 └── MIGRATION_PLAN.md                   # 顶层计划文件
 
 prompts/                                # 提示词配置
@@ -111,17 +108,10 @@ prompts/                                # 提示词配置
 
 ### 核心文档
 - **[MIGRATION_PLAN.md](MIGRATION_PLAN.md)** - 完整的分步骤迁移计划
-- **[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)** - 当前项目状态
-- **[docs/MIGRATION_PROGRESS.md](docs/MIGRATION_PROGRESS.md)** - 综合进度报告
+- **[docs/MIGRATION_PROGRESS.md](docs/MIGRATION_PROGRESS.md)** - 综合进度报告（已更新为完成状态）
 
-### 阶段总结
-- **[docs/PHASE_0_SUMMARY.md](docs/PHASE_0_SUMMARY.md)** - 准备阶段总结
-- **[docs/PHASE_1_SUMMARY.md](docs/PHASE_1_SUMMARY.md)** - 核心基础设施总结
-- **[docs/PHASE_2_PARTIAL_SUMMARY.md](docs/PHASE_2_PARTIAL_SUMMARY.md)** - 只读 API 部分总结
-
-### 工作日志
-- **[docs/DAILY_LOG_2026-08-06_FINAL.md](docs/DAILY_LOG_2026-08-06_FINAL.md)** - 2026-08-06 工作日志
-- **[docs/ACHIEVEMENT_REPORT_2026-08-06.md](docs/ACHIEVEMENT_REPORT_2026-08-06.md)** - 2026-08-06 成就报告
+### 历史归档
+- 阶段总结、每日日志、状态快照等迁移过程文档已归档至 **[docs/archive/](docs/archive/)**。
 
 ---
 
