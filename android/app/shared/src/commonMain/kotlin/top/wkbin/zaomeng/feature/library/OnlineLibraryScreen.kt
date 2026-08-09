@@ -39,6 +39,7 @@ import top.wkbin.zaomeng.data.library.OnlineLibraryBook
 @Composable
 fun OnlineLibraryScreen(
     viewModel: OnlineLibraryViewModel,
+    showBackButton: Boolean = true,
     onBack: () -> Unit,
     onRunImported: (String) -> Unit,
 ) {
@@ -55,8 +56,10 @@ fun OnlineLibraryScreen(
             TopAppBar(
                 title = { Text("在线书卷包") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    if (showBackButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
                     }
                 },
                 actions = {

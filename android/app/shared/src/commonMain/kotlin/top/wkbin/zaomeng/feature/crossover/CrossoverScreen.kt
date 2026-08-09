@@ -19,7 +19,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CrossoverScreen(viewModel: CrossoverViewModel, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun CrossoverScreen(
+    viewModel: CrossoverViewModel,
+    showBackButton: Boolean = true,
+    onBack: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.createdRunId) {
         if (state.createdRunId.isNotBlank()) {
@@ -30,7 +35,11 @@ fun CrossoverScreen(viewModel: CrossoverViewModel, onBack: () -> Unit, onCreated
     }
     Scaffold(topBar = { TopAppBar(
         title = { Text("跨书卷共演 Beta") },
-        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") } },
+        navigationIcon = {
+            if (showBackButton) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+            }
+        },
     ) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),

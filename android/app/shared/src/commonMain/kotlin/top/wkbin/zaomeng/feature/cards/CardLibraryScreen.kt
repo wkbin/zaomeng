@@ -67,6 +67,7 @@ private val cardKinds = listOf(
 @Composable
 fun CardLibraryScreen(
     viewModel: CardLibraryViewModel,
+    showBackButton: Boolean = true,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -102,8 +103,10 @@ fun CardLibraryScreen(
                 TopAppBar(
                     title = { Text("创作资料库") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        if (showBackButton) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            }
                         }
                     },
                     actions = {

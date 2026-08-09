@@ -44,6 +44,7 @@ import top.wkbin.zaomeng.ui.theme.AppDimens
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHomeScreen(
+    showBackButton: Boolean = true,
     onBack: () -> Unit,
     onOpenModelSettings: () -> Unit,
     onOpenChatDisplay: () -> Unit,
@@ -62,8 +63,10 @@ fun SettingsHomeScreen(
             TopAppBar(
                 title = { Text("设置") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    if (showBackButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
                     }
                 },
             )

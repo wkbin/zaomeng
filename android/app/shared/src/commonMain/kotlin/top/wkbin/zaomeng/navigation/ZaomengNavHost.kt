@@ -1,4 +1,4 @@
-package top.wkbin.zaomeng.navigation
+﻿package top.wkbin.zaomeng.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -93,6 +93,11 @@ fun ZaomengNavHost(
     val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
     val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
+    // 桌面 tab 语义：返回只在栈深 >1 时弹栈，顶级页（侧栏 tab）不会清空返回栈导致 NavDisplay 崩溃
+    val popBack: () -> Unit = {
+        if (backStack.size > 1) backStack.removeLastOrNull()
+    }
+
     val navEntryProvider = entryProvider<NavKey> {
             entry(BookshelfDestination) {
                 val viewModel: BookshelfViewModel = koinViewModel()
@@ -111,7 +116,7 @@ fun ZaomengNavHost(
                 val viewModel: ImportBookViewModel = koinViewModel()
                 ImportBookScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onOpenSettings = { backStack.add(ModelSettingsDestination) },
                     onOpenOnlineLibrary = { backStack.add(OnlineLibraryDestination) },
                     onRunCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
@@ -119,7 +124,8 @@ fun ZaomengNavHost(
             }
             entry(ModelSettingsDestination) {
                 SettingsHomeScreen(
-                    onBack = { backStack.removeLastOrNull() },
+                    showBackButton = !wideLayout || backStack.size > 1,
+                    onBack = popBack,
                     onOpenModelSettings = { backStack.add(ModelConfigurationDestination) },
                     onOpenChatDisplay = { backStack.add(ChatDisplaySettingsDestination) },
                     onOpenPlugins = { backStack.add(PluginsDestination) },
@@ -130,19 +136,19 @@ fun ZaomengNavHost(
                 )
             }
             entry(ChatDisplaySettingsDestination) {
-                ChatDisplaySettingsScreen(onBack = { backStack.removeLastOrNull() })
+                ChatDisplaySettingsScreen(onBack = popBack)
             }
             entry(AppearanceSettingsDestination) {
-                AppearanceSettingsScreen(onBack = { backStack.removeLastOrNull() })
+                AppearanceSettingsScreen(onBack = popBack)
             }
             entry(StartupRecoverySettingsDestination) {
-                StartupRecoverySettingsScreen(onBack = { backStack.removeLastOrNull() })
+                StartupRecoverySettingsScreen(onBack = popBack)
             }
             entry(ModelConfigurationDestination) {
                 val viewModel: ModelProfilesViewModel = koinViewModel()
                 ModelSettingsScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onAddProfile = { backStack.add(ModelProfileEditorDestination("")) },
                     onEditProfile = { profileId ->
                         backStack.add(ModelProfileEditorDestination(profileId))
@@ -154,23 +160,23 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.profileId) })
                 ModelProfileEditorScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                 )
             }
             entry(PluginsDestination) {
-                PluginsScreen(onBack = { backStack.removeLastOrNull() })
+                PluginsScreen(onBack = popBack)
             }
             entry(AppSupportSettingsDestination) {
                 val viewModel: SettingsViewModel = koinViewModel()
                 AppSupportSettingsScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                 )
             }
             entry(AppUpdateDestination) {
                 AppUpdateScreen(
                     state = appUpdateState,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onCheck = { onCheckForAppUpdate(true) },
                     onDownload = onDownloadAppUpdate,
                     startupUpdateCheckDisabled = startupUpdateCheckDisabled,
@@ -181,14 +187,16 @@ fun ZaomengNavHost(
                 val viewModel: CardLibraryViewModel = koinViewModel()
                 CardLibraryScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    showBackButton = !wideLayout || backStack.size > 1,
+                    onBack = popBack,
                 )
             }
             entry(CrossoverDestination) {
                 val viewModel: CrossoverViewModel = koinViewModel()
                 CrossoverScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    showBackButton = !wideLayout || backStack.size > 1,
+                    onBack = popBack,
                     onCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
             }
@@ -197,7 +205,8 @@ fun ZaomengNavHost(
                 SessionsScreen(
                     viewModel = viewModel,
                     runId = destination.runId.takeIf(String::isNotBlank),
-                    onBack = { backStack.removeLastOrNull() },
+                    showBackButton = !wideLayout || backStack.size > 1,
+                    onBack = popBack,
                     onOpenChat = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
                     },
@@ -211,7 +220,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 RunDetailScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onOpenPersona = { runId, character ->
                         backStack.add(PersonaDestination(runId, character))
                     },
@@ -228,7 +237,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 RedistillScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onStarted = { backStack.removeLastOrNull() },
                 )
             }
@@ -239,7 +248,7 @@ fun ZaomengNavHost(
                     viewModel = viewModel,
                     runId = destination.runId,
                     sessionId = destination.sessionId,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onOpenBranch = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
                     },
@@ -253,7 +262,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 ChaptersScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onOpenChat = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
                     },
@@ -267,7 +276,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 RelationsScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                 )
             }
             addEntryProvider(clazz = WorldTimelineDestination::class) { destination ->
@@ -275,7 +284,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 WorldTimelineScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                     onOpenChat = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
                     },
@@ -286,14 +295,15 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId, destination.sessionId) })
                 StoryRecapScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                 )
             }
             entry(OnlineLibraryDestination) {
                 val viewModel: OnlineLibraryViewModel = koinViewModel()
                 OnlineLibraryScreen(
                     viewModel = viewModel,
-                    onBack = { backStack.removeLastOrNull() },
+                    showBackButton = !wideLayout || backStack.size > 1,
+                    onBack = popBack,
                     onRunImported = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
             }
@@ -301,7 +311,7 @@ fun ZaomengNavHost(
                 PersonaScreen(
                     runId = destination.runId,
                     character = destination.character,
-                    onBack = { backStack.removeLastOrNull() },
+                    onBack = popBack,
                 )
             }
         }
@@ -311,14 +321,17 @@ fun ZaomengNavHost(
             AppTopLevelRail(
                 selectedDestination = backStack.firstOrNull(),
                 onSelectDestination = { destination ->
-                    backStack.clear()
-                    backStack.addAll(listOf(destination))
+                    // 已在该 tab 且没有子页时不做任何事，避免重置页面状态
+                    if (backStack.firstOrNull() != destination || backStack.size != 1) {
+                        backStack.clear()
+                        backStack.addAll(listOf(destination))
+                    }
                 },
             )
             NavDisplay(
                 backStack = backStack,
                 modifier = Modifier.fillMaxHeight().weight(1f),
-                onBack = { backStack.removeLastOrNull() },
+                onBack = popBack,
                 entryProvider = navEntryProvider,
                 entryDecorators = listOf(
                     rememberSaveableStateHolderNavEntryDecorator(),
@@ -330,7 +343,7 @@ fun ZaomengNavHost(
         NavDisplay(
             backStack = backStack,
             modifier = Modifier.fillMaxSize(),
-            onBack = { backStack.removeLastOrNull() },
+            onBack = popBack,
             entryProvider = navEntryProvider,
             entryDecorators = listOf(
                 rememberSaveableStateHolderNavEntryDecorator(),

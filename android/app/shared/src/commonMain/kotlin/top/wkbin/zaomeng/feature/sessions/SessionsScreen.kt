@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -96,6 +100,7 @@ private val dialogueModeOptions = listOf(
 fun SessionsScreen(
     viewModel: SessionsViewModel,
     runId: String? = null,
+    showBackButton: Boolean = true,
     onBack: () -> Unit,
     onOpenChat: (runId: String, sessionId: String) -> Unit,
     onOpenStoryRecap: (runId: String, sessionId: String) -> Unit,
@@ -186,22 +191,24 @@ fun SessionsScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            when {
-                                state.selectionMode -> viewModel.exitSelectionMode()
-                            else -> onBack()
+                    if (showBackButton || state.selectionMode) {
+                        IconButton(
+                            onClick = {
+                                when {
+                                    state.selectionMode -> viewModel.exitSelectionMode()
+                                    else -> onBack()
+                                }
+                            },
+                            enabled = !state.deletingSelection,
+                        ) {
+                            if (state.selectionMode) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "退出多选",
+                                )
+                            } else {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
-                        },
-                        enabled = !state.deletingSelection,
-                    ) {
-                        if (state.selectionMode) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "退出多选",
-                            )
-                        } else {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
                 },
@@ -471,19 +478,21 @@ private fun SessionsContent(
                 ?: session.novelId.ifBlank { "未命名书卷" }
         }
     }
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 380.dp),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.error.isNotBlank()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ErrorCard(message = state.error, onDismiss = onDismissError)
             }
         }
 
         if (state.sessions.isNotEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 SessionListControls(
                     sort = state.sort,
                     visibleCount = visibleSessions.size,
@@ -495,7 +504,7 @@ private fun SessionsContent(
         }
 
         if (state.sessions.isEmpty() && state.error.isBlank()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -523,12 +532,12 @@ private fun SessionsContent(
                 }
             }
         } else if (visibleSessions.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 NoSessionMatches(onClearSearch = { onSearchQueryChange("") })
             }
         } else {
             sessionGroups.forEach { (bookTitle, sessions) ->
-                item(key = "book-$bookTitle") {
+                item(key = "book-$bookTitle", span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(bookTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
