@@ -27,6 +27,8 @@ fun AppUpdateDialog(
     downloadState: AppUpdateDownloadState,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
+    /** 下载按钮文案（桌面端跳转下载页时用“去下载”）。 */
+    downloadLabel: String = "下载更新",
 ) {
     val status = downloadState.status.takeIf { downloadState.version == update.version }
         ?: AppUpdateDownloadStatus.Idle
@@ -53,7 +55,7 @@ fun AppUpdateDialog(
                         AppUpdateDownloadStatus.Downloading -> "下载中"
                         AppUpdateDownloadStatus.Downloaded -> "安装"
                         AppUpdateDownloadStatus.Failed -> "重新下载"
-                        AppUpdateDownloadStatus.Idle -> "下载更新"
+                        AppUpdateDownloadStatus.Idle -> downloadLabel
                     },
                 )
             }
