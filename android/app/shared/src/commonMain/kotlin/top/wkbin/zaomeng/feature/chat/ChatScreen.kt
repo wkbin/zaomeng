@@ -494,7 +494,9 @@ private fun ChatSessionPane(
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    text = session.title,
+                                    text = session.title.ifBlank {
+                                        session.lastEntryPreview.trim().ifBlank { "未命名会话" }
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                     maxLines = 1,

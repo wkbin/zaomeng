@@ -25,23 +25,25 @@ class PluginService(
 
     fun list(): JsonObject {
         val enabled = readEnabled()
+        // 首次运行（无状态文件）时，默认开启的内置插件按 defaultEnabled 生效
+        val useDefaults = !storage.isFile(stateFile)
         val items = buildJsonArray {
             // 官方内置插件（source=official）
             builtins.sortedBy { it.manifest.name }.forEach { plugin ->
-                add(builtinItem(plugin, enabled))
+                add(builtinItem(plugin, enabled, useDefaults))
             }
             // 第三方插件（现有逻辑）
             storage.listFiles(root).filter { storage.isDirectory(it) && !it.name.startsWith(".") }.sortedBy { it.name }.forEach { dir ->
-                itemFor(dir.name, enabled)?.let { add(it) }
+                itemFor(dir.name, enabled, useDefaults)?.let { add(it) }
             }
         }
         return buildJsonObject { put("items", items) }
     }
 
     /** 构造单个插件项（内置或第三方），enabled/status 统一为 enabled/disabled。 */
-    private fun itemFor(pluginId: String, enabled: Set<String>): JsonObject? {
+    private fun itemFor(pluginId: String, enabled: Set<String>, useDefaults: Boolean = false): JsonObject? {
         val builtin = findBuiltin(pluginId)
-        if (builtin != null) return builtinItem(builtin, enabled)
+        if (builtin != null) return builtinItem(builtin, enabled, useDefaults)
         val manifest = root / "$pluginId/plugin.json"
         if (!storage.exists(manifest)) return null
         return try {
@@ -56,7 +58,7 @@ class PluginService(
         } catch (_: Exception) { null }
     }
 
-    private fun builtinItem(plugin: Plugin, enabled: Set<String>): JsonObject {
+    private fun builtinItem(plugin: Plugin, enabled: Set<String>, useDefaults: Boolean = false): JsonObject {
         val m = plugin.manifest
         return buildJsonObject {
             put("id", m.id)
@@ -96,7 +98,7 @@ class PluginService(
                     }
                 })
             })
-            val isEnabled = m.id in enabled || (enabled.isEmpty() && m.defaultEnabled)
+            val isEnabled = m.id in enabled || (useDefaults && m.defaultEnabled)
             put("defaultEnabled", m.defaultEnabled)
             put("enabled", isEnabled)
             put("status", if (isEnabled) "enabled" else "disabled")
@@ -112,7 +114,13 @@ class PluginService(
             throw IllegalArgumentException("Invalid plugin id")
         }
         if (!isKnown(normalized)) throw NoSuchElementException("Plugin not found: $normalized")
-        val enabled = readEnabled().toMutableSet()
+        // 首次显式变更前把默认开启的内置插件一起落盘：
+        // 否则状态文件里只有当前这一个插件，其它默认插件会全部变成关闭。
+        val enabled = if (storage.isFile(stateFile)) {
+            readEnabled().toMutableSet()
+        } else {
+            builtins.filter { it.manifest.defaultEnabled }.map { it.manifest.id }.toMutableSet()
+        }
         if (value) enabled += normalized else enabled -= normalized
         storage.mkdirs(root)
         storage.writeTextAtomically(stateFile, json.encodeToString(JsonObject.serializer(), buildJsonObject {
@@ -198,9 +206,19 @@ class PluginService(
 
     private fun readEnabled(): Set<String> {
         if (!storage.isFile(stateFile)) return emptySet()
-        return try {
+        val parsed = try {
             val value = json.parseToJsonElement(storage.readText(stateFile)).jsonObject["enabled"]?.jsonArray
             value?.mapNotNull { it.jsonPrimitive.contentOrNull }?.toSet() ?: emptySet()
         } catch (_: Exception) { emptySet() }
+        // 自愈旧版本“启用单个插件导致默认插件全部关闭”的损坏状态：
+        // 集合非空但一个默认插件都不在时，把默认插件合并回来。
+        val hasAnyDefault = parsed.any { id ->
+            builtins.any { it.manifest.id == id && it.manifest.defaultEnabled }
+        }
+        return if (parsed.isNotEmpty() && !hasAnyDefault) {
+            parsed + builtins.filter { it.manifest.defaultEnabled }.map { it.manifest.id }
+        } else {
+            parsed
+        }
     }
 }

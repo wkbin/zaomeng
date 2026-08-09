@@ -5,6 +5,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.sun.jna.Library
+import com.sun.jna.Native
+import com.sun.jna.Pointer
+import com.sun.jna.platform.win32.User32
+import com.sun.jna.platform.win32.WinDef
+import com.sun.jna.ptr.IntByReference
 import io.github.vinceglb.filekit.FileKit
 import org.koin.core.context.startKoin
 import org.jetbrains.compose.resources.painterResource
@@ -22,11 +28,54 @@ fun main() {
 
         Window(
             onCloseRequest = ::exitApplication,
-            title = "Zaomeng",
+            title = "造梦",
             icon = painterResource(Res.drawable.zaomeng_logo),
             state = rememberWindowState(size = DpSize(1200.dp, 800.dp)),
         ) {
-            App()
+            App(
+                onThemeChanged = { dark -> applyNativeTitleBarTheme(window, dark) },
+            )
         }
+    }
+}
+
+/**
+ * 让原生窗口标题栏跟随应用深浅主题。
+ *
+ * Windows：DwmSetWindowAttribute(DWMWA_USE_IMMERSIVE_DARK_MODE)。
+ * macOS/Linux 无 per-window 深色标题栏 API，保持系统外观。
+ */
+private fun applyNativeTitleBarTheme(window: java.awt.Window, dark: Boolean) {
+    val os = System.getProperty("os.name").lowercase()
+    if (!os.contains("win")) return
+    if (window !is java.awt.Frame) return
+    runCatching {
+        val title = window.title ?: return
+        val hwnd = User32.INSTANCE.FindWindow(null, title)
+        if (hwnd == null || hwnd.pointer == Pointer.NULL) return
+        val value = IntByReference(if (dark) 1 else 0)
+        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20（Win10 1903+）；旧版为 19，失败时回退
+        val result = NativeDwmapi.INSTANCE.DwmSetWindowAttribute(
+            hwnd,
+            20,
+            value,
+            Int.SIZE_BYTES,
+        )
+        if (result != 0) {
+            NativeDwmapi.INSTANCE.DwmSetWindowAttribute(hwnd, 19, value, Int.SIZE_BYTES)
+        }
+    }
+}
+
+private interface NativeDwmapi : Library {
+    fun DwmSetWindowAttribute(
+        hwnd: WinDef.HWND,
+        attribute: Int,
+        value: IntByReference,
+        size: Int,
+    ): Int
+
+    companion object {
+        val INSTANCE: NativeDwmapi = Native.load("dwmapi", NativeDwmapi::class.java)
     }
 }

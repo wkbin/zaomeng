@@ -141,7 +141,22 @@ class SessionManagementService(
                 messageKind = "plot",
                 suppressTranscriptMessage = true,
             )
-            return getDialogueSession(runId, sessionId)
+            val session = getDialogueSession(runId, sessionId)
+            if (session["title"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()) {
+                val generated = autoSessionTitle(
+                    session = session,
+                    mode = mode,
+                    participants = participants,
+                    controlledCharacter = controlledCharacter,
+                    sceneProfile = sceneProfile,
+                    selfProfile = selfProfile,
+                )
+                if (generated.isNotBlank()) {
+                    updateDialogueSessionTitle(runId, sessionId, generated)
+                    return getDialogueSession(runId, sessionId)
+                }
+            }
+            return session
         } catch (e: Exception) {
             // 开场失败：删除会话（对齐 Python create_dialogue_session_payload 的删除行为）
             runCatching {
@@ -486,3 +501,43 @@ data class SessionsPage(
     val total: Int,
     val hasMore: Boolean,
 )
+
+/** 创建会话后按内容生成标题：开场首条消息 > 场景标题 > 模式兜底。 */
+internal fun autoSessionTitle(
+    session: JsonObject,
+    mode: String,
+    participants: List<String>,
+    controlledCharacter: String,
+    sceneProfile: JsonObject,
+    selfProfile: JsonObject,
+): String {
+    transcriptOf(session).firstNotNullOfOrNull { item ->
+        item["message"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+    }?.let { return cleanSessionTitle(it) }
+
+    sceneProfile["title"]?.jsonPrimitive?.contentOrNull?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it.take(80) }
+
+    val cast = buildList {
+        if (controlledCharacter.isNotBlank()) add(controlledCharacter.trim())
+        addAll(participants.map { it.trim() }.filter { it.isNotBlank() })
+    }
+    return when (mode) {
+        "act" -> "扮演 · " + cast.joinToString("、").take(40)
+        "insert" -> {
+            val selfName = selfProfile["display_name"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.isNotBlank() }
+            selfName?.let { "$it 入场" } ?: "自设入场"
+        }
+        else -> "旁观会话"
+    }
+}
+
+private fun cleanSessionTitle(raw: String): String = raw
+    .trim()
+    .trimStart('「', '」', '『', '』', '“', '”', '"', '\'', '《', '》')
+    .trimEnd('「', '」', '『', '』', '“', '”', '"', '\'', '《', '》', '。', '！', '？', '…', '.', ',', '，', '!', '?')
+    .replace(Regex("""\s+"""), " ")
+    .trim()
+    .take(24)

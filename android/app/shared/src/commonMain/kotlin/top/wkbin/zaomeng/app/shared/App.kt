@@ -1,6 +1,8 @@
 package top.wkbin.zaomeng.app.shared
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.koinInject
@@ -23,11 +25,19 @@ fun App(
     onStartupUpdateCheckDisabledChange: (Boolean) -> Unit = {},
     launchChaptersRunId: String? = null,
     onChaptersLaunchConsumed: () -> Unit = {},
+    /** 主题深浅变化回调（桌面端用于原生标题栏适配）。 */
+    onThemeChanged: (Boolean) -> Unit = {},
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
         initialValue = ThemeMode.SYSTEM,
     )
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    SideEffect { onThemeChanged(darkTheme) }
     MyApplicationTheme(themeMode = themeMode, dynamicColor = true) {
         ZaomengNavHost(
             appUpdateState = appUpdateState,
