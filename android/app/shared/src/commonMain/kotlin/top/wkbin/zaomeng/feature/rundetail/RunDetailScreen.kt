@@ -32,11 +32,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,14 +68,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import top.wkbin.zaomeng.ui.theme.AppDimens
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -97,6 +103,10 @@ import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
 
 private const val AVATAR_CROP_FRAME_FRACTION = 0.8f
+private const val AVATAR_ZOOM_MIN = 1f
+private const val AVATAR_ZOOM_MAX = 4f
+private const val AVATAR_ZOOM_STEP = 1.25f
+private const val AVATAR_ZOOM_WHEEL_STEP = 1.1f
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
@@ -1194,6 +1204,7 @@ private fun PersonaAvatar(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun AvatarCropDialog(
     bytes: ByteArray,
@@ -1215,18 +1226,33 @@ private fun AvatarCropDialog(
     var offsetY by remember(bytes) { mutableStateOf(0f) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val transformableState = rememberTransformableState { _, zoomChange, panChange, _ ->
-        zoom = (zoom * zoomChange).coerceIn(1f, 4f)
-        val baseScale = minOf(
-            viewport.width.toFloat() / bitmap.width,
-            viewport.height.toFloat() / bitmap.height,
+        zoom = (zoom * zoomChange).coerceIn(AVATAR_ZOOM_MIN, AVATAR_ZOOM_MAX)
+        val (clampedX, clampedY) = clampCropOffsets(
+            viewport = viewport,
+            bitmapWidth = bitmap.width,
+            bitmapHeight = bitmap.height,
+            zoom = zoom,
+            offsetX = offsetX + panChange.x,
+            offsetY = offsetY + panChange.y,
         )
-        val cropDiameter = minOf(viewport.width, viewport.height) * AVATAR_CROP_FRAME_FRACTION
-        val scaledWidth = bitmap.width * baseScale * zoom
-        val scaledHeight = bitmap.height * baseScale * zoom
-        val maxX = ((scaledWidth - cropDiameter) / 2f).coerceAtLeast(0f)
-        val maxY = ((scaledHeight - cropDiameter) / 2f).coerceAtLeast(0f)
-        offsetX = (offsetX + panChange.x).coerceIn(-maxX, maxX)
-        offsetY = (offsetY + panChange.y).coerceIn(-maxY, maxY)
+        offsetX = clampedX
+        offsetY = clampedY
+    }
+    // 桌面端没有双指手势，提供按钮与鼠标滚轮缩放（触屏仍可双指缩放）。
+    fun zoomBy(factor: Float) {
+        val newZoom = (zoom * factor).coerceIn(AVATAR_ZOOM_MIN, AVATAR_ZOOM_MAX)
+        if (newZoom == zoom) return
+        zoom = newZoom
+        val (clampedX, clampedY) = clampCropOffsets(
+            viewport = viewport,
+            bitmapWidth = bitmap.width,
+            bitmapHeight = bitmap.height,
+            zoom = zoom,
+            offsetX = offsetX,
+            offsetY = offsetY,
+        )
+        offsetX = clampedX
+        offsetY = clampedY
     }
 
     AlertDialog(
@@ -1241,6 +1267,21 @@ private fun AvatarCropDialog(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clipToBounds()
                         .transformable(transformableState)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.type == PointerEventType.Scroll) {
+                                        val deltaY = event.changes.firstOrNull()?.scrollDelta?.y ?: continue
+                                        zoomBy(
+                                            // AWT：滚轮向上为负（away），向下为正；CMP 直接映射为 scrollDelta.y。
+                                            if (deltaY > 0) 1f / AVATAR_ZOOM_WHEEL_STEP
+                                            else AVATAR_ZOOM_WHEEL_STEP,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         .onSizeChanged { viewport = it },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -1266,6 +1307,41 @@ private fun AvatarCropDialog(
                         )
                     }
                 }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { zoomBy(1f / AVATAR_ZOOM_STEP) },
+                        enabled = zoom > AVATAR_ZOOM_MIN,
+                    ) {
+                        Icon(Icons.Outlined.Remove, contentDescription = "缩小")
+                    }
+                    Text(
+                        text = "${(zoom * 100).toInt()}%",
+                        modifier = Modifier.width(56.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    IconButton(
+                        onClick = { zoomBy(AVATAR_ZOOM_STEP) },
+                        enabled = zoom < AVATAR_ZOOM_MAX,
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "放大")
+                    }
+                }
+                Text(
+                    text = "双指/滚轮缩放 · 拖拽调整位置",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
@@ -1287,6 +1363,30 @@ private fun AvatarCropDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+/** 按当前缩放与取景框尺寸重新夹取偏移量，保证裁剪框始终落在图片范围内。 */
+private fun clampCropOffsets(
+    viewport: IntSize,
+    bitmapWidth: Int,
+    bitmapHeight: Int,
+    zoom: Float,
+    offsetX: Float,
+    offsetY: Float,
+): Pair<Float, Float> {
+    if (viewport == IntSize.Zero || bitmapWidth <= 0 || bitmapHeight <= 0) {
+        return offsetX to offsetY
+    }
+    val baseScale = minOf(
+        viewport.width.toFloat() / bitmapWidth,
+        viewport.height.toFloat() / bitmapHeight,
+    )
+    val cropDiameter = minOf(viewport.width, viewport.height) * AVATAR_CROP_FRAME_FRACTION
+    val scaledWidth = bitmapWidth * baseScale * zoom
+    val scaledHeight = bitmapHeight * baseScale * zoom
+    val maxX = ((scaledWidth - cropDiameter) / 2f).coerceAtLeast(0f)
+    val maxY = ((scaledHeight - cropDiameter) / 2f).coerceAtLeast(0f)
+    return offsetX.coerceIn(-maxX, maxX) to offsetY.coerceIn(-maxY, maxY)
 }
 
 @Composable
