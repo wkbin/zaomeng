@@ -3,7 +3,7 @@ package top.wkbin.zaomeng.platform
 import androidx.compose.runtime.Composable
 import platform.Foundation.NSURL
 import platform.UIKit.UIAlertController
-import platform.UIKit.UIAlertControllerStyleAlert
+import platform.UIKit.UIAlertControllerStyle
 import platform.UIKit.UIApplication
 import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.dispatch_after
@@ -25,7 +25,7 @@ actual fun rememberToast(): (String) -> Unit = { message ->
         val alert = UIAlertController.alertControllerWithTitle(
             title = null,
             message = message,
-            preferredStyle = UIAlertControllerStyleAlert,
+            preferredStyle = UIAlertControllerStyle.UIAlertControllerStyleAlert,
         )
         presenter.presentViewController(alert, animated = true, completion = null)
         dispatch_after(

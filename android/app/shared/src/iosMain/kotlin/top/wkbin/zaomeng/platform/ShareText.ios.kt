@@ -5,7 +5,7 @@ import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.useContents
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIDevice
-import platform.UIKit.UIUserInterfaceIdiomPad
+import platform.UIKit.UIUserInterfaceIdiom
 
 /**
  * iOS 系统分享：弹出 UIActivityViewController。
@@ -18,7 +18,7 @@ actual fun rememberShareText(): (String) -> Unit = { text ->
             activityItems = listOf(text),
             applicationActivities = null,
         )
-        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiom.UIUserInterfaceIdiomPad) {
             val bounds = presenter.view.bounds
             activityController.popoverPresentationController?.sourceView = presenter.view
             activityController.popoverPresentationController?.sourceRect = bounds.useContents {
