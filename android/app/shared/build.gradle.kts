@@ -74,6 +74,7 @@ kotlin {
             implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs.compose)
             implementation(libs.kotlinx.io.okio)
+            implementation(libs.material.kolor)
             implementation(libs.androidx.datastore)
             implementation(libs.androidx.datastore.preferences)
             implementation(libs.ktor.client.core)

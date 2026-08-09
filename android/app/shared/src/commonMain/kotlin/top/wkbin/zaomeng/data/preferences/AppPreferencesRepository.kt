@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -35,6 +36,7 @@ data class AppPreferences(
     val lastSessionId: String = "",
     val chatDisplay: ChatDisplayPreferences = ChatDisplayPreferences(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeSeedColorArgb: Long = 0L,
 )
 
 /** 跨平台偏好仓库：全部平台统一走官方 KMP DataStore（Preferences）。 */
@@ -64,6 +66,7 @@ class AppPreferencesRepository(
                     backgroundBlurRadius = (values[KEY_CHAT_BACKGROUND_BLUR_RADIUS] ?: 0f).coerceIn(0f, 32f),
                 ),
                 themeMode = ThemeMode.fromStorageValue(values[KEY_THEME_MODE]),
+                themeSeedColorArgb = values[KEY_THEME_SEED_COLOR] ?: 0L,
             )
         }
 
@@ -73,6 +76,10 @@ class AppPreferencesRepository(
 
     val themeMode: Flow<ThemeMode> = preferences
         .map { it.themeMode }
+        .distinctUntilChanged()
+
+    val themeSeedColorArgb: Flow<Long> = preferences
+        .map { it.themeSeedColorArgb }
         .distinctUntilChanged()
 
     suspend fun saveImportDefaults(characters: String, autoDistill: Boolean) {
@@ -181,6 +188,13 @@ class AppPreferencesRepository(
         dataStore.edit { values -> values[KEY_THEME_MODE] = themeMode.storageValue }
     }
 
+    suspend fun setThemeSeedColor(argb: Long) {
+        dataStore.edit { values ->
+            if (argb == 0L) values.remove(KEY_THEME_SEED_COLOR)
+            else values[KEY_THEME_SEED_COLOR] = argb
+        }
+    }
+
     private companion object {
         val KEY_DEFAULT_CHARACTERS = stringPreferencesKey("default_characters")
         val KEY_AUTO_DISTILL = booleanPreferencesKey("auto_distill")
@@ -196,6 +210,7 @@ class AppPreferencesRepository(
         val KEY_CHAT_BACKGROUND_OPACITY = floatPreferencesKey("chat_background_opacity")
         val KEY_CHAT_BACKGROUND_BLUR_RADIUS = floatPreferencesKey("chat_background_blur_radius")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        val KEY_THEME_SEED_COLOR = longPreferencesKey("theme_seed_color")
     }
 }
 

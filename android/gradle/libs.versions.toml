@@ -38,6 +38,7 @@ skiko = "0.144.6"
 kotlinxDatetime = "0.7.1"
 paging = "3.4.2"
 jna = "5.16.0"
+materialKolor = "5.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -116,6 +117,7 @@ ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negoti
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 snakeyaml-engine-kmp = { module = "it.krzeminski:snakeyaml-engine-kmp", version.ref = "snakeyamlEngineKmp" }
 kitearchive = { module = "io.github.yuroyami:kitearchive", version.ref = "kitearchive" }
+material-kolor = { module = "com.materialkolor:material-kolor", version.ref = "materialKolor" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 

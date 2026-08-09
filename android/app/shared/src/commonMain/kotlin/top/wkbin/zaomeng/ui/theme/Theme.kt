@@ -22,22 +22,26 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun MyApplicationTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
+    themeSeedColorArgb: Long = 0L,
+    content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM, ThemeMode.MONET_SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT, ThemeMode.MONET_LIGHT -> false
+        ThemeMode.DARK, ThemeMode.MONET_DARK -> true
     }
-    val colorScheme = platformColorScheme(darkTheme, dynamicColor)
+    // 动态取色仅在 Monet 模式下启用，与 KernelSU 语义一致。
+    val colorScheme = platformColorScheme(
+        darkTheme = darkTheme,
+        dynamicColor = themeMode.isMonet,
+        seedColorArgb = themeSeedColorArgb,
+    )
         ?: if (darkTheme) DarkColorScheme else LightColorScheme
     applySystemBars(darkTheme)
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
-        content = content
+        content = content,
     )
 }

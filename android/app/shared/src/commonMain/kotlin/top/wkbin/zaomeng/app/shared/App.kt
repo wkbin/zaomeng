@@ -32,13 +32,19 @@ fun App(
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
         initialValue = ThemeMode.SYSTEM,
     )
+    val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(
+        initialValue = 0L,
+    )
     val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM, ThemeMode.MONET_SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT, ThemeMode.MONET_LIGHT -> false
+        ThemeMode.DARK, ThemeMode.MONET_DARK -> true
     }
     SideEffect { onThemeChanged(darkTheme) }
-    MyApplicationTheme(themeMode = themeMode, dynamicColor = true) {
+    MyApplicationTheme(
+        themeMode = themeMode,
+        themeSeedColorArgb = themeSeedColorArgb,
+    ) {
         ZaomengNavHost(
             appUpdateState = appUpdateState,
             onCheckForAppUpdate = onCheckForAppUpdate,

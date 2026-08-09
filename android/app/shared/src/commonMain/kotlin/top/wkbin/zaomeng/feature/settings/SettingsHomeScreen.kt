@@ -107,7 +107,7 @@ fun SettingsHomeScreen(
                     SettingsHomeGroup {
                         SettingsHomeRow(
                             title = "主题模式",
-                            subtitle = "浅色、深色或跟随系统。",
+                            subtitle = "浅色、深色、跟随系统或动态取色。",
                             icon = Icons.Outlined.Palette,
                             value = preferences.themeMode.displayName,
                             onClick = onOpenAppearance,
@@ -209,4 +209,7 @@ internal val ThemeMode.displayName: String
         ThemeMode.SYSTEM -> "跟随系统"
         ThemeMode.LIGHT -> "浅色模式"
         ThemeMode.DARK -> "深色模式"
+        ThemeMode.MONET_SYSTEM -> "跟随系统·动态取色"
+        ThemeMode.MONET_LIGHT -> "浅色·动态取色"
+        ThemeMode.MONET_DARK -> "深色·动态取色"
     }
