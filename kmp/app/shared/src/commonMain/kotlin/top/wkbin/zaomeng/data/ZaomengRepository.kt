@@ -9,6 +9,7 @@ import top.wkbin.zaomeng.backend.SecureStoreNames
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
 import top.wkbin.zaomeng.platform.base64Encode
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.CreateRunRequest
 import top.wkbin.zaomeng.data.api.CreateCrossoverSpaceRequest
@@ -820,7 +821,7 @@ class ZaomengRepository(
                 ?: "流式连接失败。"
             throw ApiRequestException(message, error)
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(platformIoDispatcher)
 
     private fun parseDialogueStreamEvent(
         eventName: String,
@@ -999,7 +1000,7 @@ class ZaomengRepository(
         ReusableCardKind.Opening -> "opening"
     }
 
-    private suspend fun <T> request(block: suspend () -> T): T = withContext(Dispatchers.IO) {
+    private suspend fun <T> request(block: suspend () -> T): T = withContext(platformIoDispatcher) {
         try {
             block()
         } catch (cancelled: CancellationException) {

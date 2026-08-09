@@ -6,6 +6,7 @@ import androidx.room3.RoomDatabase
 import androidx.room3.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 /**
  * 统一持久化数据库：
@@ -43,5 +44,5 @@ fun buildZaomengDatabase(builder: RoomDatabase.Builder<ZaomengDatabase>): Zaomen
         // 不兼容升级：旧版（v1 documents-only）数据库直接重建，不迁移老数据。
         .fallbackToDestructiveMigration(dropAllTables = true)
         .setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(Dispatchers.IO)
+        .setQueryCoroutineContext(platformIoDispatcher)
         .build()

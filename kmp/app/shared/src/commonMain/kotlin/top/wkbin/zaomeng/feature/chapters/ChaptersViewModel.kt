@@ -10,6 +10,7 @@ import top.wkbin.zaomeng.data.api.SaveChapterRequest
 import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.AskBookResponseDto
 import top.wkbin.zaomeng.platform.NovelConversionForeground
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -265,7 +266,7 @@ class ChaptersViewModel(
     suspend fun saveExport(destination: Sink) {
         val exported = state.value.exported ?: return
         try {
-            withContext(Dispatchers.IO) {
+            withContext(platformIoDispatcher) {
                 FileSystem.SYSTEM.source(exported.file).buffer().use { source ->
                     destination.buffer().use { sink -> sink.writeAll(source) }
                 }
@@ -276,7 +277,7 @@ class ChaptersViewModel(
         } catch (error: Throwable) {
             mutableState.update { it.copy(error = error.message ?: "写入导出文件失败。") }
         } finally {
-            withContext(Dispatchers.IO) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
+            withContext(platformIoDispatcher) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
         }
     }
 

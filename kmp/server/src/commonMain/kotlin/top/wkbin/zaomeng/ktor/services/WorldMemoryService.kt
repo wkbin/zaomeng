@@ -53,7 +53,7 @@ class WorldMemoryService(private val storage: StorageService) {
         val resolvedId = factId.ifBlank { "fact-${randomUuid().replace("-", "").take(12)}" }
         val now = nowIsoString()
         val updated = buildJsonObject {
-            existing.forEach(::put)
+            existing.forEach { (k, v) -> put(k, v) }
             put("fact_id", resolvedId)
             put("category", request.category)
             put("summary", request.summary.trim().take(500))
@@ -71,7 +71,7 @@ class WorldMemoryService(private val storage: StorageService) {
         }
         if (existingIndex < 0) facts.add(updated) else facts[existingIndex] = updated
         write(runId, buildJsonObject {
-            payload.forEach(::put)
+            payload.forEach { (k, v) -> put(k, v) }
             put("facts", buildJsonArray { facts.takeLast(MAX_ITEMS).forEach(::add) })
             put("updated_at", now)
         })
@@ -85,7 +85,7 @@ class WorldMemoryService(private val storage: StorageService) {
         val remaining = facts.filterNot { it.jsonObject["fact_id"]?.jsonPrimitive?.contentOrNull == factId }
         if (remaining.size == facts.size) throw NoSuchElementException("Fact not found: $factId")
         write(runId, buildJsonObject {
-            payload.forEach(::put)
+            payload.forEach { (k, v) -> put(k, v) }
             put("facts", buildJsonArray { remaining.forEach(::add) })
             put("updated_at", nowIsoString())
         })

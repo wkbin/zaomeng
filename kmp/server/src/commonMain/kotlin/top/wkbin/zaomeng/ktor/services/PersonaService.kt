@@ -279,13 +279,13 @@ class PersonaService(
                 val item = element.jsonObject
                 if (item["name"]?.jsonPrimitive?.contentOrNull == character) {
                     found = true
-                    add(buildJsonObject { item.forEach(::put); put("avatar_version", JsonPrimitive(version)) })
+                    add(buildJsonObject { item.forEach { (k, v) -> put(k, v) }; put("avatar_version", JsonPrimitive(version)) })
                 } else add(item)
             }
         }
         if (!found) throw NoSuchElementException("Character not found: $character")
-        val updatedIndex = buildJsonObject { artifactIndex.forEach(::put); put("characters", updatedCharacters) }
-        storage.writeRunManifest(runId, buildJsonObject { manifest.forEach(::put); put("artifact_index", updatedIndex) })
+        val updatedIndex = buildJsonObject { artifactIndex.forEach { (k, v) -> put(k, v) }; put("characters", updatedCharacters) }
+        storage.writeRunManifest(runId, buildJsonObject { manifest.forEach { (k, v) -> put(k, v) }; put("artifact_index", updatedIndex) })
     }
 
     private fun isSupportedImage(bytes: ByteArray): Boolean =

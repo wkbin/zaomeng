@@ -11,6 +11,7 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.Dispatchers
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -62,7 +63,7 @@ class OnlineLibraryRepository(
         downloadLocks.getOrPut(id) { Mutex() }
     }
 
-    suspend fun listBooks(): List<OnlineLibraryBook> = withContext(Dispatchers.IO) {
+    suspend fun listBooks(): List<OnlineLibraryBook> = withContext(platformIoDispatcher) {
         val response = httpClient.get(INDEX_URL) {
             header("Accept", "application/json")
             header("User-Agent", USER_AGENT)
@@ -78,7 +79,7 @@ class OnlineLibraryRepository(
     suspend fun downloadBook(
         book: OnlineLibraryBook,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
-    ): ByteArray = withContext(Dispatchers.IO) {
+    ): ByteArray = withContext(platformIoDispatcher) {
         require(book.sha256.matches(SHA256_PATTERN)) { "书卷校验信息无效。" }
         require(isAllowedDownloadUrl(book.downloadUrl)) { "书卷下载地址不受信任。" }
         require(isSafeBookId(book.id)) { "书卷编号不受信任。" }

@@ -6,6 +6,7 @@ import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
 import top.wkbin.zaomeng.platform.cropAvatarBytes
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import okio.FileSystem
 import okio.Path
 import okio.Sink
@@ -191,7 +192,7 @@ class RunDetailViewModel(
             mutableState.update {
                 it.copy(exporting = true, exportedPackage = null, error = "", message = "")
             }
-            withContext(Dispatchers.IO) { staleExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
+            withContext(platformIoDispatcher) { staleExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
             var pendingExport: ExportedRunPackage? = null
             try {
                 val exported = repository.exportRun(
@@ -216,7 +217,7 @@ class RunDetailViewModel(
                     it.copy(exporting = false, error = error.message ?: "导出书卷失败。")
                 }
             } finally {
-                withContext(NonCancellable + Dispatchers.IO) { pendingExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
+                withContext(NonCancellable + platformIoDispatcher) { pendingExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
             }
         }
     }
@@ -231,12 +232,12 @@ class RunDetailViewModel(
         val exported = state.value.exportedPackage ?: return
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) {
+                withContext(platformIoDispatcher) {
                     FileSystem.SYSTEM.source(exported.file).buffer().use { source ->
                         destination.buffer().use { sink -> sink.writeAll(source) }
                     }
                 }
-                withContext(Dispatchers.IO) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
+                withContext(platformIoDispatcher) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
                 mutableState.update {
                     it.copy(
                         exportedPackage = null,

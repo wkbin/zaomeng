@@ -76,7 +76,7 @@ class DialogueStreamParser(
         events: MutableList<StreamEvent>
     ) {
         val key = "$index:$field"
-        val emitted = emittedLengths.getOrDefault(key, 0)
+        val emitted = emittedLengths[key] ?: 0
 
         if (value.length <= emitted) return
 

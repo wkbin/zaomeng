@@ -6,7 +6,6 @@ import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.plugins.statuspages.StatusPages
-import io.ktor.server.plugins.statuspages.exception
 import io.ktor.server.response.respond
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.uri
