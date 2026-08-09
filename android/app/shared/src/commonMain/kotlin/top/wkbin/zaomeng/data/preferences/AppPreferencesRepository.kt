@@ -43,6 +43,7 @@ data class AppPreferences(
     val chatDisplay: ChatDisplayPreferences = ChatDisplayPreferences(),
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val themeSeedColorArgb: Long = 0L,
+    val dynamicColorEnabled: Boolean = false,
     val uiScale: Float = UI_SCALE_DEFAULT,
 )
 
@@ -74,6 +75,7 @@ class AppPreferencesRepository(
                 ),
                 themeMode = ThemeMode.fromStorageValue(values[KEY_THEME_MODE]),
                 themeSeedColorArgb = values[KEY_THEME_SEED_COLOR] ?: 0L,
+                dynamicColorEnabled = values[KEY_DYNAMIC_COLOR_ENABLED] ?: false,
                 uiScale = (values[KEY_UI_SCALE] ?: UI_SCALE_DEFAULT).coerceIn(UI_SCALE_MIN, UI_SCALE_MAX),
             )
         }
@@ -88,6 +90,10 @@ class AppPreferencesRepository(
 
     val themeSeedColorArgb: Flow<Long> = preferences
         .map { it.themeSeedColorArgb }
+        .distinctUntilChanged()
+
+    val dynamicColorEnabled: Flow<Boolean> = preferences
+        .map { it.dynamicColorEnabled }
         .distinctUntilChanged()
 
     val uiScale: Flow<Float> = preferences
@@ -213,6 +219,10 @@ class AppPreferencesRepository(
         }
     }
 
+    suspend fun setDynamicColorEnabled(enabled: Boolean) {
+        dataStore.edit { values -> values[KEY_DYNAMIC_COLOR_ENABLED] = enabled }
+    }
+
     suspend fun setUiScale(scale: Float) {
         dataStore.edit { values ->
             values[KEY_UI_SCALE] = scale.coerceIn(UI_SCALE_MIN, UI_SCALE_MAX)
@@ -235,6 +245,7 @@ class AppPreferencesRepository(
         val KEY_CHAT_BACKGROUND_BLUR_RADIUS = floatPreferencesKey("chat_background_blur_radius")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_THEME_SEED_COLOR = longPreferencesKey("theme_seed_color")
+        val KEY_DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
         val KEY_UI_SCALE = floatPreferencesKey("ui_scale")
     }
 }

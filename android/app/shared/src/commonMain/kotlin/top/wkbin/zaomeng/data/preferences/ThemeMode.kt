@@ -2,14 +2,11 @@ package top.wkbin.zaomeng.data.preferences
 
 import androidx.compose.ui.graphics.Color
 
-/** 主题模式（跨平台共享）。Monet 系列使用 Material You 动态取色。 */
-enum class ThemeMode(val storageValue: String, val isMonet: Boolean) {
-    SYSTEM("system", false),
-    LIGHT("light", false),
-    DARK("dark", false),
-    MONET_SYSTEM("monet_system", true),
-    MONET_LIGHT("monet_light", true),
-    MONET_DARK("monet_dark", true),
+/** 主题模式（跨平台共享）。动态取色由独立的 dynamicColorEnabled 开关控制。 */
+enum class ThemeMode(val storageValue: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark"),
     ;
 
     companion object {

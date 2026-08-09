@@ -31,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -63,6 +64,7 @@ fun AppearanceSettingsScreen(
 ) {
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(0L)
+    val dynamicColorEnabled by preferencesRepository.dynamicColorEnabled.collectAsStateWithLifecycle(false)
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(UI_SCALE_DEFAULT)
     var uiScaleDraft by remember { mutableFloatStateOf(uiScale) }
     val scope = rememberCoroutineScope()
@@ -106,11 +108,34 @@ fun AppearanceSettingsScreen(
                                 onClick = { scope.launch { preferencesRepository.setThemeMode(mode) } },
                             )
                         }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("动态取色", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "开启后界面颜色随系统壁纸或下方主题色生成。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = dynamicColorEnabled,
+                                onCheckedChange = { enabled ->
+                                    scope.launch { preferencesRepository.setDynamicColorEnabled(enabled) }
+                                },
+                            )
+                        }
                     }
                 }
             }
             item {
-                AnimatedVisibility(visible = themeMode.isMonet) {
+                AnimatedVisibility(visible = dynamicColorEnabled) {
                     Column {
                         Text(
                             "主题色",
@@ -158,7 +183,7 @@ fun AppearanceSettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                "拖动滑杆调整整个应用的界面大小（参考 KernelSU 页面缩放），不影响系统设置。",
+                                "拖动滑杆调整整个应用的界面大小，不影响系统设置。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -190,9 +215,6 @@ private fun ThemeModeRow(mode: ThemeMode, selected: Boolean, onClick: () -> Unit
         ThemeMode.SYSTEM -> "根据设备当前的系统外观自动切换。"
         ThemeMode.LIGHT -> "始终使用浅色界面。"
         ThemeMode.DARK -> "始终使用深色界面。"
-        ThemeMode.MONET_SYSTEM -> "跟随系统，并使用动态取色。"
-        ThemeMode.MONET_LIGHT -> "始终浅色，并使用动态取色。"
-        ThemeMode.MONET_DARK -> "始终深色，并使用动态取色。"
     }
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),

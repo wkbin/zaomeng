@@ -42,6 +42,7 @@ fun main() {
             App(
                 initialThemeMode = initialPreferences.themeMode,
                 initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
+                initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
                 onThemeChanged = { dark -> applyNativeTitleBarTheme(window, dark) },
             )

@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 onChaptersLaunchConsumed = { pendingChaptersRunId = null },
                 initialThemeMode = initialPreferences.themeMode,
                 initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
+                initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
             )
             appUpdateState.availableUpdate?.let { update ->

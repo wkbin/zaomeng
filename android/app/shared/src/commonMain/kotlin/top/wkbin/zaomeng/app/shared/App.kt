@@ -35,6 +35,8 @@ fun App(
     /** 平台入口在启动时同步读取的持久化主题，避免首帧闪主题；未提供时用默认值。 */
     initialThemeMode: ThemeMode = ThemeMode.SYSTEM,
     initialThemeSeedColorArgb: Long = 0L,
+    /** 启动时同步读取的持久化动态取色开关，避免首帧先按静态主题渲染。 */
+    initialDynamicColorEnabled: Boolean = false,
     /** 平台入口在启动时同步读取的持久化界面缩放，避免首帧先按 100% 渲染。 */
     initialUiScale: Float = UI_SCALE_DEFAULT,
 ) {
@@ -45,13 +47,16 @@ fun App(
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(
         initialValue = initialThemeSeedColorArgb,
     )
+    val dynamicColorEnabled by preferencesRepository.dynamicColorEnabled.collectAsStateWithLifecycle(
+        initialValue = initialDynamicColorEnabled,
+    )
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(
         initialValue = initialUiScale,
     )
     val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM, ThemeMode.MONET_SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT, ThemeMode.MONET_LIGHT -> false
-        ThemeMode.DARK, ThemeMode.MONET_DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
     }
     SideEffect { onThemeChanged(darkTheme) }
     // 全局界面缩放（参考 KernelSU pageScale）：覆盖 Density，仅缩放本应用 UI，不影响系统设置。
@@ -65,6 +70,7 @@ fun App(
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
         MyApplicationTheme(
             themeMode = themeMode,
+            dynamicColorEnabled = dynamicColorEnabled,
             themeSeedColorArgb = themeSeedColorArgb,
         ) {
             ZaomengNavHost(

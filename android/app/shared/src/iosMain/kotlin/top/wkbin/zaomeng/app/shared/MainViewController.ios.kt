@@ -20,6 +20,7 @@ fun MainViewController(): UIViewController {
         App(
             initialThemeMode = initialPreferences.themeMode,
             initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
+            initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
             initialUiScale = initialPreferences.uiScale,
         )
     }
