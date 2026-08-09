@@ -4,15 +4,15 @@ import android.os.Build
 import android.util.Log
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
+import it.krzeminski.snakeyaml.engine.kmp.api.Dump
+import it.krzeminski.snakeyaml.engine.kmp.api.DumpSettings
+import it.krzeminski.snakeyaml.engine.kmp.api.Load
+import it.krzeminski.snakeyaml.engine.kmp.common.FlowStyle
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import okio.Path
-import org.yaml.snakeyaml.DumperOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
-import org.yaml.snakeyaml.LoaderOptions
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.UUID
@@ -38,18 +38,13 @@ actual object PlatformLog {
     }
 }
 
-private val androidYamlParser = Yaml(SafeConstructor(LoaderOptions()))
-private val androidYamlDumper = Yaml(
-    DumperOptions().apply {
-        defaultFlowStyle = DumperOptions.FlowStyle.BLOCK
-    }
-)
-
+// YAML：Android 用 snakeyaml-engine-kmp（经典 snakeyaml 依赖 java.beans，Android 上不可用）。
 @Suppress("UNCHECKED_CAST")
 actual fun parseYaml(text: String): Map<String, Any?>? =
-    runCatching { androidYamlParser.load<Any?>(text) }.getOrNull() as? Map<String, Any?>
+    runCatching { Load().loadOne(text) }.getOrNull() as? Map<String, Any?>
 
-actual fun dumpYaml(value: Any?): String = androidYamlDumper.dump(value)
+actual fun dumpYaml(value: Any?): String =
+    Dump(DumpSettings(defaultFlowStyle = FlowStyle.BLOCK)).dumpToString(value)
 
 actual fun randomUuid(): String = UUID.randomUUID().toString()
 

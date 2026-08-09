@@ -56,7 +56,7 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.androidx.core.ktx)
-            implementation(libs.snakeyaml)
+            implementation(libs.snakeyaml.engine.kmp)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.kotlinx.coroutines.android)
         }

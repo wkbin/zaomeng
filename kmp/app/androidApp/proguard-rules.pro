@@ -25,3 +25,7 @@
 # Optional JVM-only annotations referenced by dependency metadata.
 -dontwarn javax.annotation.**
 -dontwarn org.codehaus.mojo.animal_sniffer.**
+
+# JVM-only classes referenced by snakeyaml (JavaBeans) / ktor (management) metadata.
+-dontwarn java.beans.**
+-dontwarn java.lang.management.**
