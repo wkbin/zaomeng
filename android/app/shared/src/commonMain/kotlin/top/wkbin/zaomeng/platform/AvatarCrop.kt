@@ -1,4 +1,4 @@
 package top.wkbin.zaomeng.platform
 
-/** 按裁剪参数把头图片裁成 512x512（Android 圆形裁剪；桌面/iOS 暂返回原图 TODO）。 */
+/** 按裁剪参数把头图片裁成 512x512 圆形（Android/iOS；桌面暂返回原图）。 */
 expect fun cropAvatarBytes(bytes: ByteArray, side: Int, left: Int, top: Int): ByteArray
