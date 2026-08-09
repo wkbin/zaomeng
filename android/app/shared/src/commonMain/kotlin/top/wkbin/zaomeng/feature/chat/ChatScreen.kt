@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -328,21 +329,25 @@ fun ChatScreen(
         bottomBar = {
             if (state.session != null) {
                 Surface(color = chromeMaskColor) {
-                    ChatComposer(
-                        state = state,
-                        avatarBytes = state.avatarBytes,
-                        onDraftChange = viewModel::updateDraft,
-                        onMessageKindChange = viewModel::selectMessageKind,
-                        onInvokePluginAction = viewModel::invokePluginAction,
-                        onOpenDirector = { directorOpen = true },
-                        onSend = viewModel::send,
-                        onToggleContinuousObserve = viewModel::toggleContinuousObserve,
-                        onToggleGenerationEnhancer = viewModel::toggleGenerationEnhancer,
-                        onRecover = viewModel::recoverPending,
-                        onReconcile = viewModel::reconcileUnknownSend,
-                        onRetry = viewModel::retryLastSend,
-                        onDiscardRetry = viewModel::discardFailedSend,
-                    )
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Box(Modifier.widthIn(max = 1000.dp).fillMaxWidth()) {
+                            ChatComposer(
+                                state = state,
+                                avatarBytes = state.avatarBytes,
+                                onDraftChange = viewModel::updateDraft,
+                                onMessageKindChange = viewModel::selectMessageKind,
+                                onInvokePluginAction = viewModel::invokePluginAction,
+                                onOpenDirector = { directorOpen = true },
+                                onSend = viewModel::send,
+                                onToggleContinuousObserve = viewModel::toggleContinuousObserve,
+                                onToggleGenerationEnhancer = viewModel::toggleGenerationEnhancer,
+                                onRecover = viewModel::recoverPending,
+                                onReconcile = viewModel::reconcileUnknownSend,
+                                onRetry = viewModel::retryLastSend,
+                                onDiscardRetry = viewModel::discardFailedSend,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -355,50 +360,60 @@ fun ChatScreen(
                     modifier = Modifier.padding(innerPadding),
                 )
 
-                else -> Column(Modifier
-                    .padding(innerPadding)
-                    .fillMaxSize()) {
-                    if (searchOpen && state.searchQuery.isNotBlank()) {
-                        ChatSearchResults(
-                            query = state.searchQuery,
-                            searching = state.searching,
-                            results = state.searchResults,
-                            actionsEnabled = state.canUseTools,
-                            onBranch = viewModel::branchFromTurn,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        val session = requireNotNull(state.session)
-                        val hasConsistencyIssue = session.consistencyMonitor.consistencyInsight()
-                            ?.issueCount
-                            ?.let { it > 0 } == true
-                        if (hasConsistencyIssue) {
-                            ChatContextStrip(
+                else -> Box(
+                    Modifier
+                        .padding(innerPadding)
+                        .fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxHeight()
+                            .widthIn(max = 1000.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        if (searchOpen && state.searchQuery.isNotBlank()) {
+                            ChatSearchResults(
+                                query = state.searchQuery,
+                                searching = state.searching,
+                                results = state.searchResults,
+                                actionsEnabled = state.canUseTools,
+                                onBranch = viewModel::branchFromTurn,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            val session = requireNotNull(state.session)
+                            val hasConsistencyIssue = session.consistencyMonitor.consistencyInsight()
+                                ?.issueCount
+                                ?.let { it > 0 } == true
+                            if (hasConsistencyIssue) {
+                                ChatContextStrip(
+                                    session = session,
+                                    onOpenTools = { toolsOpen = true },
+                                )
+                            }
+                            Transcript(
                                 session = session,
-                                onOpenTools = { toolsOpen = true },
+                                avatarBytes = state.avatarBytes,
+                                sending = state.sending,
+                                streamStatus = state.streamStatus,
+                                modelReasoning = state.modelReasoning.takeIf {
+                                    state.chatDisplay.showModelReasoning
+                                }.orEmpty(),
+                                streamingReplies = state.streamingReplies,
+                                pendingUserMessage = state.pendingUserMessage,
+                                displayPreferences = state.chatDisplay,
+                                actionsEnabled = state.canUseTools,
+                                includeInnerThoughts = state.includeInnerThoughts,
+                                onRegenerate = viewModel::correctLatest,
+                                onBranch = viewModel::branchFromTurn,
+                                onPendingRetry = viewModel::retryLastSend,
+                                onPendingEdit = viewModel::discardFailedSend,
+                                onPendingReconcile = viewModel::reconcileUnknownSend,
+                                onPendingRecover = viewModel::recoverPending,
+                                modifier = Modifier.weight(1f),
                             )
                         }
-                        Transcript(
-                            session = session,
-                            avatarBytes = state.avatarBytes,
-                            sending = state.sending,
-                            streamStatus = state.streamStatus,
-                            modelReasoning = state.modelReasoning.takeIf {
-                                state.chatDisplay.showModelReasoning
-                            }.orEmpty(),
-                            streamingReplies = state.streamingReplies,
-                            pendingUserMessage = state.pendingUserMessage,
-                            displayPreferences = state.chatDisplay,
-                            actionsEnabled = state.canUseTools,
-                            includeInnerThoughts = state.includeInnerThoughts,
-                            onRegenerate = viewModel::correctLatest,
-                            onBranch = viewModel::branchFromTurn,
-                            onPendingRetry = viewModel::retryLastSend,
-                            onPendingEdit = viewModel::discardFailedSend,
-                            onPendingReconcile = viewModel::reconcileUnknownSend,
-                            onPendingRecover = viewModel::recoverPending,
-                            modifier = Modifier.weight(1f),
-                        )
                     }
                 }
             }

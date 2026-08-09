@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -141,13 +145,15 @@ fun CardLibraryScreen(
             }
         },
     ) { innerPadding ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 380.dp),
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.error.isNotBlank() || state.message.isNotBlank()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = if (state.error.isNotBlank()) {
@@ -168,13 +174,13 @@ fun CardLibraryScreen(
                 }
             }
             if (state.loading) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
             } else if (state.cards.isEmpty()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 36.dp)) {
                         Text("还没有${state.kind.displayName}", style = MaterialTheme.typography.titleMedium)
                         Text(

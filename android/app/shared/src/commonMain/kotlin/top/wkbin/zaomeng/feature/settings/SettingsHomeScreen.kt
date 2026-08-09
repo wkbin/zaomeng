@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -72,70 +74,79 @@ fun SettingsHomeScreen(
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 460.dp),
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item { SectionTitle("模型与对话", AppDimens.screenPadding) }
             item {
-                SettingsHomeGroup {
-                    SettingsHomeRow(
-                        title = "模型设置",
-                        subtitle = "管理模型档案、服务商和 API Key。",
-                        icon = Icons.Outlined.Settings,
-                        onClick = onOpenModelSettings,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsHomeRow(
-                        title = "插件",
-                        subtitle = "管理聊天扩展、权限与运行状态。",
-                        icon = Icons.Outlined.Extension,
-                        onClick = onOpenPlugins,
-                    )
+                Column {
+                    SectionTitle("模型与对话", AppDimens.screenPadding)
+                    SettingsHomeGroup {
+                        SettingsHomeRow(
+                            title = "模型设置",
+                            subtitle = "管理模型档案、服务商和 API Key。",
+                            icon = Icons.Outlined.Settings,
+                            onClick = onOpenModelSettings,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SettingsHomeRow(
+                            title = "插件",
+                            subtitle = "管理聊天扩展、权限与运行状态。",
+                            icon = Icons.Outlined.Extension,
+                            onClick = onOpenPlugins,
+                        )
+                    }
                 }
             }
-            item { SectionTitle("外观") }
             item {
-                SettingsHomeGroup {
-                    SettingsHomeRow(
-                        title = "主题模式",
-                        subtitle = "浅色、深色或跟随系统。",
-                        icon = Icons.Outlined.Palette,
-                        value = preferences.themeMode.displayName,
-                        onClick = onOpenAppearance,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsHomeRow(
-                        title = "聊天显示",
-                        subtitle = "调整消息字号、显示密度和推理内容。",
-                        icon = Icons.AutoMirrored.Outlined.Chat,
-                        onClick = onOpenChatDisplay,
-                    )
+                Column {
+                    SectionTitle("外观")
+                    SettingsHomeGroup {
+                        SettingsHomeRow(
+                            title = "主题模式",
+                            subtitle = "浅色、深色或跟随系统。",
+                            icon = Icons.Outlined.Palette,
+                            value = preferences.themeMode.displayName,
+                            onClick = onOpenAppearance,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SettingsHomeRow(
+                            title = "聊天显示",
+                            subtitle = "调整消息字号、显示密度和推理内容。",
+                            icon = Icons.AutoMirrored.Outlined.Chat,
+                            onClick = onOpenChatDisplay,
+                        )
+                    }
                 }
             }
-            item { SectionTitle("应用") }
             item {
-                SettingsHomeGroup {
-                    SettingsHomeRow(
-                        title = "启动与恢复",
-                        subtitle = "打开应用后执行的操作。",
-                        icon = Icons.Outlined.Settings,
-                        onClick = onOpenStartupRecovery,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsHomeRow(
-                        title = "检查更新",
-                        subtitle = "检查 GitHub Release 中的最新应用版本。",
-                        icon = Icons.Outlined.SystemUpdate,
-                        onClick = onOpenAppUpdate,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsHomeRow(
-                        title = "应用与支持",
-                        subtitle = "导出脱敏运行诊断并查看项目资源。",
-                        icon = Icons.Outlined.SupportAgent,
-                        onClick = onOpenAppSupport,
-                    )
+                Column {
+                    SectionTitle("应用")
+                    SettingsHomeGroup {
+                        SettingsHomeRow(
+                            title = "启动与恢复",
+                            subtitle = "打开应用后执行的操作。",
+                            icon = Icons.Outlined.Settings,
+                            onClick = onOpenStartupRecovery,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SettingsHomeRow(
+                            title = "检查更新",
+                            subtitle = "检查 GitHub Release 中的最新应用版本。",
+                            icon = Icons.Outlined.SystemUpdate,
+                            onClick = onOpenAppUpdate,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SettingsHomeRow(
+                            title = "应用与支持",
+                            subtitle = "导出脱敏运行诊断并查看项目资源。",
+                            icon = Icons.Outlined.SupportAgent,
+                            onClick = onOpenAppSupport,
+                        )
+                    }
                 }
             }
         }
