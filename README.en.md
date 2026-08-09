@@ -48,7 +48,7 @@ source ~/.bashrc
 zaomeng
 ```
 
-Common commands after install: `zaomeng web --reload` (starts the Web UI at `http://127.0.0.1:8000`), `zaomeng uninstall`, `zaomeng update`. Manual setup: `pip install -r requirements.runtime.txt` then `python scripts/run_webui.py --reload`.
+Common commands after install: `zaomeng web --reload` (starts the Web UI at `http://127.0.0.1:8000`), `zaomeng uninstall`, `zaomeng update`. Manual setup: `pip install -r requirements.runtime.txt` then `python scripts/run_webui.py --reload`. Dependencies: `requirements.txt` (full dev/test), `requirements.termux.txt` (Termux), including `httpx2` for web tests; EPUB parsing is optional.
 
 ## Screenshots
 
