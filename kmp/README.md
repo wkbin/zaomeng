@@ -1,18 +1,18 @@
-# 造梦 Android
+# 造梦
 
-造梦 Android 内置 Kotlin Ktor 服务端（`:server` 模块），业务接口只监听设备回环地址，书卷、人物和会话数据保存在 App 私有目录中，不需要部署中心服务器。模型推理仍会按用户配置访问对应的模型供应商；除这类模型请求外，Android 界面与 Ktor 服务之间的通信都在手机本机完成。
+Android / 桌面 / iOS 三端共享的 Compose Multiplatform 客户端（KMP 工程）。内置 Kotlin Ktor 服务端（`:server` 模块），业务接口只监听本机回环地址，书卷、人物和会话数据保存在各端私有目录中，不需要部署中心服务器。模型推理仍会按用户配置访问对应的模型供应商；除这类模型请求外，界面与 Ktor 服务之间的通信都在本机完成。
 
 ## 运行架构
 
 1. `androidApp` 的 `ZaomengApplication` 通过 Koin 初始化依赖注入；Ktor 服务端代码位于独立 `:server` KMP module（routes/services/models/plugins/认证，Room 持久化）。
-2. `KtorBackendController` 在随机 `127.0.0.1` 端口启动内嵌 Ktor (CIO) 服务，数据根目录设为 App 私有目录；服务端日志由 `CallLogging` 和 `StatusPages` 统一处理。
-3. 每次安装生成的本机接口 Token 由 Android Keystore 保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Retrofit/OkHttp 或 Ktor Client 并附加认证信息。
+2. `KtorBackendController` 在随机 `127.0.0.1` 端口启动内嵌 Ktor (CIO) 服务，数据根目录设为各端私有目录；服务端日志由请求日志拦截器（Monitoring）与 `StatusPages` 统一处理。
+3. 每次安装生成的本机接口 Token 由平台安全存储保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Ktor Client 并附加认证信息。
 4. Compose 界面采用 ViewModel 和 Repository 分层；Koin 提供 Repository、ViewModel、本机后端控制器及其他依赖。
-5. Navigation Compose 使用类型安全路由连接书架、导入、模型设置、书卷详情、人物资料、关系校对、卡片库、增量蒸馏、会话列表和聊天页面。
+5. Navigation3 使用类型安全路由连接书架、导入、模型设置、书卷详情、人物资料、关系校对、卡片库、增量蒸馏、会话列表和聊天页面。
 6. Preferences DataStore 保存导入默认人物、自动蒸馏选项、聊天字号、紧凑显示模式以及最近访问的书卷和会话等轻量偏好；敏感的本机接口 Token 不存入 DataStore。
 7. 长时间蒸馏由 Android 前台服务监控，在通知中显示进度并可直接停止全部任务；结束、停止或失败时会发送结果通知，点击可回到书架。进程意外退出后，遗留任务会在下次启动时标记为已中断，并在书架提示可从未完成人物继续蒸馏，避免一直停留在运行中。
 
-对话、审校等 LLM 功能使用 `prompts/` 目录下的提示词 YAML 配置，该目录已打包进 APK 的 assets 供真机读取；`builtin_novels/` 仅供 Web 端使用，不会打进 Android APK。
+对话、审校等 LLM 功能使用 `prompts/` 目录下的提示词 YAML 配置：KMP 侧通过 composeResources（`app/shared/src/commonMain/composeResources/files/prompts/`）与 server 模块 assets 统一提供，仓库根 `prompts/` 仍为 Python Web 端的单一来源。
 
 ## 已实现功能
 
@@ -39,6 +39,14 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 ```
 
 Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。
+
+桌面端（Compose Desktop）：
+
+```powershell
+.\gradlew.bat :app:desktopApp:run
+```
+
+iOS 端使用 Xcode 打开 `iosApp/iosApp.xcodeproj`（构建脚本会调用 Gradle 生成 shared framework）。
 
 ## 当前限制
 
