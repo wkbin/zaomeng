@@ -27,6 +27,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Duration.Companion.nanoseconds
+import kotlin.time.TimeSource
 import top.wkbin.zaomeng.platform.randomUuid
 
 data class ChatToolOption(
@@ -747,12 +749,12 @@ class ChatViewModel(
             val reasoningBuffer = StringBuilder()
             var reasoningTruncated = false
             var reasoningFinalized = false
-            var lastReasoningUpdateAt = 0L
+            var lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
 
             fun flushReasoning(force: Boolean = false) {
                 if (reasoningBuffer.isEmpty() && !reasoningTruncated) return
-                val now = System.nanoTime()
-                if (!force && now - lastReasoningUpdateAt < MODEL_REASONING_UPDATE_INTERVAL_NANOS) {
+                val now = TimeSource.Monotonic.markNow()
+                if (!force && now - lastReasoningUpdateAt < MODEL_REASONING_UPDATE_INTERVAL_NANOS.nanoseconds) {
                     return
                 }
                 lastReasoningUpdateAt = now
@@ -876,7 +878,7 @@ class ChatViewModel(
                             reasoningBuffer.setLength(0)
                             reasoningTruncated = false
                             reasoningFinalized = false
-                            lastReasoningUpdateAt = 0L
+                            lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
                             updateSendState(snapshot, operationId) {
                                 it.copy(
                                     modelReasoning = "",

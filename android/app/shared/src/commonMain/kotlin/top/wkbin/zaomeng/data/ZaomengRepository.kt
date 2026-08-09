@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.data
 
 import okio.Path.Companion.toPath
 import okio.Path
+import kotlin.time.TimeSource
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.backend.BackendController
 import top.wkbin.zaomeng.backend.SecureStoreNames
@@ -780,7 +781,7 @@ class ZaomengRepository(
                             eventName = "message"
                             if (event != null) {
                                 val text = (event as? DialogueStreamEvent.Delta)?.text
-                                PlatformLog.d("ZaomengRepository", "emit@${System.currentTimeMillis()} ${text?.take(20)}")
+                                PlatformLog.d("ZaomengRepository", "emit@${TimeSource.Monotonic.markNow().elapsedNow().inWholeMilliseconds} ${text?.take(20)}")
                                 emit(event)
                                 terminalReceived = event is DialogueStreamEvent.Complete ||
                                     event is DialogueStreamEvent.Failure
@@ -1047,7 +1048,7 @@ class ZaomengRepository(
         val encoded = Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE)
             .find(contentDisposition)?.groupValues?.getOrNull(1)
         if (!encoded.isNullOrBlank()) {
-            return java.net.URLDecoder.decode(encoded.replace("+", "%2B"), Charsets.UTF_8.name())
+            return percentDecodeUtf8(encoded.replace("+", "%2B"))
         }
         return Regex("filename=\\\"?([^;\\\"]+)", RegexOption.IGNORE_CASE)
             .find(contentDisposition)?.groupValues?.getOrNull(1).orEmpty()
@@ -1057,6 +1058,27 @@ class ZaomengRepository(
         val json = Json { ignoreUnknownKeys = true }
         const val TAG = "ZaomengRepository"
     }
+}
+
+/** UTF-8 百分号解码（等价 java.net.URLDecoder 的 UTF-8 行为，KMP 可用）。 */
+private fun percentDecodeUtf8(input: String): String {
+    val bytes = mutableListOf<Byte>()
+    var index = 0
+    while (index < input.length) {
+        val char = input[index]
+        if (char == '%' && index + 2 < input.length) {
+            val high = input[index + 1].digitToIntOrNull(16)
+            val low = input[index + 2].digitToIntOrNull(16)
+            if (high != null && low != null) {
+                bytes.add(((high shl 4) or low).toByte())
+                index += 3
+                continue
+            }
+        }
+        char.toString().encodeToByteArray().let { bytes.addAll(it.toList()) }
+        index += 1
+    }
+    return bytes.toByteArray().decodeToString()
 }
 
 class ApiRequestException(

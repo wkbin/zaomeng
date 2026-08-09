@@ -281,7 +281,7 @@ object DistillExcerptBuilder {
         val samples = mutableListOf<Int>()
         val total = unique.size - 1
         for (slot in 0 until sampleCap) {
-            val position = Math.round(total.toDouble() * slot / (sampleCap - 1)).toInt()
+            val position = kotlin.math.round(total.toDouble() * slot / (sampleCap - 1)).toInt()
             val candidate = unique[position]
             if (candidate !in samples) samples.add(candidate)
         }

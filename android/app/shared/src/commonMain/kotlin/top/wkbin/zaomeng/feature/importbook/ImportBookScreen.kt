@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Archive
@@ -514,13 +515,13 @@ private fun SamplingPlanCard(
 }
 
 private fun Long.readableFileSize(): String = when {
-    this >= 1024 * 1024 -> "%.1f MB".format(this / 1024f / 1024f)
-    this >= 1024 -> "%.1f KB".format(this / 1024f)
+    this >= 1024 * 1024 -> "${formatOneDecimal(this / 1024.0 / 1024.0)} MB"
+    this >= 1024 -> "${formatOneDecimal(this / 1024.0)} KB"
     else -> "$this B"
 }
 
 private fun Int.readableCount(): String = when {
-    this >= 10_000 -> "%.1f 万".format(this / 10_000f)
+    this >= 10_000 -> "${formatOneDecimal(this / 10_000.0)} 万"
     else -> toString()
 }
 

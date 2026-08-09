@@ -116,7 +116,7 @@ class DialoguePayloadBuilder(
                     "last_spoke_turn" to lastSpokeTurn,
                     "turns_since_spoke" to turnsSinceSpoke,
                     "participation_rate" to (if (totalTurns > 0) {
-                        (spokenTurns.size.toDouble() / totalTurns).let { Math.round(it * 1000) / 1000.0 }
+                        (spokenTurns.size.toDouble() / totalTurns).let { kotlin.math.round(it * 1000) / 1000.0 }
                     } else {
                         0.0
                     }),

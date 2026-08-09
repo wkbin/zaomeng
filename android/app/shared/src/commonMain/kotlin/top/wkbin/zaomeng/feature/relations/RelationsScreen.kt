@@ -247,7 +247,7 @@ internal fun relationGraphNodes(items: List<RelationItemDto>): List<RelationGrap
         .distinct()
     if (names.isEmpty()) return emptyList()
     return names.mapIndexed { index, name ->
-        val angle = (2.0 * Math.PI * index / names.size) - Math.PI / 2.0
+        val angle = (2.0 * kotlin.math.PI * index / names.size) - kotlin.math.PI / 2.0
         RelationGraphNode(
             name = name,
             x = (0.5 + 0.34 * cos(angle)).toFloat(),

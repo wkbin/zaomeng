@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -381,7 +382,7 @@ private fun SegmentCard(segment: RedistillSegmentDto, selected: Boolean, onSelec
 }
 
 private fun Int.readableCount(): String = when {
-    this >= 10_000 -> "%.1f 万".format(this / 10_000f)
+    this >= 10_000 -> "${formatOneDecimal(this / 10_000.0)} 万"
     else -> toString()
 }
 

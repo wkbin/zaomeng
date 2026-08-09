@@ -9,6 +9,7 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -106,7 +107,7 @@ class KtorChapterClient(
     suspend fun search(runId: String, query: String): List<SearchResultDto> {
         val body = decodeObject(
             request { endpoint ->
-                http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/search?q=${query.encodeURLParameter()}")
             },
         )
         val items = body["items"]?.jsonArray ?: return emptyList()

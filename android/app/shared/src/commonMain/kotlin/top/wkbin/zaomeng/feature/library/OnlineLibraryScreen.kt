@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import top.wkbin.zaomeng.platform.formatNoDecimal
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -223,8 +225,8 @@ private fun OnlineLibraryBookCard(
 }
 
 private fun readableLibrarySize(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / (1024f * 1024f))
-    bytes >= 1024 -> "%.0f KB".format(bytes / 1024f)
+    bytes >= 1024 * 1024 -> "${formatOneDecimal(bytes / (1024.0 * 1024.0))} MB"
+    bytes >= 1024 -> "${formatNoDecimal(bytes / 1024.0)} KB"
     else -> "$bytes B"
 }
 

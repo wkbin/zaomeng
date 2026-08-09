@@ -285,6 +285,6 @@ class ChaptersViewModel(
     fun discardExport() {
         val file = state.value.exported?.file ?: return
         mutableState.update { it.copy(exported = null) }
-        java.io.File(file.toString()).delete()
+        runCatching { FileSystem.SYSTEM.delete(file) }
     }
 }

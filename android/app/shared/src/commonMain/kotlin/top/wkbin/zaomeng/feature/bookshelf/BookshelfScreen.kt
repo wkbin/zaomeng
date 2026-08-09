@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -659,6 +660,6 @@ private fun statusDescription(status: String): String = when (status) {
 }
 
 private fun Int.formatCount(): String = when {
-    this >= 10_000 -> "%.1f万".format(this / 10_000f)
+    this >= 10_000 -> "${formatOneDecimal(this / 10_000.0)}万"
     else -> toString()
 }
