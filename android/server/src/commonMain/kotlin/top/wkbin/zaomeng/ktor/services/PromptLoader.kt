@@ -184,27 +184,27 @@ class PromptLoader(private val source: PromptSource) {
     }
 
     /**
-     * 按 mtime 缓存的读取辅助：assets（mtime=0）命中即永久复用；
-     * 文件系统回退路径在 mtime 变化时重新加载。
+     * 按 mtime 缓存的读取辅助：命中时只做 mtime 探测（不读文件内容），
+     * 未命中才整文件读取并解析；assets（mtime=0）命中即永久复用。
      */
     private fun cached(
         key: String,
         load: (String) -> Any?,
     ): Any? {
-        val entry = source.read(key)
-        val mtime = entry?.second ?: 0L
+        val mtime = source.lastModified(key) ?: 0L
         synchronized(promptCache) {
             promptCache[key]?.let { (cachedMtime, value) ->
                 if (cachedMtime == mtime) return value
             }
         }
-        val text = entry?.first ?: return synchronized(promptCache) { promptCache[key]?.second }
+        val entry = source.read(key) ?: return synchronized(promptCache) { promptCache[key]?.second }
+        val text = entry.first
         val loaded = runCatching { load(text) }.getOrElse { e ->
             PlatformLog.e(TAG, "Failed to parse prompt config: $key", e)
             synchronized(promptCache) { promptCache[key]?.second }
         }
         synchronized(promptCache) {
-            promptCache[key] = mtime to loaded
+            promptCache[key] = entry.second to loaded
         }
         return loaded
     }

@@ -92,6 +92,12 @@ interface SecureKeyValueStore {
 interface PromptSource {
     /** 返回原文与 mtime（打包 assets 固定 0）；缺失返回 null。 */
     fun read(relativePath: String): Pair<String, Long>?
+
+    /**
+     * 只探测资源的 mtime（不读内容），用于缓存命中判定。
+     * 与 [read] 使用同一解析顺序；缺失返回 null。
+     */
+    fun lastModified(relativePath: String): Long?
 }
 
 /** 当前 UTC 时间的 ISO-8601 字符串（等价 Instant.now().toString()）。 */

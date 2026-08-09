@@ -25,28 +25,35 @@ class AndroidPromptSource(private val context: Context) : PromptSource {
             ?: throw IllegalStateException("Could not locate project root")
     }
 
+    private fun resolveFallbackFile(relativePath: String): File? {
+        // 2. 文件系统回退
+        val configFile = promptsRoot.resolve(relativePath)
+        if (configFile.exists()) return configFile
+        // 3. zaomeng-skill（蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录）
+        val skillName = relativePath.removePrefix("distill/")
+        return listOf(
+            projectRoot.resolve("zaomeng-skill").resolve(skillName),
+            projectRoot.resolve("zaomeng-skill/prompts").resolve(skillName),
+            projectRoot.resolve("zaomeng-skill/references").resolve(skillName),
+        ).firstOrNull { it.exists() }
+    }
+
     override fun read(relativePath: String): Pair<String, Long>? {
-        // 1. assets 优先（prompts 目录整体打包为 assets 根内容）
+        // 1. assets 优先（prompts 目录整体打包为 assets 根内容，mtime 固定 0）
         runCatching {
             val input = context.assets.open(relativePath)
             val text = input.bufferedReader().use { it.readText() }
             return text to 0L
         }
-        // 2. 文件系统回退
-        val configFile = promptsRoot.resolve(relativePath)
-        if (configFile.exists()) {
-            return configFile.readText() to configFile.lastModified()
+        val file = resolveFallbackFile(relativePath) ?: return null
+        return file.readText() to file.lastModified()
+    }
+
+    override fun lastModified(relativePath: String): Long? {
+        // assets 打包后视为静态（mtime=0）；open 只做 zip 条目查找，不读内容
+        runCatching {
+            context.assets.open(relativePath).use { return 0L }
         }
-        // 3. zaomeng-skill（蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录）
-        val skillName = relativePath.removePrefix("distill/")
-        val skillFile = listOf(
-            projectRoot.resolve("zaomeng-skill").resolve(skillName),
-            projectRoot.resolve("zaomeng-skill/prompts").resolve(skillName),
-            projectRoot.resolve("zaomeng-skill/references").resolve(skillName),
-        ).firstOrNull { it.exists() }
-        if (skillFile != null) {
-            return skillFile.readText() to skillFile.lastModified()
-        }
-        return null
+        return resolveFallbackFile(relativePath)?.lastModified()
     }
 }

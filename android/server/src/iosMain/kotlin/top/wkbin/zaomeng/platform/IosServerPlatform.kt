@@ -39,7 +39,7 @@ class IosServerPlatform : ServerPlatform {
 
 /** iOS 提示词读取：主 bundle 资源目录（打包时把 prompts/ 放进 app resources）。 */
 class IosPromptSource : PromptSource {
-    override fun read(relativePath: String): Pair<String, Long>? {
+    private fun resolveFile(relativePath: String): String? {
         val resourceRoot = NSBundle.mainBundle.resourcePath ?: return null
         val candidates = listOf(
             // shared 的 composeResources 打包进 app bundle 后的路径（与 Res.readBytes 一致）
@@ -47,15 +47,21 @@ class IosPromptSource : PromptSource {
             // 手动放进 bundle 的 prompts 目录
             "$resourceRoot/" + relativePath.trimStart('/'),
         )
-        for (file in candidates) {
-            if (NSFileManager.defaultManager.fileExistsAtPath(file)) {
-                val text = runCatching {
-                    FileSystem.SYSTEM.source(file.toPath()).buffer().use { it.readUtf8() }
-                }.getOrNull() ?: continue
-                return text to 0L
-            }
-        }
-        return null
+        return candidates.firstOrNull { NSFileManager.defaultManager.fileExistsAtPath(it) }
+    }
+
+    override fun read(relativePath: String): Pair<String, Long>? {
+        val file = resolveFile(relativePath) ?: return null
+        val text = runCatching {
+            FileSystem.SYSTEM.source(file.toPath()).buffer().use { it.readUtf8() }
+        }.getOrNull() ?: return null
+        // bundle 资源视为静态（mtime=0）
+        return text to 0L
+    }
+
+    override fun lastModified(relativePath: String): Long? {
+        // bundle 资源视为静态（mtime=0）；只需探测存在性
+        return resolveFile(relativePath)?.let { 0L }
     }
 }
 

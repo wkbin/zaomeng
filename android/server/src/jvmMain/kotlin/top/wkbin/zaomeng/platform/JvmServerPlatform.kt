@@ -52,22 +52,25 @@ class JvmPromptSource : PromptSource {
         }
     }
 
-    override fun read(relativePath: String): Pair<String, Long>? {
+    private fun resolveFile(relativePath: String): File? {
         val configFile = File(repoRoot, "prompts").resolve(relativePath)
-        if (configFile.exists()) {
-            return configFile.readText() to configFile.lastModified()
-        }
+        if (configFile.exists()) return configFile
         // zaomeng-skill 的蒸馏 md 按 skill 布局放在 prompts/ 与 references/ 子目录
         val skillName = relativePath.removePrefix("distill/")
-        val skillFile = listOf(
+        return listOf(
             File(repoRoot, "zaomeng-skill").resolve(skillName),
             File(repoRoot, "zaomeng-skill/prompts").resolve(skillName),
             File(repoRoot, "zaomeng-skill/references").resolve(skillName),
         ).firstOrNull { it.exists() }
-        if (skillFile != null) {
-            return skillFile.readText() to skillFile.lastModified()
-        }
-        return null
+    }
+
+    override fun read(relativePath: String): Pair<String, Long>? {
+        val file = resolveFile(relativePath) ?: return null
+        return file.readText() to file.lastModified()
+    }
+
+    override fun lastModified(relativePath: String): Long? {
+        return resolveFile(relativePath)?.lastModified()
     }
 }
 
