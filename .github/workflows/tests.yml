@@ -23,8 +23,10 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
       - name: Run development checks
+        shell: bash
         env:
           TMPDIR: ${{ runner.temp }}/zaomeng-tests
           TEMP: ${{ runner.temp }}/zaomeng-tests
           TMP: ${{ runner.temp }}/zaomeng-tests
-        run: python scripts/dev_checks.py
+        run: |
+          python scripts/dev_checks.py > /tmp/dev-checks.log 2>&1 || { tail -100 /tmp/dev-checks.log | sed 's/^/::error::/'; exit 1; }
