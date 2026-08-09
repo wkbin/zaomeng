@@ -6,9 +6,11 @@ import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import top.wkbin.zaomeng.ktor.KtorServiceGraph
 import top.wkbin.zaomeng.ktor.plugins.configureObservability
@@ -41,7 +43,8 @@ import top.wkbin.zaomeng.platform.ServerPlatform
  */
 class LocalBackendController(
     private val serverPlatform: ServerPlatform,
-    private val port: Int = 8765,
+    /** 0 = 随机端口（默认，避免固定端口被占用/多实例冲突）。 */
+    private val port: Int = 0,
     private val token: String = "dev-token",
 ) : BackendController {
     private val mutableState = MutableStateFlow<BackendState>(BackendState.Idle)
@@ -50,6 +53,26 @@ class LocalBackendController(
 
     @Volatile
     private var started = false
+    @Volatile
+    private var boundPort: Int? = null
+
+    /** 实际绑定端口（随机端口模式下在 start 后解析）。 */
+    val actualPort: Int? get() = boundPort
+
+    /** 幂等启动（供端点提供者在请求前确保后端就绪）。 */
+    fun ensureStarted() {
+        start()
+    }
+
+    /** 等待实际端口就绪（随机端口在 start 后异步解析）。 */
+    suspend fun awaitPort(): Int {
+        boundPort?.let { return it }
+        repeat(200) {
+            delay(50)
+            boundPort?.let { return it }
+        }
+        error("内嵌后端端口未就绪")
+    }
 
     override fun start() {
         if (started) return
@@ -100,7 +123,13 @@ class LocalBackendController(
                 }
             }
             server.start(wait = false)
-            mutableState.value = BackendState.Ready("http://127.0.0.1:$port")
+            // CIO 在 start 后异步完成绑定，resolvedConnectors 返回实际端口（端口 0 时为随机值）。
+            boundPort = runBlocking {
+                runCatching {
+                server.engine.resolvedConnectors().firstOrNull()?.port
+                }.getOrNull()
+            }
+            mutableState.value = BackendState.Ready("http://127.0.0.1:${boundPort ?: port}")
         } catch (error: Throwable) {
             mutableState.value = BackendState.Failed(error.message ?: "后端启动失败")
         }

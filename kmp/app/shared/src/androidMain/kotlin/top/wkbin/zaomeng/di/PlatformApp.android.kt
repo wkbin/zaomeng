@@ -21,7 +21,7 @@ class AndroidAppPlatform(context: Context) : AppPlatform {
 
     override val cacheDir: Path = File(appContext.cacheDir, "zaomeng-cache").absolutePath.toPath()
 
-    override val backendPort: Int = 8765
+    override val backendPort: Int = 0
 
     override val backendToken: String = "android-dev-token"
 

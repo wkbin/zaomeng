@@ -21,7 +21,7 @@ object IosAppPlatform : AppPlatform {
 
     override val cacheDir: Path = cachesDirectory().toPath() / "zaomeng-cache"
 
-    override val backendPort: Int = 8765
+    override val backendPort: Int = 0
 
     override val backendToken: String = "ios-dev-token"
 

@@ -19,7 +19,7 @@ class DesktopAppPlatform : AppPlatform {
     override val cacheDir: Path =
         (System.getProperty("java.io.tmpdir") ?: ".").toPath() / "zaomeng-cache"
 
-    override val backendPort: Int = System.getenv("ZAOMENG_PORT")?.toIntOrNull() ?: 8765
+    override val backendPort: Int = System.getenv("ZAOMENG_PORT")?.toIntOrNull() ?: 0
 
     override val backendToken: String = System.getenv("ZAOMENG_TOKEN") ?: "desktop-dev-token"
 

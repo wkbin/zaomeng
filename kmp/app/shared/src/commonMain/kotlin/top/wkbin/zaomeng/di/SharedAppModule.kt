@@ -63,7 +63,7 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
         LocalBackendController(platform.serverPlatform, platform.backendPort, platform.backendToken)
     }
     single<BackendEndpointProvider> {
-        LocalBackendEndpointProvider(platform.backendPort, platform.backendToken)
+        LocalBackendEndpointProvider(get<BackendController>() as LocalBackendController, platform.backendToken)
     }
 
     single { AppPreferencesRepository(get()) }
