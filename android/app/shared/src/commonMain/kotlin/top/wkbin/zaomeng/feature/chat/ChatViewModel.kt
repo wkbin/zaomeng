@@ -181,7 +181,7 @@ data class ChatUiState(
                 failedOperationId.isBlank() &&
                 toolBusy.isBlank() &&
                 session?.status == "ready" &&
-                session?.mode == "observe"
+                session.mode == "observe"
         }
 }
 
@@ -653,7 +653,7 @@ class ChatViewModel(
             !snapshot.continuousObserveEnabled ||
             snapshot.sessionId != continuousObserveSessionId ||
             session?.mode != "observe" ||
-            session?.status != "ready" ||
+            session.status != "ready" ||
             snapshot.sending
         ) {
             if (snapshot.continuousObserveEnabled) {
@@ -895,14 +895,22 @@ class ChatViewModel(
                             val baseline = snapshot.session?.transcript.orEmpty()
                             val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
                             var appended = event.appendedTranscript
-                            if (appended.isEmpty() && event.transcriptCount > baselineCount) {
-                                // 兜底：服务端未返回增量但 count 增长（如 operation_id 缺失），按序补齐
-                                appended = fetchTranscriptAppend(
-                                    snapshot.runId,
-                                    snapshot.sessionId,
-                                    baselineCount,
-                                    event.transcriptCount,
-                                )
+                            val expectedGrowth = event.transcriptCount - baselineCount
+                            if (expectedGrowth > appended.size) {
+                                // 增量缺失（operation_id 缺失 / 他端新增了中间条目）：
+                                // 补齐 [baselineCount, transcriptCount - appended.size) 后再拼接本轮增量，避免空洞
+                                val missingEnd = event.transcriptCount - appended.size
+                                val missing = if (missingEnd > baselineCount) {
+                                    fetchTranscriptAppend(
+                                        snapshot.runId,
+                                        snapshot.sessionId,
+                                        baselineCount,
+                                        missingEnd,
+                                    )
+                                } else {
+                                    emptyList()
+                                }
+                                appended = missing + appended
                             }
                             updateSendState(snapshot, operationId) { current ->
                                 val base = current.session?.transcript ?: baseline
@@ -1147,7 +1155,7 @@ class ChatViewModel(
                     force = true,
                 )
                 val baseline = snapshot.sendBaselineTranscript.orEmpty()
-                val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
+                val baselineCount = snapshot.session.transcriptCount
                 val committedAppend = if (snapshot.sendBaselineTranscript != null) {
                     // recover 返回全量 transcript：以权威 count（发送前）判断是否新增
                     if (recovered.status == "ready" && recovered.transcript.size > baselineCount) {

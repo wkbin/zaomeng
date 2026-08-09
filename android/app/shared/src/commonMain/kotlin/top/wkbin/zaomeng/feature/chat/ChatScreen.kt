@@ -90,6 +90,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -995,6 +996,19 @@ private fun Transcript(
             .collect { (scrolling, atBottom) ->
                 if (scrolling) followNewMessages = atBottom
                 if (atBottom) unseenMessages = 0
+            }
+    }
+    // 滚动到顶部时自动加载更早消息（仅在主动滚动时触发，避免加载历史后连环拉取）
+    val latestHasMoreHistory by rememberUpdatedState(hasMoreHistory)
+    val latestLoadingEarlier by rememberUpdatedState(loadingEarlier)
+    val latestOnLoadEarlier by rememberUpdatedState(onLoadEarlier)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { (firstIndex, scrolling) ->
+                if (scrolling && firstIndex <= 2 && latestHasMoreHistory && !latestLoadingEarlier) {
+                    latestOnLoadEarlier()
+                }
             }
     }
 
