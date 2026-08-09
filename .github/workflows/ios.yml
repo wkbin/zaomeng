@@ -1,0 +1,39 @@
+name: iOS CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "android/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile iOS Kotlin targets
+        working-directory: android
+        shell: bash
+        run: |
+          ./gradlew :server:compileKotlinIosSimulatorArm64 :app:shared:compileKotlinIosSimulatorArm64 :app:shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace --console=plain > /tmp/gradle-ios.log 2>&1 || { tail -100 /tmp/gradle-ios.log | sed 's/^/::error::/'; exit 1; }
