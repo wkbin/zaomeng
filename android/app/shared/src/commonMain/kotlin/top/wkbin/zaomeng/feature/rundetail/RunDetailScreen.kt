@@ -19,6 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -367,23 +371,25 @@ private fun RunDetailContent(
 ) {
     val run = checkNotNull(state.run)
     var showAllSources by rememberSaveable(run.runId) { mutableStateOf(false) }
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 380.dp),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(AppDimens.screenPadding),
         verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
     ) {
-        item { RunHero(run) }
+        item(span = { GridItemSpan(maxLineSpan) }) { RunHero(run) }
 
         run.betaFeature?.takeIf { it.kind == "cross_book_crossover" }?.let { beta ->
-            item { CrossoverBetaCard(beta) }
+            item(span = { GridItemSpan(maxLineSpan) }) { CrossoverBetaCard(beta) }
         }
 
         run.importedFrom.onlineLibrary?.takeIf { it.id.isNotBlank() }?.let { source ->
-            item { OnlinePackageSourceCard(source) }
+            item(span = { GridItemSpan(maxLineSpan) }) { OnlinePackageSourceCard(source) }
         }
 
         if (state.error.isNotBlank() || state.message.isNotBlank()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 NoticeCard(
                     message = state.error.ifBlank { state.message },
                     error = state.error.isNotBlank(),
@@ -398,7 +404,7 @@ private fun RunDetailContent(
             }
         }
 
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             NextActionCard(
                 run = run,
                 onResume = onResume,
@@ -410,7 +416,7 @@ private fun RunDetailContent(
         }
 
         if (state.reviewLoading || state.reviewOverview != null) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 BookReviewCard(
                     loading = state.reviewLoading,
                     overview = state.reviewOverview,
@@ -421,7 +427,7 @@ private fun RunDetailContent(
             }
         }
 
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             ActionCard(
                 run = run,
                 stopping = state.stopping,
@@ -442,7 +448,7 @@ private fun RunDetailContent(
         }
 
         if (run.novelSources.isNotEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 SourceHistoryCard(
                     run = run,
                     expanded = showAllSources,
@@ -451,7 +457,7 @@ private fun RunDetailContent(
             }
         }
 
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("可用人物", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -467,7 +473,7 @@ private fun RunDetailContent(
         }
 
         if (run.artifactIndex.characters.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Text(
                         text = if (run.status == "running") "正在等待第一位人物完成…" else "还没有人物档案。",
@@ -487,7 +493,7 @@ private fun RunDetailContent(
             }
         }
 
-        item { Spacer(Modifier.height(12.dp)) }
+        item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(12.dp)) }
     }
 }
 

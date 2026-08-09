@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -70,12 +74,14 @@ fun OnlineLibraryScreen(
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 380.dp),
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text("造梦在线书卷包", style = MaterialTheme.typography.titleLarge)
                 Text(
                     "这是已蒸馏的 .zaomeng-run.zip 包。下载并校验后会写入本机书架，不会上传你的小说或聊天数据。",
@@ -84,7 +90,7 @@ fun OnlineLibraryScreen(
                 )
             }
             if (state.loading) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -96,7 +102,7 @@ fun OnlineLibraryScreen(
                 }
             }
             if (state.error.isNotBlank()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -111,7 +117,7 @@ fun OnlineLibraryScreen(
                 }
             }
             if (!state.loading && state.books.isEmpty() && state.error.isBlank()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text("暂时没有可下载的在线书卷包。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
