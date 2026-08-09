@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
     implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.hidden.api.bypass)
     debugImplementation(libs.compose.ui.tooling)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }

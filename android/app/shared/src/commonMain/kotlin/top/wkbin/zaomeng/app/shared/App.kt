@@ -39,6 +39,8 @@ fun App(
     initialDynamicColorEnabled: Boolean = false,
     /** 平台入口在启动时同步读取的持久化界面缩放，避免首帧先按 100% 渲染。 */
     initialUiScale: Float = UI_SCALE_DEFAULT,
+    /** Android 预测性返回开关切换回调（参考 KernelSU）：由平台入口持久化并重建 Activity 生效。 */
+    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
@@ -81,6 +83,7 @@ fun App(
                 onStartupUpdateCheckDisabledChange = onStartupUpdateCheckDisabledChange,
                 launchChaptersRunId = launchChaptersRunId,
                 onChaptersLaunchConsumed = onChaptersLaunchConsumed,
+                onPredictiveBackEnabledChange = onPredictiveBackEnabledChange,
             )
         }
     }

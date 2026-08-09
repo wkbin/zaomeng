@@ -45,6 +45,7 @@ data class AppPreferences(
     val themeSeedColorArgb: Long = 0L,
     val dynamicColorEnabled: Boolean = false,
     val uiScale: Float = UI_SCALE_DEFAULT,
+    val predictiveBackEnabled: Boolean = false,
 )
 
 /** 跨平台偏好仓库：全部平台统一走官方 KMP DataStore（Preferences）。 */
@@ -77,6 +78,7 @@ class AppPreferencesRepository(
                 themeSeedColorArgb = values[KEY_THEME_SEED_COLOR] ?: 0L,
                 dynamicColorEnabled = values[KEY_DYNAMIC_COLOR_ENABLED] ?: false,
                 uiScale = (values[KEY_UI_SCALE] ?: UI_SCALE_DEFAULT).coerceIn(UI_SCALE_MIN, UI_SCALE_MAX),
+                predictiveBackEnabled = values[KEY_PREDICTIVE_BACK_ENABLED] ?: false,
             )
         }
 
@@ -98,6 +100,10 @@ class AppPreferencesRepository(
 
     val uiScale: Flow<Float> = preferences
         .map { it.uiScale }
+        .distinctUntilChanged()
+
+    val predictiveBackEnabled: Flow<Boolean> = preferences
+        .map { it.predictiveBackEnabled }
         .distinctUntilChanged()
 
     /**
@@ -229,6 +235,10 @@ class AppPreferencesRepository(
         }
     }
 
+    suspend fun setPredictiveBackEnabled(enabled: Boolean) {
+        dataStore.edit { values -> values[KEY_PREDICTIVE_BACK_ENABLED] = enabled }
+    }
+
     private companion object {
         val KEY_DEFAULT_CHARACTERS = stringPreferencesKey("default_characters")
         val KEY_AUTO_DISTILL = booleanPreferencesKey("auto_distill")
@@ -247,6 +257,7 @@ class AppPreferencesRepository(
         val KEY_THEME_SEED_COLOR = longPreferencesKey("theme_seed_color")
         val KEY_DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
         val KEY_UI_SCALE = floatPreferencesKey("ui_scale")
+        val KEY_PREDICTIVE_BACK_ENABLED = booleanPreferencesKey("predictive_back_enabled")
     }
 }
 

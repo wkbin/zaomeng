@@ -46,14 +46,16 @@ class MainActivity : ComponentActivity() {
     private val appUpdateNotifier by lazy { AppUpdateNotifier(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        startupUpdateCheckDisabled = AppUpdatePreferences.isStartupCheckDisabled(this)
-        pendingChaptersRunId = intent.getStringExtra("open_run_id")
         // 在 UI 组合前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
         val initialPreferences = runBlocking {
             GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
         }
+        // 窗口创建前按持久化开关应用预测性返回设置（默认关闭，参考 KernelSU）。
+        PredictiveBack.setEnabled(applicationInfo, initialPreferences.predictiveBackEnabled)
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        startupUpdateCheckDisabled = AppUpdatePreferences.isStartupCheckDisabled(this)
+        pendingChaptersRunId = intent.getStringExtra("open_run_id")
         setContent {
             val disclaimerPreferences: ContentDisclaimerPreferences = koinInject()
             LaunchedEffect(Unit) {
@@ -71,6 +73,14 @@ class MainActivity : ComponentActivity() {
                 initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
                 initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
+                onPredictiveBackEnabledChange = { enabled ->
+                    lifecycleScope.launch {
+                        GlobalContext.get().get<AppPreferencesRepository>()
+                            .setPredictiveBackEnabled(enabled)
+                        PredictiveBack.setEnabled(applicationInfo, enabled)
+                        recreate()
+                    }
+                },
             )
             appUpdateState.availableUpdate?.let { update ->
                 if (dismissedUpdateVersion != update.version) {

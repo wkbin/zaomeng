@@ -77,6 +77,8 @@ fun ZaomengNavHost(
     onStartupUpdateCheckDisabledChange: (Boolean) -> Unit = {},
     launchChaptersRunId: String? = null,
     onChaptersLaunchConsumed: () -> Unit = {},
+    /** Android 预测性返回开关切换回调（参考 KernelSU），桌面/iOS 无此能力。 */
+    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
 ) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
 
@@ -144,7 +146,10 @@ fun ZaomengNavHost(
                 ChatDisplaySettingsScreen(onBack = popBack)
             }
             entry(AppearanceSettingsDestination) {
-                AppearanceSettingsScreen(onBack = popBack)
+                AppearanceSettingsScreen(
+                    onBack = popBack,
+                    onPredictiveBackEnabledChange = onPredictiveBackEnabledChange,
+                )
             }
             entry(StartupRecoverySettingsDestination) {
                 StartupRecoverySettingsScreen(onBack = popBack)

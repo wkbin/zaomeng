@@ -39,6 +39,7 @@ kotlinxDatetime = "0.7.1"
 paging = "3.4.2"
 jna = "5.16.0"
 materialKolor = "5.0.0"
+hiddenapibypass = "6.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -120,6 +121,7 @@ kitearchive = { module = "io.github.yuroyami:kitearchive", version.ref = "kitear
 material-kolor = { module = "com.materialkolor:material-kolor", version.ref = "materialKolor" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+hidden-api-bypass = { module = "org.lsposed.hiddenapibypass:hiddenapibypass", version.ref = "hiddenapibypass" }
 
 [plugins]
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

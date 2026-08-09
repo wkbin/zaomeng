@@ -55,17 +55,21 @@ import top.wkbin.zaomeng.data.preferences.ThemeSeedColor
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_DEFAULT
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MAX
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MIN
+import top.wkbin.zaomeng.platform.predictiveBackSupported
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AppearanceSettingsScreen(
     onBack: () -> Unit,
+    /** 预测性返回开关切换回调（仅 Android 14+ 显示开关）：由平台入口持久化并重建 Activity 生效。 */
+    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
     preferencesRepository: AppPreferencesRepository = koinInject(),
 ) {
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(0L)
     val dynamicColorEnabled by preferencesRepository.dynamicColorEnabled.collectAsStateWithLifecycle(false)
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(UI_SCALE_DEFAULT)
+    val predictiveBackEnabled by preferencesRepository.predictiveBackEnabled.collectAsStateWithLifecycle(false)
     var uiScaleDraft by remember { mutableFloatStateOf(uiScale) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(uiScale) { uiScaleDraft = uiScale }
@@ -201,6 +205,47 @@ fun AppearanceSettingsScreen(
                                 },
                                 valueRange = UI_SCALE_MIN..UI_SCALE_MAX,
                             )
+                        }
+                    }
+                }
+            }
+            if (predictiveBackSupported()) {
+                item {
+                    Column {
+                        Text(
+                            "系统",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
+                        )
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(
+                                    Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    Text("预测性返回手势", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "启用对预测性返回手势的支持。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(
+                                    checked = predictiveBackEnabled,
+                                    onCheckedChange = onPredictiveBackEnabledChange,
+                                )
+                            }
                         }
                     }
                 }
