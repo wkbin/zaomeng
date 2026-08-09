@@ -16,6 +16,7 @@ import kotlinx.serialization.json.put
 import okio.ByteString.Companion.toByteString
 import okio.FileSystem
 import okio.Path
+import top.wkbin.zaomeng.db.DomainStore
 import top.wkbin.zaomeng.db.DocumentStore
 import top.wkbin.zaomeng.db.FileSystemDocumentStore
 import top.wkbin.zaomeng.ktor.models.*
@@ -33,10 +34,11 @@ import top.wkbin.zaomeng.platform.toHex
 class StorageService(
     private val storageRoot: Path,
     private val store: DocumentStore,
+    private val domain: DomainStore? = null,
 ) {
     /** 兼容旧构造：文件系统后端（测试/旧 :app 使用）。 */
     constructor(storageRoot: Path, fs: FileSystem = FileSystem.SYSTEM) :
-        this(storageRoot, FileSystemDocumentStore(fs))
+        this(storageRoot, FileSystemDocumentStore(fs), null)
 
     /**
      * 按路径分片的写锁：不同 run/文件可并行写，同一路径仍串行。
@@ -70,7 +72,9 @@ class StorageService(
     /** 字节版原子写入（避免大文件先解码成 String 再回写）。 */
     fun writeBytesAtomically(target: Path, bytes: ByteArray) {
         synchronized(lockFor(target)) {
-            store.writeBytes(target, bytes, nowEpochMillis())
+            val mtime = nowEpochMillis()
+            store.writeBytes(target, bytes, mtime)
+            domain?.onWrite(target, bytes, mtime)
         }
     }
 
@@ -115,10 +119,12 @@ class StorageService(
 
     fun deleteFile(path: Path) {
         store.deleteFile(path)
+        domain?.onDelete(path)
     }
 
     fun deleteRecursively(path: Path) {
         store.deleteRecursively(path)
+        domain?.onDelete(path)
     }
 
     fun listFiles(path: Path): List<Path> = store.listFiles(path)
@@ -165,6 +171,7 @@ class StorageService(
      * 列出所有运行 ID
      */
     fun listRunIds(): List<String> {
+        domain?.let { return it.listRunIds() }
         if (!store.isDirectory(runsRoot)) {
             return emptyList()
         }
@@ -179,6 +186,7 @@ class StorageService(
      * 列出所有运行清单（按修改时间倒序）
      */
     fun listRunManifests(): List<JsonObject> {
+        domain?.let { return it.listRunManifests() }
         if (!store.isDirectory(runsRoot)) {
             return emptyList()
         }
@@ -207,6 +215,7 @@ class StorageService(
      * 检查运行是否存在
      */
     fun runExists(runId: String): Boolean {
+        domain?.let { return it.runExists(runId) }
         return try {
             store.isFile(getRunManifestPath(runId))
         } catch (e: InvalidStorageIdentifierException) {
@@ -230,6 +239,7 @@ class StorageService(
      * 列出对话会话 ID
      */
     fun listDialogueSessionIds(runId: String): List<String> {
+        domain?.let { return it.listSessionIds(runId) }
         val sessionsDir = getDialogueSessionsDirectory(runId)
         if (!store.isDirectory(sessionsDir)) {
             return emptyList()
@@ -363,6 +373,11 @@ class StorageService(
      * 列出对话会话（包含元数据）
      */
     fun listDialogueSessions(runId: String): List<JsonObject> {
+        domain?.let {
+            return it.listSessionManifests(runId).map { manifest ->
+                withCharacterAvatars(manifest, runId)
+            }
+        }
         val sessionIds = listDialogueSessionIds(runId)
         return sessionIds.mapNotNull { sessionId ->
             try {
