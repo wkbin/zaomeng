@@ -31,7 +31,7 @@ import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
  * 运行操作服务
  *
  * 对应 Python src/web/service_facades/runs.py 与 run_ops/ 的：
- * 采样估算、内置书卷、共演空间、导出书卷包、重新蒸馏、恢复蒸馏、
+ * 采样估算、共演空间、导出书卷包、重新蒸馏、恢复蒸馏、
  * 蒸馏片段推荐、刷新运行清单。
  *
  * 注意：Android 端蒸馏由 App 的 DistillationForegroundService 本地执行，
@@ -173,60 +173,8 @@ class RunOperationsService(
     private fun clamp(value: Int, lower: Int, upper: Int): Int = maxOf(lower, minOf(upper, value))
 
     // ------------------------------------------------------------------
-    // 内置书卷 / 导出
+    // 导出
     // ------------------------------------------------------------------
-
-    private fun builtinRoot(): Path = storage.getStorageRoot().parent!! / "builtin_novels"
-
-    fun listBuiltinNovels(): JsonArray {
-        val root = builtinRoot()
-        if (!storage.isDirectory(root)) return JsonArray(emptyList())
-        val items = storage.listFiles(root)
-            .filter { storage.isFile(it) && it.name.endsWith(".zaomeng-run.zip") }
-            .mapNotNull { file ->
-                runCatching {
-                    val manifest = json.parseToJsonElement(storage.readText(file)).jsonObject
-                    val novelId = manifest["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                    val title = manifest["title"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
-                        ?: file.name.removeSuffix(".zaomeng-run.zip")
-                    buildJsonObject {
-                        put("package_id", novelId.ifBlank { file.name.removeSuffix(".zaomeng-run.zip") })
-                        put("title", title)
-                        put("novel_id", novelId)
-                        put("status", "ready")
-                        put("character_count", manifest["character_count"]?.jsonPrimitive?.intOrNull ?: 0)
-                        put("has_relation_graph", manifest["has_relation_graph"]?.jsonPrimitive?.booleanOrNull ?: false)
-                        put("updated_at", manifest["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                        put("filename", file.name)
-                        put("builtin", true)
-                        put("package_path", file.toString())
-                    }
-                }.getOrNull()
-            }
-            .orEmpty()
-            .sortedByDescending { it["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty() }
-        return buildJsonArray { items.forEach(::add) }
-    }
-
-    fun cloneBuiltinNovel(packageId: String): JsonObject {
-        val root = builtinRoot()
-        if (!storage.isDirectory(root)) throw NoSuchElementException("内置书卷不可用。")
-        val target = storage.listFiles(root)
-            .firstOrNull { file ->
-                storage.isFile(file) && file.name.endsWith(".zaomeng-run.zip") && runCatching {
-                    json.parseToJsonElement(storage.readText(file)).jsonObject["novel_id"]?.jsonPrimitive?.contentOrNull == packageId
-                }.getOrDefault(false)
-            }
-            ?: throw NoSuchElementException("内置小说包不存在：$packageId")
-        val bytes = storage.readBytes(target)
-        val imported = packageService.importPackage(
-            ImportRunPackageRequest(
-                filename = target.name,
-                contentBase64 = base64Encode(bytes),
-            ),
-        )
-        return imported
-    }
 
     fun exportRunPackage(runId: String, builtin: Boolean, includeDialogue: Boolean?): Pair<ByteArray, String> {
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")

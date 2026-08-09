@@ -12,7 +12,6 @@ import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.CreateRunRequest
 import top.wkbin.zaomeng.data.api.CreateCrossoverSpaceRequest
 import top.wkbin.zaomeng.data.api.CrossoverParticipantRequest
-import top.wkbin.zaomeng.data.api.BuiltinNovelDto
 import top.wkbin.zaomeng.data.api.BranchDialogueTurnRequest
 import top.wkbin.zaomeng.data.api.BranchDialogueSceneRequest
 import top.wkbin.zaomeng.data.api.ArchiveDialogueChapterRequest
@@ -280,16 +279,6 @@ class ZaomengRepository(
 
     suspend fun listRuns(): List<RunManifestDto> = request {
         ktorRuns.list().items
-    }
-
-    suspend fun listBuiltinNovels(): List<BuiltinNovelDto> = request {
-        ktorRunOps.listBuiltinNovels()
-    }
-
-    suspend fun cloneBuiltinNovel(packageId: String): RunManifestDto = request {
-        val run = ktorRunOps.cloneBuiltinNovel(packageId)
-        appPreferences.rememberRun(run.runId)
-        run
     }
 
     suspend fun createNovel(

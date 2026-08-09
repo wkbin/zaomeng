@@ -29,21 +29,10 @@ import top.wkbin.zaomeng.ktor.services.RunOperationsService
  * 运行操作路由
  *
  * 对应 Python src/web/api/routes/runs.py 的：
- * builtin-novels / estimate / crossover-spaces / export /
+ * estimate / crossover-spaces / export /
  * redistill / resume-distill / redistill-recommend / refresh
  */
 fun Route.runOperationsRoutes(service: RunOperationsService) {
-    // GET /api/web/builtin-novels
-    get("/api/web/builtin-novels") {
-        runOpsCall(call) { buildJsonObject { put("items", service.listBuiltinNovels()) } }
-    }
-
-    // POST /api/web/builtin-novels/{package_id}/clone
-    post("/api/web/builtin-novels/{package_id}/clone") {
-        val packageId = call.parameters["package_id"].orEmpty()
-        runOpsCall(call) { service.cloneBuiltinNovel(packageId) }
-    }
-
     // POST /api/web/runs/estimate
     post("/api/web/runs/estimate") {
         val request = call.receive<EstimateSamplingRequest>()

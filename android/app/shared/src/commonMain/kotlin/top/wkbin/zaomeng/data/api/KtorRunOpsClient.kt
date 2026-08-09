@@ -9,7 +9,6 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -23,23 +22,6 @@ class KtorRunOpsClient(
     private val endpointProvider: BackendEndpointProvider,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-
-    suspend fun listBuiltinNovels(): List<BuiltinNovelDto> {
-        val body = decodeObject(
-            request { endpoint ->
-                http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/builtin-novels")
-            },
-        )
-        val items = body["items"]?.jsonArray ?: return emptyList()
-        return runCatching { json.decodeFromJsonElement<List<BuiltinNovelDto>>(items) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode builtin novels: $body", error); throw error }
-    }
-
-    suspend fun cloneBuiltinNovel(packageId: String): RunManifestDto = decodeRun(
-        request { endpoint ->
-            http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/builtin-novels/$packageId/clone")
-        },
-    )
 
     suspend fun estimateSampling(request: EstimateSamplingRequest): SamplingPlanDto {
         val body = decodeObject(

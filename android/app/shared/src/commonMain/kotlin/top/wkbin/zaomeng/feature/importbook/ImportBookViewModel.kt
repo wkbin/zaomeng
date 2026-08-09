@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.data.ZaomengRepository
-import top.wkbin.zaomeng.data.api.BuiltinNovelDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
 import kotlinx.coroutines.CancellationException
@@ -39,10 +38,6 @@ data class ImportBookUiState(
     val submitting: Boolean = false,
     val modelConfigured: Boolean? = null,
     val modelConfigurationError: String = "",
-    val builtinNovels: List<BuiltinNovelDto> = emptyList(),
-    val loadingBuiltins: Boolean = false,
-    val builtinError: String = "",
-    val cloningBuiltinId: String = "",
     val error: String = "",
     val createdRunId: String = "",
 )
@@ -191,64 +186,6 @@ class ImportBookViewModel(
                     it.copy(
                         modelConfigured = false,
                         modelConfigurationError = error.message ?: "无法读取模型配置。",
-                    )
-                }
-            }
-        }
-    }
-
-    fun refreshBuiltinNovels() {
-        if (state.value.loadingBuiltins) return
-        viewModelScope.launch {
-            mutableState.update { it.copy(loadingBuiltins = true, builtinError = "") }
-            try {
-                val novels = repository.listBuiltinNovels()
-                mutableState.update {
-                    it.copy(loadingBuiltins = false, builtinNovels = novels, builtinError = "")
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(
-                        loadingBuiltins = false,
-                        builtinError = error.message ?: "无法读取内置书卷。",
-                    )
-                }
-            }
-        }
-    }
-
-    fun cloneBuiltinNovel(packageId: String) {
-        val normalizedId = packageId.trim()
-        if (normalizedId.isBlank() || state.value.cloningBuiltinId.isNotBlank()) return
-        val builtin = state.value.builtinNovels.firstOrNull { it.packageId == normalizedId }
-        viewModelScope.launch {
-            mutableState.update {
-                it.copy(cloningBuiltinId = normalizedId, builtinError = "", error = "")
-            }
-            val knownRunIds = captureKnownRunIds()
-            try {
-                val run = repository.cloneBuiltinNovel(normalizedId)
-                mutableState.update {
-                    it.copy(cloningBuiltinId = "", createdRunId = run.runId)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                val recovered = findRecoveredRun(knownRunIds) { run ->
-                    when {
-                        !builtin?.novelId.isNullOrBlank() -> run.novelId == builtin.novelId
-                        !builtin?.title.isNullOrBlank() -> run.title == builtin.title
-                        else -> false
-                    }
-                }
-                mutableState.update { current ->
-                    recovered?.let {
-                        current.copy(cloningBuiltinId = "", createdRunId = it.runId)
-                    } ?: current.copy(
-                        cloningBuiltinId = "",
-                        builtinError = error.message ?: "内置书卷导入失败。",
                     )
                 }
             }

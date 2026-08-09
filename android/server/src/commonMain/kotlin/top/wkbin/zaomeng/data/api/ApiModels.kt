@@ -214,22 +214,6 @@ data class SetGenerationEnhancerStateRequest(val enabled: Boolean)
 data class RunsResponse(val items: List<RunManifestDto> = emptyList())
 
 @Serializable
-data class BuiltinNovelsResponse(val items: List<BuiltinNovelDto> = emptyList())
-
-@Serializable
-data class BuiltinNovelDto(
-    @SerialName("package_id") val packageId: String = "",
-    val title: String = "",
-    @SerialName("novel_id") val novelId: String = "",
-    val status: String = "",
-    @SerialName("character_count") val characterCount: Int = 0,
-    @SerialName("has_relation_graph") val hasRelationGraph: Boolean = false,
-    @SerialName("updated_at") val updatedAt: String = "",
-    val filename: String = "",
-    val builtin: Boolean = false,
-)
-
-@Serializable
 data class RunManifestDto(
     @SerialName("run_id") val runId: String = "",
     @SerialName("novel_id") val novelId: String = "",

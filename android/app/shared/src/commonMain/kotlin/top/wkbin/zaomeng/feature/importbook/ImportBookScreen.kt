@@ -47,7 +47,6 @@ import org.koin.compose.koinInject
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberNotificationPermissionRequester
-import top.wkbin.zaomeng.data.api.BuiltinNovelDto
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -177,43 +176,6 @@ fun ImportBookScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
-            }
-            if (state.builtinNovels.isNotEmpty()) {
-                item {
-                    Text("内置书卷", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "直接复制已经蒸馏好的示例，不需要再次调用模型。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                items(state.builtinNovels, key = BuiltinNovelDto::packageId) { novel ->
-                    BuiltinNovelCard(
-                        novel = novel,
-                        busy = state.cloningBuiltinId == novel.packageId,
-                        enabled = !state.submitting && state.cloningBuiltinId.isBlank(),
-                        onImport = { viewModel.cloneBuiltinNovel(novel.packageId) },
-                    )
-                }
-            }
-            if (state.builtinError.isNotBlank()) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                        ),
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(state.builtinError, color = MaterialTheme.colorScheme.onErrorContainer)
-                            OutlinedButton(onClick = viewModel::refreshBuiltinNovels) {
-                                Text("重试")
-                            }
-                        }
-                    }
-                }
             }
             item {
                 ImportSourceCard(
@@ -397,45 +359,6 @@ fun ImportBookScreen(
                         modifier = if (state.submitting) Modifier.padding(start = 10.dp) else Modifier,
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BuiltinNovelCard(
-    novel: BuiltinNovelDto,
-    busy: Boolean,
-    enabled: Boolean,
-    onImport: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(novel.title.ifBlank { novel.novelId.ifBlank { "未命名书卷" } }, style = MaterialTheme.typography.titleMedium)
-            Text(
-                buildList {
-                    if (novel.characterCount > 0) add("${novel.characterCount} 位人物")
-                    if (novel.hasRelationGraph) add("含关系图谱")
-                    if (novel.status.isNotBlank()) add(novel.status)
-                }.joinToString(" · ").ifBlank { "已预先整理的本地书卷" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(
-                onClick = onImport,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled && novel.packageId.isNotBlank(),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                }
-                Text("导入到书架", modifier = if (busy) Modifier.padding(start = 8.dp) else Modifier)
             }
         }
     }
