@@ -1,57 +1,77 @@
-# 造梦
+<p align="center">
+  <img src="../docs/images/zaomeng_logo.png" alt="造梦" width="120">
+</p>
 
-Android / 桌面 / iOS 三端共享的 Compose Multiplatform 客户端（KMP 工程）。内置 Kotlin Ktor 服务端（`:server` 模块），业务接口只监听本机回环地址，书卷、人物和会话数据保存在各端私有目录中，不需要部署中心服务器。模型推理仍会按用户配置访问对应的模型供应商；除这类模型请求外，界面与 Ktor 服务之间的通信都在本机完成。
+# 造梦 KMP 客户端
 
-## 运行架构
+Android / 桌面 / iOS 三端共享的 Compose Multiplatform 应用，内嵌 Ktor + Room 后端，数据全部保存在本机，无需部署中心服务器。
 
-1. `androidApp` 的 `ZaomengApplication` 通过 Koin 初始化依赖注入；Ktor 服务端代码位于独立 `:server` KMP module（routes/services/models/plugins/认证，Room 持久化）。
-2. `KtorBackendController` 在随机 `127.0.0.1` 端口启动内嵌 Ktor (CIO) 服务，数据根目录设为各端私有目录；服务端日志由请求日志拦截器（Monitoring）与 `StatusPages` 统一处理。
-3. 每次安装生成的本机接口 Token 由平台安全存储保护。健康检查通过后，`LocalApiFactory` 才会按实际端口创建 Ktor Client 并附加认证信息。
-4. Compose 界面采用 ViewModel 和 Repository 分层；Koin 提供 Repository、ViewModel、本机后端控制器及其他依赖。
-5. Navigation3 使用类型安全路由连接书架、导入、模型设置、书卷详情、人物资料、关系校对、卡片库、增量蒸馏、会话列表和聊天页面。
-6. Preferences DataStore 保存导入默认人物、自动蒸馏选项、聊天字号、紧凑显示模式以及最近访问的书卷和会话等轻量偏好；敏感的本机接口 Token 不存入 DataStore。
-7. 长时间蒸馏由 Android 前台服务监控，在通知中显示进度并可直接停止全部任务；结束、停止或失败时会发送结果通知，点击可回到书架。进程意外退出后，遗留任务会在下次启动时标记为已中断，并在书架提示可从未完成人物继续蒸馏，避免一直停留在运行中。
+> ⚠️ **升级提示（重要）**
+>
+> 2.0.0 与旧版 Android（1.5.0 及更早）数据**不兼容**：本地数据不会自动迁移，安装 2.0.0 后旧书卷/会话将不可见。
+> **升级前请先在旧版中导出书卷包（`.zaomeng-run.zip`）备份**，安装 2.0.0 后通过“导入书卷包”恢复。
 
-对话、审校等 LLM 功能使用 `prompts/` 目录下的提示词 YAML 配置：KMP 侧通过 composeResources（`app/shared/src/commonMain/composeResources/files/prompts/`）与 server 模块 assets 统一提供，仓库根 `prompts/` 仍为 Python Web 端的单一来源。
+## 平台
 
-## 已实现功能
+| 平台 | 模块 | 说明 |
+| --- | --- | --- |
+| Android | `app/androidApp` | 主入口，APK 分发（当前仅 `arm64-v8a`） |
+| 桌面 | `app/desktopApp` | Compose Desktop（Windows / macOS / Linux） |
+| iOS | `iosApp` + `app/shared` | Xcode 工程，构建脚本自动生成 shared framework |
 
-- 模型设置：常用服务商内置接口地址，只需选择模型并填写 API Key；自定义兼容接口仍可手动填写服务商、模型和地址。
-- 应用更新：设置页会检查 GitHub Release 正式版；发现新版后可通过系统下载器下载 `arm64-v8a` APK，并由系统通知引导安装。
-- 导入：从系统文件选择器导入 UTF-8、UTF-16 或 GB18030 编码的 TXT 小说，以及本机提取正文的 EPUB；也可恢复 `.zaomeng-run.zip` 书卷包。可以立即蒸馏，也可以在未配置模型时先保存为“待蒸馏”书卷。
-- 书架与书卷详情：查看书卷、正文来源历史、蒸馏状态和进度；停止任务、删除书卷、按原人物重跑，或换入新章节继续增量蒸馏。
-- 书卷导出：通过系统文件选择器流式导出 `.zaomeng-run.zip` 书卷包，避免大包整体常驻内存。
-- 人物资料：校对完整人物字段、查看质量报告，并用 AI 补全缺失字段。
-- 人物关系：查看冲突提示，调整四项关系数值、关系类型、变化、冲突点和典型互动。
-- 可复用卡片：创建、编辑、生成和删除场景卡、自设卡与开场模板；会话创建时可以直接选用。
-- 会话：查看全局会话或指定书卷的会话，按书名、人物或最近消息搜索，并按最近活跃或书名排序；支持创建三种模式的会话、按当前筛选结果多选批量删除，并可让系统推荐场景。
-- 聊天：SSE 流式显示人物回复；支持记录搜索、消息复制、重新生成、从消息处分支、人物 `@` 提及、回到底部和新消息提示。发送使用持久化操作 ID，断线重试会恢复同一次生成而不会重复追加回复；同时支持三类消息、高级导演工具和可调字号/紧凑显示。
-- 高级会话状态：查看并跳转分支图，检查一致性、人物状态弧线、发言节奏、关系时间线和近期事件信号。
-- 恢复与稳定性：冷启动会验证并恢复最近书卷或会话；待处理轮次可恢复，发送结果不确定时先核对服务端状态，创建开场失败不会留下空会话。
+## 技术栈
 
-## 构建
+- Compose Multiplatform、Material 3、Navigation3、ViewModel
+- Ktor：内嵌本地服务端 + HTTP 客户端
+- Room 3（SQLite 持久化）、DataStore（偏好存储）
+- Koin（DI）、Paging 3（分页）
+- kotlinx.serialization / coroutines / datetime、okio
+- FileKit（文件选择）、KiteArchive（ZIP）、snakeyaml-engine-kmp（YAML）
 
-需要 JDK 17+（如 Android Studio 自带的 JBR）与 Android SDK。命令行构建：
+## 模块结构
+
+```
+kmp/
+├── app/
+│   ├── shared/          # 三端共享 UI 与业务逻辑（commonMain + 各平台 actual）
+│   ├── androidApp/      # Android 入口
+│   └── desktopApp/      # 桌面入口
+├── server/              # 内嵌 Ktor 后端：路由 / 服务 / 模型 / 插件，Room 持久化
+├── plugins-api/         # 插件接口契约
+├── builtin-plugins/     # 内置插件实现
+└── iosApp/              # iOS Xcode 工程（独立于 Gradle 构建）
+```
+
+## 功能
+
+- 书卷：导入（TXT / EPUB / 书卷包）、蒸馏、增量蒸馏、导出书卷包
+- 会话：搜索、多选删除、场景推荐、自动标题
+- 聊天：SSE 流式、断线恢复、分支、@ 提及、读心、群聊旁观
+- 卡库：场景卡 / 自设卡 / 开局模板
+- 人物：资料校对、AI 补全、头像裁剪、关系图谱、世界时间线
+- 在线书库：社区书卷包浏览与下载
+- 插件：内置插件 + 插件管理
+- 设置：模型配置、主题（深浅 / 动态取色）、字号与紧凑模式、应用更新
+
+## 构建与运行
+
+需要 JDK 17+（推荐 21）与 Android SDK。
 
 ```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+# Android debug APK
 .\gradlew.bat :app:androidApp:assembleDebug
-```
 
-Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。
-
-桌面端（Compose Desktop）：
-
-```powershell
+# 桌面端
 .\gradlew.bat :app:desktopApp:run
+
+# JVM 单测
+.\gradlew.bat :server:jvmTest :app:shared:jvmTest
 ```
 
-iOS 端使用 Xcode 打开 `iosApp/iosApp.xcodeproj`（构建脚本会调用 Gradle 生成 shared framework）。
+iOS：用 Xcode 打开 `iosApp/iosApp.xcodeproj`，构建脚本会自动调用 Gradle 生成 shared framework。
 
-## 当前限制
+## 截图
 
-- EPUB 仅提取未加密 EPUB 中的 XHTML/HTML 正文，不支持 DRM 加密文件或复杂版式还原。
-- Android 客户端当前接受最大 24 MB 的 TXT，以及最大 64 MB 的压缩书卷包；书卷包展开后的安全限制由内嵌服务端继续校验。
-- 常规书卷导出会包含聊天记录和章节草稿；发布为内置书卷时会自动排除聊天记录，避免带入个人创作数据。
-- Android 13 及以上建议允许通知权限，以便在通知栏持续看到后台蒸馏进度；拒绝通知不会阻止用户在前台启动任务。
-- 当前发布包只包含 `arm64-v8a`，适用于主流 64 位 Android 真机，不包含 `x86_64` 模拟器运行时。
+| 手机端 | 桌面端 |
+| --- | --- |
+| <img src="../docs/images/mobile.jpg" width="240" alt="手机端"> | <img src="../docs/images/desktop.png" width="480" alt="桌面端"> |
