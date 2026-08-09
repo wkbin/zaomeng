@@ -1,8 +1,8 @@
 package top.wkbin.zaomeng.feature.chat
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
+import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
 
 class ChatSendStateTest {
@@ -11,23 +11,41 @@ class ChatSendStateTest {
     )
 
     @Test
-    fun userMessageAloneDoesNotCompleteAStreamingReply() {
+    fun userMessageAloneDoesNotCountAsCommittedAppend() {
         val transcript = baseline + TranscriptItemDto(
             speaker = "You",
             message = "New message",
             role = "user",
         )
 
-        assertFalse(hasCommittedReply(baseline, transcript))
+        assertEquals(emptyList<TranscriptItemDto>(), committedAppend(baseline.size, transcript))
     }
 
     @Test
-    fun characterReplyCompletesAStreamingReply() {
-        val transcript = baseline + listOf(
+    fun characterReplyIsReturnedAsCommittedAppend() {
+        val appended = listOf(
             TranscriptItemDto(speaker = "You", message = "New message", role = "user"),
             TranscriptItemDto(speaker = "Lin", message = "Reply", role = "character"),
         )
+        val transcript = baseline + appended
 
-        assertTrue(hasCommittedReply(baseline, transcript))
+        assertEquals(appended, committedAppend(baseline.size, transcript))
+    }
+
+    @Test
+    fun unchangedTranscriptHasNoCommittedAppend() {
+        assertEquals(emptyList<TranscriptItemDto>(), committedAppend(baseline.size, baseline))
+    }
+
+    @Test
+    fun effectiveCountUsesServerCountWhenPresent() {
+        val lean = DialogueSessionDto(transcriptCount = 120)
+        assertEquals(120, effectiveTranscriptCount(lean))
+    }
+
+    @Test
+    fun effectiveCountFallsBackToLocalTranscriptSize() {
+        val full = DialogueSessionDto(transcript = baseline)
+        assertEquals(baseline.size, effectiveTranscriptCount(full))
     }
 }

@@ -11,6 +11,8 @@ import top.wkbin.zaomeng.ktor.services.LlmClient
 import top.wkbin.zaomeng.ktor.services.ModelApiKeyService
 import top.wkbin.zaomeng.ktor.services.PromptLoader
 import top.wkbin.zaomeng.ktor.services.StorageService
+import top.wkbin.zaomeng.ktor.services.leanSession
+import top.wkbin.zaomeng.ktor.services.withTranscriptCount
 
 /**
  * Dialogue API routes.
@@ -42,7 +44,11 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
                 includeInnerThoughts = request.includeInnerThoughts,
                 operationId = request.operationId,
             )
-            call.respond(HttpStatusCode.OK, storageService.getDialogueSession(runId, sessionId))
+            val session = storageService.getDialogueSession(runId, sessionId)
+            call.respond(
+                HttpStatusCode.OK,
+                if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
+            )
         } catch (e: NoSuchElementException) {
             call.respond(HttpStatusCode.NotFound, mapOf("error" to e.message))
         } catch (e: IllegalStateException) {

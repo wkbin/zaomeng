@@ -30,6 +30,7 @@ import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
 import top.wkbin.zaomeng.data.api.DialogueSuggestionRequest
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
+import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
 import top.wkbin.zaomeng.data.api.ExportedChapterManuscript
 import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
@@ -80,6 +81,7 @@ import top.wkbin.zaomeng.data.api.SaveChapterRequest
 import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
+import top.wkbin.zaomeng.data.api.TranscriptItemDto
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldRequest
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldResponse
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
@@ -713,8 +715,23 @@ class ZaomengRepository(
         session
     }
 
-    suspend fun getSession(runId: String, sessionId: String): DialogueSessionDto = request {
-        ktorSessions.get(runId, sessionId)
+    suspend fun getSession(
+        runId: String,
+        sessionId: String,
+        includeTranscript: Boolean = true,
+    ): DialogueSessionDto = request {
+        ktorSessions.get(runId, sessionId, includeTranscript = includeTranscript)
+    }
+
+    /** 会话消息分页：order=desc 时 offset 表示跳过最新 N 条，返回更早一页（新→旧）。 */
+    suspend fun listSessionMessages(
+        runId: String,
+        sessionId: String,
+        offset: Int = 0,
+        limit: Int = 100,
+        order: String = "asc",
+    ): MessagesResponse = request {
+        ktorSessions.listMessages(runId, sessionId, offset, limit, order)
     }
 
     suspend fun updateSessionTitle(
@@ -753,12 +770,14 @@ class ZaomengRepository(
         message: String,
         messageKind: String,
         includeInnerThoughts: Boolean = false,
+        includeTranscript: Boolean = true,
     ): DialogueSessionDto = request {
         val payload = DialogueReplyRequest(
                 message = message,
                 messageKind = messageKind,
                 suppressTranscriptMessage = messageKind == "plot",
                 includeInnerThoughts = includeInnerThoughts,
+                includeTranscript = includeTranscript,
             )
         ktorDialogue.reply(runId, sessionId, payload)
     }
@@ -772,6 +791,7 @@ class ZaomengRepository(
         suppressTranscriptMessage: Boolean = messageKind == "plot",
         includeInnerThoughts: Boolean = false,
         includeModelReasoning: Boolean = false,
+        includeTranscript: Boolean = false,
     ): Flow<DialogueStreamEvent> = flow {
         try {
             val source = ktorDialogue.streamReply(
@@ -783,6 +803,7 @@ class ZaomengRepository(
                     suppressTranscriptMessage = suppressTranscriptMessage,
                     includeInnerThoughts = includeInnerThoughts,
                     includeModelReasoning = includeModelReasoning,
+                    includeTranscript = includeTranscript,
                     operationId = operationId,
                 ),
             )
@@ -877,6 +898,17 @@ class ZaomengRepository(
                 DialogueStreamEvent.Complete(
                     session = decodedSession,
                     replayed = payload["replayed"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    appendedTranscript = payload["appended_transcript"]
+                        ?.let { element ->
+                            runCatching {
+                                json.decodeFromJsonElement<List<TranscriptItemDto>>(element)
+                            }.getOrElse { error ->
+                                PlatformLog.e(TAG, "Failed to decode appended transcript", error)
+                                emptyList()
+                            }
+                        }
+                        .orEmpty(),
+                    transcriptCount = payload["transcript_count"]?.jsonPrimitive?.intOrNull ?: 0,
                 )
             }
             "error" -> DialogueStreamEvent.Failure(

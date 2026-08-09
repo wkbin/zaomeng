@@ -429,6 +429,9 @@ fun ChatScreen(
                                 onPendingEdit = viewModel::discardFailedSend,
                                 onPendingReconcile = viewModel::reconcileUnknownSend,
                                 onPendingRecover = viewModel::recoverPending,
+                                loadingEarlier = state.loadingEarlier,
+                                hasMoreHistory = session.transcriptCount > session.transcript.size,
+                                onLoadEarlier = viewModel::loadEarlierMessages,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -937,6 +940,9 @@ private fun Transcript(
     session: DialogueSessionDto,
     avatarBytes: Map<String, ByteArray>,
     sending: Boolean,
+    loadingEarlier: Boolean,
+    hasMoreHistory: Boolean,
+    onLoadEarlier: () -> Unit,
     streamStatus: String,
     modelReasoning: String,
     streamingReplies: List<StreamingReplyPart>,
@@ -970,6 +976,7 @@ private fun Transcript(
                     if (pendingUserMessage == null) 0 else 1,
         )
     }
+    var previousFirstKey by remember(session.sessionId) { mutableStateOf("") }
     val isAtBottom by remember(listState, bottomThresholdPx) {
         derivedStateOf {
             val layout = listState.layoutInfo
@@ -999,9 +1006,18 @@ private fun Transcript(
             streamingReplies.joinToString(separator = "|") { it.text } +
             modelReasoning +
             pendingUserMessage?.let { "${it.operationId}|${it.status}|${it.statusText}" }.orEmpty()
-    LaunchedEffect(visibleCount, contentSignature, sending) {
-        val added = (visibleCount - previousVisibleCount).coerceAtLeast(0)
+    val firstKey = transcript.firstOrNull()?.transcriptKey().orEmpty()
+    LaunchedEffect(visibleCount, contentSignature, sending, firstKey) {
+        // 向上加载历史会整体前插：首条 key 变化且数量增加视为 prepend，不纳入“新消息”计数
+        val prepended = firstKey.isNotBlank() && firstKey != previousFirstKey &&
+            transcript.size != previousVisibleCount
+        val added = if (prepended) {
+            0
+        } else {
+            (visibleCount - previousVisibleCount).coerceAtLeast(0)
+        }
         previousVisibleCount = visibleCount
+        previousFirstKey = firstKey
         if (followNewMessages) {
             listState.scrollToBottom(lastContentIndex, animated = false)
             unseenMessages = 0
@@ -1022,6 +1038,30 @@ private fun Transcript(
                 if (displayPreferences.compactMode) 3.dp else 8.dp,
             ),
         ) {
+            if (hasMoreHistory || loadingEarlier) {
+                item(key = "load-earlier") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (loadingEarlier) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text(
+                                "正在加载更早的消息…",
+                                modifier = Modifier.padding(start = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            TextButton(onClick = onLoadEarlier) {
+                                Text("加载更早的消息")
+                            }
+                        }
+                    }
+                }
+            }
+
             if (
                 transcript.isEmpty() && streamingReplies.isEmpty() &&
                 modelReasoning.isBlank() && pendingUserMessage == null
@@ -1039,10 +1079,7 @@ private fun Transcript(
 
             itemsIndexed(
                 items = transcript,
-                key = { index, item ->
-                    item.turnId.ifBlank { "$index-${item.speaker}-${item.message.hashCode()}" } +
-                            "-$index"
-                },
+                key = { _, item -> item.transcriptKey() },
             ) { index, item ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TranscriptBubble(
@@ -2449,3 +2486,10 @@ private fun String.chineseMode(): String = when (this) {
     "insert" -> "自设入场"
     else -> "旁观群聊"
 }
+
+/**
+ * 稳定的消息 key：不依赖列表下标，向上加载历史前插时不会导致 key 漂移。
+ * （同一 turn 内同 speaker 的重复文本也几乎不可能冲突。）
+ */
+private fun TranscriptItemDto.transcriptKey(): String =
+    "$turnId|$speaker|$timestamp|${message.hashCode()}"

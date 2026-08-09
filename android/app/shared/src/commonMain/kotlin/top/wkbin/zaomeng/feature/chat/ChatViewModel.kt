@@ -99,6 +99,8 @@ data class ChatUiState(
     val sessionId: String = "",
     val loading: Boolean = true,
     val refreshing: Boolean = false,
+    /** 正在向上加载更早的历史消息。 */
+    val loadingEarlier: Boolean = false,
     val sending: Boolean = false,
     val recovering: Boolean = false,
     val sendOutcomeUnknown: Boolean = false,
@@ -138,6 +140,7 @@ data class ChatUiState(
     val canSend: Boolean
         get() = !loading &&
             !refreshing &&
+            !loadingEarlier &&
             !sending &&
             !continuousObserveEnabled &&
             !recovering &&
@@ -280,15 +283,35 @@ class ChatViewModel(
             try {
                 val runSessions = runCatching { repository.listSessions(normalizedRunId) }
                     .getOrDefault(emptyList())
-                val loadedSession = repository.getSession(normalizedRunId, normalizedSessionId)
+                val loadedSession = repository.getSession(
+                    normalizedRunId,
+                    normalizedSessionId,
+                    includeTranscript = false,
+                )
                 val session = if (loadedSession.status == "ready") {
-                    loadedSession
+                    // 轻量响应：从消息分页接口取最新一页作为本地 transcript 起点
+                    if (loadedSession.transcript.isEmpty() && loadedSession.transcriptCount > 0) {
+                        val tail = repository.listSessionMessages(
+                            normalizedRunId,
+                            normalizedSessionId,
+                            offset = 0,
+                            limit = INITIAL_TRANSCRIPT_PAGE,
+                            order = "desc",
+                        )
+                        loadedSession.copy(
+                            transcript = tail.items.asReversed(),
+                            transcriptCount = tail.total,
+                        )
+                    } else {
+                        loadedSession.copy(transcriptCount = effectiveTranscriptCount(loadedSession))
+                    }
                 } else {
-                    repository.recoverSession(
+                    val recovered = repository.recoverSession(
                         normalizedRunId,
                         normalizedSessionId,
                         force = true,
                     )
+                    recovered.copy(transcriptCount = effectiveTranscriptCount(recovered))
                 }
                 val avatars = loadAvatars(normalizedRunId, session)
                 val plugins = loadChatPlugins()
@@ -316,6 +339,59 @@ class ChatViewModel(
                         loading = false,
                         refreshing = false,
                         error = error.readableMessage("会话加载失败，请稍后重试。"),
+                    )
+                }
+            }
+        }
+    }
+
+    /** 向上加载更早的历史消息（本地 transcript 只保留尾部 + 增量，历史按需取页）。 */
+    fun loadEarlierMessages() {
+        val snapshot = state.value
+        val session = snapshot.session ?: return
+        if (
+            snapshot.loadingEarlier ||
+            snapshot.loading ||
+            snapshot.refreshing ||
+            snapshot.sending ||
+            snapshot.recovering ||
+            snapshot.sendOutcomeUnknown
+        ) {
+            return
+        }
+        val loaded = session.transcript.size
+        val total = session.transcriptCount
+        if (loaded >= total) return
+        // order=desc：offset 表示跳过最新 N 条，返回更早一页（新→旧），反转后向上追加
+        val offset = total - loaded
+        viewModelScope.launch {
+            mutableState.update { it.copy(loadingEarlier = true, error = "") }
+            try {
+                val page = repository.listSessionMessages(
+                    snapshot.runId,
+                    snapshot.sessionId,
+                    offset = offset,
+                    limit = EARLIER_TRANSCRIPT_PAGE,
+                    order = "desc",
+                )
+                mutableState.update { current ->
+                    val currentSession = current.session ?: return@update current
+                    current.copy(
+                        session = currentSession.copy(
+                            transcript = page.items.asReversed() + currentSession.transcript,
+                            transcriptCount = page.total,
+                        ),
+                        loadingEarlier = false,
+                        error = "",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update {
+                    it.copy(
+                        loadingEarlier = false,
+                        error = error.readableMessage("更早消息加载失败，请稍后重试。"),
                     )
                 }
             }
@@ -816,10 +892,43 @@ class ChatViewModel(
                         }
                         is DialogueStreamEvent.Complete -> {
                             if (!reasoningFinalized) flushReasoning(force = true)
-                            updateSendState(snapshot, operationId) {
-                                it.copy(
+                            val baseline = snapshot.session?.transcript.orEmpty()
+                            val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
+                            var appended = event.appendedTranscript
+                            if (appended.isEmpty() && event.transcriptCount > baselineCount) {
+                                // 兜底：服务端未返回增量但 count 增长（如 operation_id 缺失），按序补齐
+                                appended = fetchTranscriptAppend(
+                                    snapshot.runId,
+                                    snapshot.sessionId,
+                                    baselineCount,
+                                    event.transcriptCount,
+                                )
+                            }
+                            updateSendState(snapshot, operationId) { current ->
+                                val base = current.session?.transcript ?: baseline
+                                val merged = when {
+                                    event.replayed && appended.isNotEmpty() -> {
+                                        val appendedTurnId = appended.first().turnId
+                                        base.filterNot { it.turnId == appendedTurnId } + appended
+                                    }
+                                    else -> base + appended
+                                }
+                                val session = if (event.session.transcript.isNotEmpty()) {
+                                    // 服务端仍返回全量（include_transcript=true 的调用方）：直接采用权威会话
+                                    event.session.copy(transcriptCount = effectiveTranscriptCount(event.session))
+                                } else {
+                                    event.session.copy(
+                                        transcript = merged,
+                                        transcriptCount = if (event.transcriptCount > 0) {
+                                            event.transcriptCount
+                                        } else {
+                                            merged.size
+                                        },
+                                    )
+                                }
+                                current.copy(
                                     sending = false,
-                                    session = event.session,
+                                    session = session,
                                     draft = "",
                                     sendOutcomeUnknown = false,
                                     sendBaselineTranscript = null,
@@ -828,7 +937,7 @@ class ChatViewModel(
                                     streamStatus = "",
                                     streamingReplies = emptyList(),
                                     pendingUserMessage = null,
-                                    notice = if (event.replayed) "已恢复这次发送的本地结果。" else it.notice,
+                                    notice = if (event.replayed) "已恢复这次发送的本地结果。" else current.notice,
                                     error = "",
                                 )
                             }
@@ -856,6 +965,52 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * 判定发送结果并取回新增条目：
+     * - 当前会话已是全量 transcript → 直接按 baseline 切片；
+     * - 轻量响应 → 从消息分页接口取 baseline 之后的新条目。
+     */
+    private suspend fun resolveCommittedAppend(
+        runId: String,
+        sessionId: String,
+        baselineCount: Int,
+        current: DialogueSessionDto,
+    ): List<TranscriptItemDto> {
+        if (current.status != "ready") return emptyList()
+        val count = effectiveTranscriptCount(current)
+        if (count <= baselineCount) return emptyList()
+        if (current.transcript.isNotEmpty() && current.transcript.size == count) {
+            return committedAppend(baselineCount, current.transcript)
+        }
+        val fetched = fetchTranscriptAppend(runId, sessionId, baselineCount, count)
+        return fetched.takeIf(::hasCommittedContent).orEmpty()
+    }
+
+    /** 从消息分页接口取 [fromCount, totalCount) 区间的 transcript 条目（正序）。 */
+    private suspend fun fetchTranscriptAppend(
+        runId: String,
+        sessionId: String,
+        fromCount: Int,
+        totalCount: Int,
+    ): List<TranscriptItemDto> {
+        if (fromCount >= totalCount) return emptyList()
+        val items = mutableListOf<TranscriptItemDto>()
+        var offset = fromCount
+        while (offset < totalCount) {
+            val page = repository.listSessionMessages(
+                runId,
+                sessionId,
+                offset = offset,
+                limit = (totalCount - offset).coerceIn(1, 500),
+                order = "asc",
+            )
+            items += page.items
+            if (page.items.isEmpty() || !page.hasMore) break
+            offset += page.items.size
+        }
+        return items
+    }
+
     private suspend fun handleStreamingFailure(
         snapshot: ChatUiState,
         operationId: String,
@@ -864,16 +1019,28 @@ class ChatViewModel(
         error: Throwable,
         showPendingUserMessage: Boolean = true,
     ) {
+        val baseline = snapshot.session?.transcript.orEmpty()
+        val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
         val refreshed = try {
-            repository.getSession(snapshot.runId, snapshot.sessionId)
+            repository.getSession(snapshot.runId, snapshot.sessionId, includeTranscript = false)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
             null
         }
-        val baseline = snapshot.session?.transcript.orEmpty()
-        val responseWasCommitted = refreshed?.status == "ready" &&
-            hasCommittedReply(baseline, refreshed.transcript)
+        val committedAppend = if (refreshed != null) {
+            resolveCommittedAppend(
+                runId = snapshot.runId,
+                sessionId = snapshot.sessionId,
+                baselineCount = baselineCount,
+                current = refreshed,
+            )
+        } else {
+            emptyList()
+        }
+        val responseWasCommitted = refreshed != null &&
+            refreshed.status == "ready" &&
+            committedAppend.isNotEmpty()
         val retryable = when (error) {
             is StreamReplyException -> error.retryable
             is ApiRequestException -> error.statusCode == null ||
@@ -896,7 +1063,10 @@ class ChatViewModel(
             }
             it.copy(
                 sending = false,
-                session = refreshed ?: it.session,
+                session = refreshed?.copy(
+                    transcript = baseline + committedAppend,
+                    transcriptCount = effectiveTranscriptCount(refreshed),
+                ) ?: it.session,
                 draft = if (responseWasCommitted) "" else it.draft,
                 sendOutcomeUnknown = outcomeUnknown,
                 sendBaselineTranscript = if (outcomeUnknown) baseline else null,
@@ -976,14 +1146,31 @@ class ChatViewModel(
                     snapshot.sessionId,
                     force = true,
                 )
-                val responseWasCommitted = snapshot.sendBaselineTranscript?.let { baseline ->
-                    recovered.status == "ready" && hasCommittedReply(baseline, recovered.transcript)
-                } == true
+                val baseline = snapshot.sendBaselineTranscript.orEmpty()
+                val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
+                val committedAppend = if (snapshot.sendBaselineTranscript != null) {
+                    // recover 返回全量 transcript：以权威 count（发送前）判断是否新增
+                    if (recovered.status == "ready" && recovered.transcript.size > baselineCount) {
+                        committedAppend(baselineCount, recovered.transcript)
+                    } else {
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+                val responseWasCommitted = committedAppend.isNotEmpty()
                 val resolved = recovered.status == "ready"
                 updateRecoveryState(requestId, snapshot) {
                     it.copy(
                         recovering = false,
-                        session = recovered,
+                        session = recovered.copy(
+                            transcript = if (recovered.transcript.isNotEmpty()) {
+                                recovered.transcript
+                            } else {
+                                baseline + committedAppend
+                            },
+                            transcriptCount = recovered.transcript.size,
+                        ),
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = snapshot.sendOutcomeUnknown && !resolved,
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
@@ -1037,15 +1224,36 @@ class ChatViewModel(
                 it.copy(refreshing = false, recovering = true, error = "")
             }
             try {
-                val refreshed = repository.getSession(snapshot.runId, snapshot.sessionId)
-                val responseWasCommitted = snapshot.sendBaselineTranscript?.let { baseline ->
-                    refreshed.status == "ready" && hasCommittedReply(baseline, refreshed.transcript)
-                } == true
+                val refreshed = repository.getSession(
+                    snapshot.runId,
+                    snapshot.sessionId,
+                    includeTranscript = false,
+                )
+                val baseline = snapshot.sendBaselineTranscript.orEmpty()
+                val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
+                val committedAppend = if (snapshot.sendBaselineTranscript != null) {
+                    resolveCommittedAppend(
+                        runId = snapshot.runId,
+                        sessionId = snapshot.sessionId,
+                        baselineCount = baselineCount,
+                        current = refreshed,
+                    )
+                } else {
+                    emptyList()
+                }
+                val responseWasCommitted = refreshed.status == "ready" && committedAppend.isNotEmpty()
                 val resolved = refreshed.status == "ready"
                 updateRecoveryState(requestId, snapshot) {
                     it.copy(
                         recovering = false,
-                        session = refreshed,
+                        session = refreshed.copy(
+                            transcript = if (refreshed.transcript.isNotEmpty()) {
+                                refreshed.transcript
+                            } else {
+                                baseline + committedAppend
+                            },
+                            transcriptCount = effectiveTranscriptCount(refreshed),
+                        ),
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = !resolved,
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
@@ -1627,18 +1835,32 @@ class ChatViewModel(
     private companion object {
         val messageKinds = setOf("dialogue", "narration", "plot")
         const val CONTINUOUS_OBSERVE_DELAY_MS = 480L
+        const val INITIAL_TRANSCRIPT_PAGE = 100
+        const val EARLIER_TRANSCRIPT_PAGE = 100
     }
 }
 
-internal fun hasCommittedReply(
-    baseline: List<TranscriptItemDto>,
-    transcript: List<TranscriptItemDto>,
-): Boolean {
-    if (transcript.size <= baseline.size || transcript.take(baseline.size) != baseline) return false
-    return transcript.drop(baseline.size).any { item ->
-        item.role != "user" && item.message.isNotBlank()
-    }
+/** transcript 总数：轻量响应带 count；全量响应缺省时以本地列表长度为准。 */
+internal fun effectiveTranscriptCount(session: DialogueSessionDto): Int =
+    if (session.transcriptCount > 0) session.transcriptCount else session.transcript.size
+
+/**
+ * 从完整 transcript 中提取 baseline 之后「已提交」的新增条目。
+ * 只有包含非用户内容才算提交成功（对齐旧 hasCommittedReply 语义，避免误判重复发送）。
+ */
+internal fun committedAppend(
+    baselineSize: Int,
+    currentTranscript: List<TranscriptItemDto>,
+): List<TranscriptItemDto> {
+    if (currentTranscript.size <= baselineSize) return emptyList()
+    val appended = currentTranscript.drop(baselineSize)
+    return appended.takeIf { items ->
+        items.any { it.role != "user" && it.message.isNotBlank() }
+    }.orEmpty()
 }
+
+private fun hasCommittedContent(items: List<TranscriptItemDto>): Boolean =
+    items.any { it.role != "user" && it.message.isNotBlank() }
 
 internal fun JsonObject.extractDirectorOptions(): List<ChatToolOption> = this["options"]
     ?.let { runCatching { it.jsonArray }.getOrNull() }

@@ -731,6 +731,8 @@ data class DialogueSessionDto(
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("last_entry_preview") val lastEntryPreview: String = "",
     val transcript: List<TranscriptItemDto> = emptyList(),
+    /** transcript 总条数（include_transcript=false 的轻量响应仍携带，供分页/增量判定）。 */
+    @SerialName("transcript_count") val transcriptCount: Int = 0,
     @SerialName("pending_turn_summary") val pendingTurnSummary: PendingTurnDto = PendingTurnDto(),
     @SerialName("scene_card_id") val sceneCardId: String = "",
     @SerialName("scene_card") val sceneCard: JsonObject = JsonObject(emptyMap()),
@@ -888,7 +890,18 @@ data class DialogueReplyRequest(
     @SerialName("suppress_transcript_message") val suppressTranscriptMessage: Boolean = false,
     @SerialName("include_inner_thoughts") val includeInnerThoughts: Boolean = false,
     @SerialName("include_model_reasoning") val includeModelReasoning: Boolean = false,
+    /** false 时响应/流式 complete 不再携带 transcript（客户端用消息分页接口 + appended 增量维护本地列表）。 */
+    @SerialName("include_transcript") val includeTranscript: Boolean = true,
     @SerialName("operation_id") val operationId: String = "",
+)
+
+/** 会话消息分页响应（历史消息懒加载）。 */
+@Serializable
+data class MessagesResponse(
+    val items: List<TranscriptItemDto> = emptyList(),
+    /** 会话 transcript 总条数。 */
+    val total: Int = 0,
+    @SerialName("has_more") val hasMore: Boolean = false,
 )
 
 @Serializable

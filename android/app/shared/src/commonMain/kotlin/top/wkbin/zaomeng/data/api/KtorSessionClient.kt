@@ -69,10 +69,30 @@ class KtorSessionClient(
             }
         })
 
-    suspend fun get(runId: String, sessionId: String): DialogueSessionDto =
+    suspend fun get(
+        runId: String,
+        sessionId: String,
+        includeTranscript: Boolean = true,
+    ): DialogueSessionDto =
         decodeSession(request { endpoint ->
-            http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/sessions/$sessionId"))
+            http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/sessions/$sessionId")) {
+                if (!includeTranscript) parameter("include_transcript", false)
+            }
         })
+
+    suspend fun listMessages(
+        runId: String,
+        sessionId: String,
+        offset: Int = 0,
+        limit: Int = 100,
+        order: String = "asc",
+    ): MessagesResponse = request { endpoint ->
+        http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/sessions/$sessionId/messages")) {
+            parameter("offset", offset)
+            parameter("limit", limit)
+            parameter("order", order)
+        }
+    }.body()
 
     suspend fun updateTitle(runId: String, sessionId: String, title: String): DialogueSessionDto =
         decodeSession(request { endpoint ->

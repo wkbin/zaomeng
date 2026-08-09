@@ -83,11 +83,40 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
 
         try {
             val result = sessionService.getDialogueSession(runId, sessionId)
-            call.respond(HttpStatusCode.OK, result)
+            val includeTranscript = call.request.queryParameters["include_transcript"]
+                ?.toBooleanStrictOrNull()
+                ?: true
+            val response = if (includeTranscript) {
+                withTranscriptCount(result)
+            } else {
+                leanSession(result)
+            }
+            call.respond(HttpStatusCode.OK, response)
         } catch (e: NoSuchElementException) {
             call.respond(HttpStatusCode.NotFound, mapOf("error" to "Session not found"))
         } catch (e: Exception) {
             call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to get session"))
+        }
+    }
+
+    // 会话消息分页（历史懒加载）：order=desc 时 offset 表示跳过最新 N 条
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/messages") {
+        val runId = call.parameters["run_id"].orEmpty()
+        val sessionId = call.parameters["session_id"].orEmpty()
+        if (runId.isBlank() || sessionId.isBlank()) {
+            return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing session identifier"))
+        }
+        val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
+        val order = call.request.queryParameters["order"].orEmpty().trim()
+            .takeIf { it in setOf("asc", "desc") } ?: "asc"
+        try {
+            val session = sessionService.getDialogueSession(runId, sessionId)
+            call.respond(pageTranscript(session, offset, limit, order))
+        } catch (e: NoSuchElementException) {
+            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Session not found"))
+        } catch (e: Exception) {
+            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to list messages"))
         }
     }
 

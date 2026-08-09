@@ -8,11 +8,15 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
 import top.wkbin.zaomeng.ktor.services.DialogueStreamService
+import top.wkbin.zaomeng.ktor.services.leanSession
 import top.wkbin.zaomeng.ktor.services.StorageService
+import top.wkbin.zaomeng.ktor.services.transcriptByTurnId
+import top.wkbin.zaomeng.ktor.services.withTranscriptCount
 import top.wkbin.zaomeng.ktor.utils.SseEncoder
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.nowEpochMillis
@@ -63,8 +67,17 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                 // 3. 完成事件：携带更新后的会话
                 val session = storageService.getDialogueSession(runId, sessionId)
                 write(SseEncoder.encodeEvent("complete", buildJsonObject {
-                    put("session", session)
+                    put(
+                        "session",
+                        if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
+                    )
                     put("replayed", false)
+                    if (!request.includeTranscript) {
+                        // 增量模式：只回传本轮新增的 transcript 条目（按 turn_id 提取，幂等重放同样成立）
+                        put("appended_transcript", buildJsonArray {
+                            transcriptByTurnId(session, request.operationId).forEach(::add)
+                        })
+                    }
                 }))
             } catch (error: Exception) {
                 // application.log（SLF4J）在 logcat 默认不可见，用 android Log 保证可排查
