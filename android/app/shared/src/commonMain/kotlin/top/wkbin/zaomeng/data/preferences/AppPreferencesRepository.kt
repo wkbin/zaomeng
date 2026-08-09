@@ -111,17 +111,6 @@ class AppPreferencesRepository(
         }
     }
 
-    suspend fun clearLastSession() {
-        dataStore.edit { it.remove(KEY_LAST_SESSION_ID) }
-    }
-
-    suspend fun clearLastLocation() {
-        dataStore.edit { values ->
-            values.remove(KEY_LAST_RUN_ID)
-            values.remove(KEY_LAST_SESSION_ID)
-        }
-    }
-
     suspend fun forgetRun(runId: String) {
         val normalizedRunId = runId.trim()
         dataStore.edit { values ->

@@ -108,7 +108,6 @@ data class ChatUiState(
     val failedOperationId: String = "",
     val failedMessage: String = "",
     val failedMessageKind: String = "dialogue",
-    val streamStatus: String = "",
     val modelReasoning: String = "",
     val streamingReplies: List<StreamingReplyPart> = emptyList(),
     val pendingUserMessage: PendingUserMessage? = null,
@@ -763,7 +762,6 @@ class ChatViewModel(
                 }
                 updateSendState(snapshot, operationId) { current ->
                     current.copy(
-                        streamStatus = "模型正在思考并组织回应...",
                         modelReasoning = displayText,
                         pendingUserMessage = current.pendingUserMessage?.copy(
                             statusText = "模型正在思考",
@@ -782,7 +780,6 @@ class ChatViewModel(
                     sending = true,
                     draft = "",
                     error = "",
-                    streamStatus = "正在连接模型…",
                     modelReasoning = "",
                     streamingReplies = emptyList(),
                     sendOutcomeUnknown = false,
@@ -825,7 +822,6 @@ class ChatViewModel(
                         is DialogueStreamEvent.Status -> updateSendState(snapshot, operationId) {
                             val status = event.message.ifBlank { event.phase }
                             it.copy(
-                                streamStatus = status,
                                 pendingUserMessage = it.pendingUserMessage?.copy(statusText = status),
                             )
                         }
@@ -866,7 +862,6 @@ class ChatViewModel(
                                     )
                                 }
                                 current.copy(
-                                    streamStatus = "回复正在生成…",
                                     pendingUserMessage = current.pendingUserMessage?.copy(
                                         statusText = "正在生成回复",
                                     ),
@@ -884,7 +879,6 @@ class ChatViewModel(
                             lastReasoningUpdateAt = 0L
                             updateSendState(snapshot, operationId) {
                                 it.copy(
-                                    streamStatus = event.message,
                                     modelReasoning = "",
                                     streamingReplies = emptyList(),
                                 )
@@ -942,7 +936,6 @@ class ChatViewModel(
                                     sendBaselineTranscript = null,
                                     failedOperationId = "",
                                     failedMessage = "",
-                                    streamStatus = "",
                                     streamingReplies = emptyList(),
                                     pendingUserMessage = null,
                                     notice = if (event.replayed) "已恢复这次发送的本地结果。" else current.notice,
@@ -1081,7 +1074,6 @@ class ChatViewModel(
                 failedOperationId = if (responseWasCommitted || !showPendingUserMessage) "" else operationId,
                 failedMessage = if (responseWasCommitted || !showPendingUserMessage) "" else message,
                 failedMessageKind = messageKind,
-                streamStatus = "",
                 streamingReplies = emptyList(),
                 pendingUserMessage = if (responseWasCommitted || !showPendingUserMessage) {
                     null

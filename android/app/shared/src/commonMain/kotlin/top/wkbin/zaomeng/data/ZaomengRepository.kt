@@ -358,22 +358,6 @@ class ZaomengRepository(
         appPreferences.saveImportDefaults(characters, autoDistill)
     }
 
-    suspend fun rememberRunLocation(runId: String) {
-        appPreferences.rememberRun(runId)
-    }
-
-    suspend fun rememberSessionLocation(runId: String, sessionId: String) {
-        appPreferences.rememberSession(runId, sessionId)
-    }
-
-    suspend fun clearLastSessionLocation() {
-        appPreferences.clearLastSession()
-    }
-
-    suspend fun clearLastLocation() {
-        appPreferences.clearLastLocation()
-    }
-
     suspend fun getRun(runId: String): RunManifestDto = request {
         ktorRunManagement.get(runId)
     }
@@ -762,24 +746,6 @@ class ZaomengRepository(
         force: Boolean = false,
     ): DialogueSessionDto = request {
         ktorDialogue.recoverSession(runId, sessionId, force)
-    }
-
-    suspend fun reply(
-        runId: String,
-        sessionId: String,
-        message: String,
-        messageKind: String,
-        includeInnerThoughts: Boolean = false,
-        includeTranscript: Boolean = true,
-    ): DialogueSessionDto = request {
-        val payload = DialogueReplyRequest(
-                message = message,
-                messageKind = messageKind,
-                suppressTranscriptMessage = messageKind == "plot",
-                includeInnerThoughts = includeInnerThoughts,
-                includeTranscript = includeTranscript,
-            )
-        ktorDialogue.reply(runId, sessionId, payload)
     }
 
     fun streamReply(

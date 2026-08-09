@@ -109,7 +109,6 @@ fun SessionsScreen(
     showBackButton: Boolean = true,
     onBack: () -> Unit,
     onOpenChat: (runId: String, sessionId: String) -> Unit,
-    onOpenStoryRecap: (runId: String, sessionId: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val lazySessions = viewModel.sessions.collectAsLazyPagingItems()

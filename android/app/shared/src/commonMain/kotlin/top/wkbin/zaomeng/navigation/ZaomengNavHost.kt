@@ -210,9 +210,6 @@ fun ZaomengNavHost(
                     onOpenChat = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
                     },
-                    onOpenStoryRecap = { runId, sessionId ->
-                        backStack.add(StoryRecapDestination(runId, sessionId))
-                    },
                 )
             }
             addEntryProvider(clazz = RunDetailDestination::class) { destination ->

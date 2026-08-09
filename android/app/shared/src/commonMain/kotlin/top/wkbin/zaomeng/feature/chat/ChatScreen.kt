@@ -415,7 +415,6 @@ fun ChatScreen(
                                 session = session,
                                 avatarBytes = state.avatarBytes,
                                 sending = state.sending,
-                                streamStatus = state.streamStatus,
                                 modelReasoning = state.modelReasoning.takeIf {
                                     state.chatDisplay.showModelReasoning
                                 }.orEmpty(),
@@ -944,7 +943,6 @@ private fun Transcript(
     loadingEarlier: Boolean,
     hasMoreHistory: Boolean,
     onLoadEarlier: () -> Unit,
-    streamStatus: String,
     modelReasoning: String,
     streamingReplies: List<StreamingReplyPart>,
     pendingUserMessage: PendingUserMessage?,
