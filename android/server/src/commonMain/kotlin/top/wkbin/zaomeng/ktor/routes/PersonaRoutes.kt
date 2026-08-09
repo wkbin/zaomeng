@@ -7,9 +7,8 @@ import io.ktor.server.request.receive
 import io.ktor.server.request.receiveMultipart
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
-import io.ktor.server.response.respondFile
 import io.ktor.server.routing.*
-import io.ktor.utils.io.jvm.javaio.toInputStream
+import io.ktor.utils.io.toByteArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.ktor.models.SuggestPersonaFieldRequest
@@ -34,7 +33,7 @@ fun Route.personaRoutes(service: PersonaService) {
             personaCall { runId, character ->
                 var bytes: ByteArray? = null
                 call.receiveMultipart().forEachPart { part ->
-                    if (part is PartData.FileItem && part.name == "file") bytes = part.provider().toInputStream().readBytes()
+                    if (part is PartData.FileItem && part.name == "file") bytes = part.provider().toByteArray()
                     part.release()
                 }
                 call.respond(service.saveAvatar(runId, character, requireNotNull(bytes) { "Avatar file is required." }))

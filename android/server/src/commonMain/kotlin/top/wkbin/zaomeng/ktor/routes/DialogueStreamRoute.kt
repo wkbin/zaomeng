@@ -5,9 +5,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondTextWriter
+import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
+import io.ktor.utils.io.writeString
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -34,9 +35,9 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
         if (request.message.isBlank()) {
             return@post call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Message cannot be blank"))
         }
-        call.respondTextWriter(contentType = ContentType.Text.EventStream) {
+        call.respondBytesWriter(ContentType.Text.EventStream) {
             // 1. 初始 status 事件
-            write(SseEncoder.encodeEvent("status", buildJsonObject {
+            writeString(SseEncoder.encodeEvent("status", buildJsonObject {
                 put("phase", "generating")
                 put("message", "正在生成回复")
             }))
@@ -55,7 +56,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                 ).collect { event ->
                     // 真流式：逐事件即时 write + flush（打字机节流 delay(20) 已移除，用户确认恢复真流式）
                     PlatformLog.d("DialogueStreamRoute", "write@${nowEpochMillis()} ${event.text.take(20)}")
-                    write(SseEncoder.encodeEvent("delta", buildJsonObject {
+                    writeString(SseEncoder.encodeEvent("delta", buildJsonObject {
                         put("index", event.index)
                         put("speaker", event.speaker)
                         put("role", event.role)
@@ -66,7 +67,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                 }
                 // 3. 完成事件：携带更新后的会话
                 val session = storageService.getDialogueSession(runId, sessionId)
-                write(SseEncoder.encodeEvent("complete", buildJsonObject {
+                writeString(SseEncoder.encodeEvent("complete", buildJsonObject {
                     put(
                         "session",
                         if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
@@ -83,7 +84,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                 // application.log（SLF4J）在 logcat 默认不可见，用 android Log 保证可排查
                 PlatformLog.e("DialogueStreamRoute", "Streaming dialogue reply failed: ${error.message}", error)
                 call.application.log.error("Streaming dialogue reply failed", error)
-                write(SseEncoder.encodeEvent("error", buildJsonObject {
+                writeString(SseEncoder.encodeEvent("error", buildJsonObject {
                     put("message", error.message ?: "Dialogue reply failed")
                     put("retryable", true)
                 }))

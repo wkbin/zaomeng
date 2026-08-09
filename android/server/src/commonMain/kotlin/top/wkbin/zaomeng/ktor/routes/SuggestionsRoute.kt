@@ -6,6 +6,7 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.writeString
 import kotlinx.coroutines.flow.catch
 import kotlinx.serialization.Serializable
 import top.wkbin.zaomeng.ktor.services.*
@@ -47,7 +48,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                     call.response.header(HttpHeaders.CacheControl, "no-cache")
                     call.response.header(HttpHeaders.Connection, "keep-alive")
 
-                    call.respondTextWriter(ContentType.Text.EventStream) {
+                    call.respondBytesWriter(ContentType.Text.EventStream) {
                         suggestionsService.generateSuggestionStream(
                             runId = runId,
                             sessionId = sessionId,
@@ -60,7 +61,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                                     "error" to error.message,
                                     "type" to "suggestion_error"
                                 )
-                                write(errorSse)
+                                writeString(errorSse)
                                 flush()
                             }
                             .collect { delta ->
@@ -68,7 +69,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                                     event = "delta",
                                     "text" to delta
                                 )
-                                write(sse)
+                                writeString(sse)
                                 flush()
                             }
 
@@ -76,7 +77,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                             event = "done",
                             "status" to "completed"
                         )
-                        write(doneSse)
+                        writeString(doneSse)
                         flush()
                     }
                 } else {
