@@ -13,6 +13,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 生成的 Res 资源类跨模块可见（desktopApp 窗口图标等直接引用 composeResources）
+compose.resources {
+    publicResClass = true
+}
+
 kotlin {
     jvm()
 

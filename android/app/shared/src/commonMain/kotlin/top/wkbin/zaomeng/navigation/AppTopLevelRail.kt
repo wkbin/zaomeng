@@ -1,9 +1,13 @@
 package top.wkbin.zaomeng.navigation
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -24,11 +28,15 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
+import org.jetbrains.compose.resources.painterResource
+import zaomeng.app.shared.generated.resources.Res
+import zaomeng.app.shared.generated.resources.zaomeng_logo
 
 /**
  * 顶级导航栏（平板/桌面/展开后的折叠屏）。
@@ -90,12 +98,22 @@ fun AppTopLevelRail(
     modifier: Modifier = Modifier,
 ) {
     NavigationRail(modifier = modifier.fillMaxHeight()) {
-        Text(
-            text = "造梦",
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
+        ) {
+            Image(
+                painter = painterResource(Res.drawable.zaomeng_logo),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "造梦",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         topLevelRailItems.forEach { item ->
             val selected = selectedDestination?.let { it::class == item.destination::class } == true
             NavigationRailItem(
