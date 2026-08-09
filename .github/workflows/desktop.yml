@@ -36,4 +36,8 @@ jobs:
         working-directory: android
         shell: bash
         run: |
-          ./gradlew :app:desktopApp:compileKotlin --no-daemon --stacktrace --console=plain > /tmp/gradle-desktop.log 2>&1 || { tail -100 /tmp/gradle-desktop.log | sed 's/^/::error::/'; exit 1; }
+          ./gradlew :app:desktopApp:compileKotlin --no-daemon --stacktrace --console=plain > /tmp/gradle-desktop.log 2>&1 || {
+            grep -E 'What went wrong|Caused by:|FAILURE:|not found|Could not|error:|Exception|> Task .* FAILED' /tmp/gradle-desktop.log | head -40 | sed 's/^/::error::/'
+            tail -40 /tmp/gradle-desktop.log | sed 's/^/::error::tail /'
+            exit 1
+          }

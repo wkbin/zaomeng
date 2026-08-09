@@ -36,4 +36,8 @@ jobs:
         working-directory: android
         shell: bash
         run: |
-          ./gradlew :server:compileKotlinIosSimulatorArm64 :app:shared:compileKotlinIosSimulatorArm64 :app:shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace --console=plain > /tmp/gradle-ios.log 2>&1 || { tail -100 /tmp/gradle-ios.log | sed 's/^/::error::/'; exit 1; }
+          ./gradlew :server:compileKotlinIosSimulatorArm64 :app:shared:compileKotlinIosSimulatorArm64 :app:shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace --console=plain > /tmp/gradle-ios.log 2>&1 || {
+            grep -E 'What went wrong|Caused by:|FAILURE:|not found|Could not|error:|Exception|> Task .* FAILED' /tmp/gradle-ios.log | head -40 | sed 's/^/::error::/'
+            tail -40 /tmp/gradle-ios.log | sed 's/^/::error::tail /'
+            exit 1
+          }
