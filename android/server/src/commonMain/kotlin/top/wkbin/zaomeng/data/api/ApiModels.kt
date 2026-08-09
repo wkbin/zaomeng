@@ -640,6 +640,60 @@ data class SessionsResponse(
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 
+/**
+ * 会话列表投影（服务端列表接口返回）。
+ *
+ * 只携带列表需要的字段，避免整份 manifest（transcript/场景历史等重字段）透传；
+ * 客户端 [DialogueSessionDto] 用默认值补齐其余字段，WebUI 列表也只依赖这些字段。
+ */
+@Serializable
+data class SessionListItem(
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("run_id") val runId: String = "",
+    @SerialName("novel_id") val novelId: String = "",
+    /** 书卷标题（服务端由 run manifest 关联注入，用于按书名搜索/排序）。 */
+    @SerialName("run_title") val runTitle: String = "",
+    val title: String = "",
+    val mode: String = "observe",
+    @SerialName("mode_display") val modeDisplay: String = "",
+    val participants: List<String> = emptyList(),
+    @SerialName("character_avatars") val characterAvatars: Map<String, String> = emptyMap(),
+    @SerialName("controlled_character") val controlledCharacter: String = "",
+    val status: String = "ready",
+    @SerialName("turn_count") val turnCount: Int = 0,
+    @SerialName("current_turn_id") val currentTurnId: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("last_entry_preview") val lastEntryPreview: String = "",
+)
+
+/**
+ * 会话 manifest 的持久化投影（创建会话时构造后落盘）。
+ *
+ * 注意：已有会话的读-改-写路径仍走 JsonObject，因为高级字段由多个服务增量写入，
+ * 类型化解码会丢掉未知字段；本模型只用于「新建」这种纯构造写出的场景。
+ */
+@Serializable
+data class SessionManifest(
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("run_id") val runId: String = "",
+    val mode: String = "observe",
+    val participants: List<String> = emptyList(),
+    @SerialName("controlled_character") val controlledCharacter: String = "",
+    @SerialName("scene_card_id") val sceneCardId: String = "",
+    @SerialName("scene_profile") val sceneProfile: JsonObject = JsonObject(emptyMap()),
+    @SerialName("self_card_id") val selfCardId: String = "",
+    @SerialName("self_profile") val selfProfile: JsonObject = JsonObject(emptyMap()),
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    val title: String = "",
+    val status: String = "ready",
+    val transcript: List<JsonObject> = emptyList(),
+    val turns: List<String> = emptyList(),
+    @SerialName("turn_count") val turnCount: Int = 0,
+    @SerialName("current_turn_id") val currentTurnId: String = "",
+)
+
 @Serializable
 data class SessionRefDto(
     @SerialName("run_id") val runId: String,

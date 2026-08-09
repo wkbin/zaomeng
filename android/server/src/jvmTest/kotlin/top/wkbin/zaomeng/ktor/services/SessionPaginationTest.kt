@@ -5,7 +5,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.encodeToString
 import okio.Path.Companion.toPath
@@ -37,13 +36,13 @@ class SessionPaginationTest {
             assertEquals(3, first.items.size)
             assertEquals(5, first.total)
             assertTrue(first.hasMore)
-            assertEquals("s4", first.items[0]["session_id"]?.jsonPrimitive?.content)
+            assertEquals("s4", first.items[0].sessionId)
 
             val second = service.listRecentSessions(offset = 3, limit = 3)
             assertEquals(2, second.items.size)
             assertEquals(5, second.total)
             assertFalse(second.hasMore)
-            assertEquals("s1", second.items[0]["session_id"]?.jsonPrimitive?.content)
+            assertEquals("s1", second.items[0].sessionId)
         } finally {
             dir.toFile().deleteRecursively()
         }
@@ -67,10 +66,10 @@ class SessionPaginationTest {
             val service = SessionManagementService(storage, DialogueService(storage))
 
             val byParticipant = service.listRecentSessions(offset = 0, limit = 50, query = "黛玉")
-            assertEquals(listOf("s1"), byParticipant.items.map { it["session_id"]?.jsonPrimitive?.content })
+            assertEquals(listOf("s1"), byParticipant.items.map { it.sessionId })
 
             val byBook = service.listRecentSessions(offset = 0, limit = 50, query = "西游")
-            assertEquals(listOf("s2"), byBook.items.map { it["session_id"]?.jsonPrimitive?.content })
+            assertEquals(listOf("s2"), byBook.items.map { it.sessionId })
         } finally {
             dir.toFile().deleteRecursively()
         }
@@ -91,7 +90,7 @@ class SessionPaginationTest {
 
             assertEquals(
                 listOf("s2", "s1"),
-                result.items.map { it["session_id"]?.jsonPrimitive?.content },
+                result.items.map { it.sessionId },
             )
         } finally {
             dir.toFile().deleteRecursively()
@@ -114,7 +113,7 @@ class SessionPaginationTest {
             assertEquals(2, page.items.size)
             assertEquals(4, page.total)
             assertFalse(page.hasMore)
-            assertEquals(listOf("s1", "s0"), page.items.map { it["session_id"]?.jsonPrimitive?.content })
+            assertEquals(listOf("s1", "s0"), page.items.map { it.sessionId })
         } finally {
             dir.toFile().deleteRecursively()
         }

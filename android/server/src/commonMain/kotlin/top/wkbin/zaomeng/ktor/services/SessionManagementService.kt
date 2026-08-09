@@ -7,10 +7,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.SessionListItem
+import top.wkbin.zaomeng.data.api.SessionManifest
 import top.wkbin.zaomeng.ktor.models.*
 import okio.Path
 import top.wkbin.zaomeng.platform.nowIsoString
@@ -65,33 +70,30 @@ class SessionManagementService(
         val sessionDir = storageService.getDialogueSessionsDirectory(runId) / sessionId
         storageService.mkdirs(sessionDir)
 
-        // 创建会话清单
-        val manifest = buildJsonObject {
-            put("session_id", sessionId)
-            put("run_id", runId)
-            put("mode", mode)
-            put("participants", buildJsonArray { participants.forEach { add(JsonPrimitive(it)) } })
-            put("controlled_character", controlledCharacter)
-            put("scene_card_id", sceneCardId)
-            put("scene_profile", sceneProfile)
-            put("self_card_id", selfCardId)
-            put("self_profile", selfProfile)
-            put("created_at", timestamp)
-            put("updated_at", timestamp)
-            put("title", "")
-            put("status", "ready")
-            put("transcript", buildJsonArray { })
-            put("turns", buildJsonArray { })
-            put("turn_count", 0)
-            put("current_turn_id", "")
-        }
+        // 创建会话清单（纯构造写出，类型化模型序列化后的 JSON 与旧 manifest 完全一致）
+        val manifest = SessionManifest(
+            sessionId = sessionId,
+            runId = runId,
+            mode = mode,
+            participants = participants,
+            controlledCharacter = controlledCharacter,
+            sceneCardId = sceneCardId,
+            sceneProfile = sceneProfile,
+            selfCardId = selfCardId,
+            selfProfile = selfProfile,
+            createdAt = timestamp,
+            updatedAt = timestamp,
+            title = "",
+            status = "ready",
+        )
 
         // 写入会话清单
         val manifestFile = sessionDir / "session_manifest.json"
-        storageService.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), manifest))
+        storageService.writeTextAtomically(manifestFile, json.encodeToString(SessionManifest.serializer(), manifest))
 
         // 响应注入 character_avatars（对齐 Python _serialize_session，不持久化）
-        return storageService.withCharacterAvatars(manifest, runId)
+        val response = json.encodeToJsonElement(SessionManifest.serializer(), manifest).jsonObject
+        return storageService.withCharacterAvatars(response, runId)
     }
 
     /**
@@ -261,14 +263,16 @@ class SessionManagementService(
             ?.let { it["title"]?.jsonPrimitive?.contentOrNull }
             .orEmpty()
         val sessions = storageService.listDialogueSessions(runId).map { session ->
-            if (session["run_id"] != null) session else buildJsonObject {
-                session.forEach { (key, value) -> put(key, value) }
-                put("run_id", JsonPrimitive(runId))
-            }
+            toSessionListItem(
+                manifest = if (session["run_id"] != null) session else buildJsonObject {
+                    session.forEach { (key, value) -> put(key, value) }
+                    put("run_id", JsonPrimitive(runId))
+                },
+                runTitle = runTitle,
+            )
         }
         return pageSessions(
             sessions = sessions,
-            runTitles = mapOf(runId to runTitle),
             offset = offset,
             limit = limit,
             query = query,
@@ -295,16 +299,18 @@ class SessionManagementService(
             .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
             .flatMap { runDir ->
                 storageService.listDialogueSessions(runDir.name).asSequence().map { session ->
-                    if (session["run_id"] != null) session else buildJsonObject {
-                        session.forEach { (key, value) -> put(key, value) }
-                        put("run_id", JsonPrimitive(runDir.name))
-                    }
+                    toSessionListItem(
+                        manifest = if (session["run_id"] != null) session else buildJsonObject {
+                            session.forEach { (key, value) -> put(key, value) }
+                            put("run_id", JsonPrimitive(runDir.name))
+                        },
+                        runTitle = runTitles[runDir.name].orEmpty(),
+                    )
                 }
             }
             .toList()
         return pageSessions(
             sessions = sessions,
-            runTitles = runTitles,
             offset = offset,
             limit = limit,
             query = query,
@@ -317,8 +323,7 @@ class SessionManagementService(
      * 过滤字段与 Android 端此前客户端过滤保持一致：书卷标题/novel_id/模式/参与人/受控角色/最后一条预览。
      */
     private fun pageSessions(
-        sessions: List<JsonObject>,
-        runTitles: Map<String, String>,
+        sessions: List<SessionListItem>,
         offset: Int,
         limit: Int,
         query: String,
@@ -329,38 +334,28 @@ class SessionManagementService(
             sessions
         } else {
             sessions.filter { session ->
-                val runId = session["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val participants = (session["participants"] as? JsonArray)
-                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                    .orEmpty()
                 listOf(
-                    runTitles[runId].orEmpty(),
-                    session["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    session["mode"]?.jsonPrimitive?.contentOrNull
-                        ?.let(::sessionModeSearchLabel)
-                        .orEmpty(),
-                    participants.joinToString(" "),
-                    session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    session["last_entry_preview"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    session.runTitle,
+                    session.novelId,
+                    sessionModeSearchLabel(session.mode),
+                    session.participants.joinToString(" "),
+                    session.controlledCharacter,
+                    session.lastEntryPreview,
                 ).any { value -> value.contains(normalizedQuery, ignoreCase = true) }
             }
         }
         val sorted = when (sort) {
             "title" -> filtered.sortedWith { left, right ->
-                val leftTitle = runTitles[left["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()]
-                    ?.takeIf { it.isNotBlank() }
-                    ?: left["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val rightTitle = runTitles[right["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()]
-                    ?.takeIf { it.isNotBlank() }
-                    ?: right["novel_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val leftTitle = left.runTitle.takeIf { it.isNotBlank() } ?: left.novelId
+                val rightTitle = right.runTitle.takeIf { it.isNotBlank() } ?: right.novelId
                 val titleOrder = leftTitle.compareTo(rightTitle, ignoreCase = true)
                 if (titleOrder != 0) {
                     titleOrder
                 } else {
-                    right.updatedAtValue().compareTo(left.updatedAtValue())
+                    right.updatedAt.compareTo(left.updatedAt)
                 }
             }
-            else -> filtered.sortedByDescending { it.updatedAtValue() }
+            else -> filtered.sortedByDescending { it.updatedAt }
         }
         val total = sorted.size
         val items = sorted.drop(offset).take(limit)
@@ -371,8 +366,35 @@ class SessionManagementService(
         )
     }
 
-    private fun JsonObject.updatedAtValue(): String =
-        this["updated_at"]?.toString().orEmpty()
+    /** 把 manifest JsonObject 投影为列表项（唯一一处字符串取字段，集中收口）。 */
+    private fun toSessionListItem(manifest: JsonObject, runTitle: String): SessionListItem = SessionListItem(
+        sessionId = manifest.stringValue("session_id"),
+        runId = manifest.stringValue("run_id"),
+        novelId = manifest.stringValue("novel_id"),
+        runTitle = runTitle,
+        title = manifest.stringValue("title"),
+        mode = manifest.stringValue("mode"),
+        modeDisplay = manifest.stringValue("mode_display"),
+        participants = (manifest["participants"] as? JsonArray)
+            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            .orEmpty(),
+        characterAvatars = (manifest["character_avatars"] as? JsonObject)
+            ?.mapNotNull { (name, value) ->
+                (value as? JsonPrimitive)?.contentOrNull?.let { name to it }
+            }
+            ?.toMap()
+            .orEmpty(),
+        controlledCharacter = manifest.stringValue("controlled_character"),
+        status = manifest.stringValue("status"),
+        turnCount = (manifest["turn_count"] as? JsonPrimitive)?.intOrNull ?: 0,
+        currentTurnId = manifest.stringValue("current_turn_id"),
+        createdAt = manifest.stringValue("created_at"),
+        updatedAt = manifest.stringValue("updated_at"),
+        lastEntryPreview = manifest.stringValue("last_entry_preview"),
+    )
+
+    private fun JsonObject.stringValue(key: String): String =
+        this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
 
     private fun sessionModeSearchLabel(mode: String): String = when (mode) {
         "act" -> "扮演人物"
@@ -467,9 +489,9 @@ class SessionManagementService(
 
 }
 
-/** 会话列表分页结果：保持原始 JSON 透传（manifest 字段/角色头像），由客户端按 DTO 解码。 */
+/** 会话列表分页结果：列表项为类型化投影，客户端按 [DialogueSessionDto] 解码（缺省字段用默认值）。 */
 data class SessionsPage(
-    val items: List<JsonObject>,
+    val items: List<SessionListItem>,
     val total: Int,
     val hasMore: Boolean,
 )
