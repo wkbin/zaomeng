@@ -12,9 +12,12 @@ import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef
 import com.sun.jna.ptr.IntByReference
 import io.github.vinceglb.filekit.FileKit
+import kotlinx.coroutines.runBlocking
 import org.koin.core.context.startKoin
+import org.koin.core.context.GlobalContext
 import org.jetbrains.compose.resources.painterResource
 import top.wkbin.zaomeng.app.shared.App
+import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.di.DesktopAppPlatform
 import top.wkbin.zaomeng.di.sharedAppModule
 import zaomeng.app.shared.generated.resources.Res
@@ -25,6 +28,10 @@ fun main() {
     FileKit.init(appId = "top.wkbin.zaomeng")
     application {
         startKoin { modules(sharedAppModule(DesktopAppPlatform())) }
+        // 窗口创建前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
+        val initialPreferences = runBlocking {
+            GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
+        }
 
         Window(
             onCloseRequest = ::exitApplication,
@@ -33,6 +40,8 @@ fun main() {
             state = rememberWindowState(size = DpSize(1200.dp, 800.dp)),
         ) {
             App(
+                initialThemeMode = initialPreferences.themeMode,
+                initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
                 onThemeChanged = { dark -> applyNativeTitleBarTheme(window, dark) },
             )
         }

@@ -27,13 +27,16 @@ fun App(
     onChaptersLaunchConsumed: () -> Unit = {},
     /** 主题深浅变化回调（桌面端用于原生标题栏适配）。 */
     onThemeChanged: (Boolean) -> Unit = {},
+    /** 平台入口在启动时同步读取的持久化主题，避免首帧闪主题；未提供时用默认值。 */
+    initialThemeMode: ThemeMode = ThemeMode.SYSTEM,
+    initialThemeSeedColorArgb: Long = 0L,
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
-        initialValue = ThemeMode.SYSTEM,
+        initialValue = initialThemeMode,
     )
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(
-        initialValue = 0L,
+        initialValue = initialThemeSeedColorArgb,
     )
     val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM, ThemeMode.MONET_SYSTEM -> isSystemInDarkTheme()

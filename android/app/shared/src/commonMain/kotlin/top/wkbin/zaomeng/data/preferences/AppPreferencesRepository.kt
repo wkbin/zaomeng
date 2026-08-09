@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import okio.IOException
 
@@ -81,6 +82,12 @@ class AppPreferencesRepository(
     val themeSeedColorArgb: Flow<Long> = preferences
         .map { it.themeSeedColorArgb }
         .distinctUntilChanged()
+
+    /**
+     * 读取一次偏好快照。平台入口在 UI 组合前调用，先把持久化主题应用上，
+     * 避免启动时先按默认主题渲染再跳变（参考 KernelSU 启动即读主题的做法）。
+     */
+    suspend fun currentPreferences(): AppPreferences = preferences.first()
 
     suspend fun saveImportDefaults(characters: String, autoDistill: Boolean) {
         dataStore.edit { values ->

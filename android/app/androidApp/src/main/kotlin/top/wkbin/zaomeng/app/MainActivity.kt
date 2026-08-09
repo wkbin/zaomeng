@@ -18,12 +18,15 @@ import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import androidx.lifecycle.lifecycleScope
+import org.koin.core.context.GlobalContext
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.app.shared.App
 import top.wkbin.zaomeng.app.update.AppUpdateManager
 import top.wkbin.zaomeng.app.update.AppUpdateNotifier
 import top.wkbin.zaomeng.app.update.AppUpdatePreferences
+import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ContentDisclaimerPreferences
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadState
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadStatus
@@ -47,6 +50,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         startupUpdateCheckDisabled = AppUpdatePreferences.isStartupCheckDisabled(this)
         pendingChaptersRunId = intent.getStringExtra("open_run_id")
+        // 在 UI 组合前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
+        val initialPreferences = runBlocking {
+            GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
+        }
         setContent {
             val disclaimerPreferences: ContentDisclaimerPreferences = koinInject()
             LaunchedEffect(Unit) {
@@ -60,6 +67,8 @@ class MainActivity : ComponentActivity() {
                 onStartupUpdateCheckDisabledChange = ::updateStartupUpdateCheckPreference,
                 launchChaptersRunId = pendingChaptersRunId,
                 onChaptersLaunchConsumed = { pendingChaptersRunId = null },
+                initialThemeMode = initialPreferences.themeMode,
+                initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
             )
             appUpdateState.availableUpdate?.let { update ->
                 if (dismissedUpdateVersion != update.version) {

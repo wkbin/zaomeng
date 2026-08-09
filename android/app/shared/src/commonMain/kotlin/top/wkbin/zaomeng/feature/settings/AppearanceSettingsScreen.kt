@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -97,8 +98,8 @@ fun AppearanceSettingsScreen(
                     }
                 }
             }
-            if (themeMode.isMonet) {
-                item {
+            item {
+                AnimatedVisibility(visible = themeMode.isMonet) {
                     Column {
                         Text(
                             "主题色",
