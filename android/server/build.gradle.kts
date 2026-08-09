@@ -72,6 +72,7 @@ kotlin {
         jvmTest.dependencies {
             implementation(libs.junit)
             implementation(libs.kotlin.test.junit)
+            implementation(libs.ktor.server.test.host)
         }
         if (isMacHost) {
             getByName("iosMain") {

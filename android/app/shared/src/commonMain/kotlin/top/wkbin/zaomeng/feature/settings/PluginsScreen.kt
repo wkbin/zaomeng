@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -172,29 +176,31 @@ fun PluginsScreen(
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
 
-            else -> LazyColumn(
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 380.dp),
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentPadding = PaddingValues(AppDimens.screenPadding),
                 verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
             ) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     PluginIntroductionCard()
                 }
                 if (state.error.isNotBlank()) {
-                    item { StatusCard(state.error, error = true) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.error, error = true) }
                 }
                 if (state.message.isNotBlank()) {
-                    item { StatusCard(state.message, error = false) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.message, error = false) }
                 }
                 if (state.plugins.isEmpty()) {
-                    item {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "当前没有发现插件。把插件放入运行目录后点击右上角刷新。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 } else {
-                    items(state.plugins, key = PluginDto::id) { plugin ->
+                    gridItems(state.plugins, key = PluginDto::id) { plugin ->
                         PluginCard(
                             plugin = plugin,
                             busy = state.busyPluginId == plugin.id,

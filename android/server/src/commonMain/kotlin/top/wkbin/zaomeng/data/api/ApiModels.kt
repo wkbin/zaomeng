@@ -640,6 +640,14 @@ data class SessionsResponse(
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 
+/** 服务端会话列表分页响应（类型化，避免 Map<String, Any> 携带自定义类型无法序列化）。 */
+@Serializable
+data class SessionsPageResponse(
+    val items: List<SessionListItem>,
+    val total: Int,
+    @SerialName("has_more") val hasMore: Boolean,
+)
+
 /**
  * 会话列表投影（服务端列表接口返回）。
  *

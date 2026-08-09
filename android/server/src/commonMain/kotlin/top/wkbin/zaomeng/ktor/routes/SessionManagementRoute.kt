@@ -10,8 +10,8 @@ import top.wkbin.zaomeng.ktor.services.*
 import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
-import top.wkbin.zaomeng.data.api.SessionsResponse
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
+import top.wkbin.zaomeng.data.api.SessionsPageResponse
 import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
 
 /**
@@ -23,9 +23,9 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
 
     get("/api/web/sessions") {
         val page = call.sessionPageParams()
-        call.respond(sessionPageResponse(
-            sessionService.listRecentSessions(page.offset, page.limit, page.query, page.sort),
-        ))
+        call.respond(
+            sessionService.listRecentSessions(page.offset, page.limit, page.query, page.sort).toResponse(),
+        )
     }
 
     delete("/api/web/sessions") {
@@ -125,9 +125,9 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         if (runId.isBlank()) return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
         if (!sessionService.runExists(runId)) return@get call.respond(HttpStatusCode.NotFound, mapOf("detail" to "Run not found"))
         val page = call.sessionPageParams()
-        call.respond(sessionPageResponse(
-            sessionService.listDialogueSessions(runId, page.offset, page.limit, page.query, page.sort),
-        ))
+        call.respond(
+            sessionService.listDialogueSessions(runId, page.offset, page.limit, page.query, page.sort).toResponse(),
+        )
     }
 
     delete("/api/web/runs/{run_id}/dialogue/sessions/{session_id}") {
@@ -219,8 +219,8 @@ private fun io.ktor.server.application.ApplicationCall.sessionPageParams(): Sess
 }
 
 /** 会话列表响应：与旧格式兼容（items），并新增分页字段。 */
-private fun sessionPageResponse(page: SessionsPage): Map<String, Any> = mapOf(
-    "items" to page.items,
-    "total" to page.total,
-    "has_more" to page.hasMore,
+private fun SessionsPage.toResponse(): SessionsPageResponse = SessionsPageResponse(
+    items = items,
+    total = total,
+    hasMore = hasMore,
 )

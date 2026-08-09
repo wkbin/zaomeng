@@ -82,12 +82,14 @@ fun OnlineLibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("造梦在线书卷包", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "这是已蒸馏的 .zaomeng-run.zip 包。下载并校验后会写入本机书架，不会上传你的小说或聊天数据。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("造梦在线书卷包", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "这是已蒸馏的 .zaomeng-run.zip 包。下载并校验后会写入本机书架，不会上传你的小说或聊天数据。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (state.loading) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
