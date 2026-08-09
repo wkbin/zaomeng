@@ -35,6 +35,9 @@ class SessionManagementService(
         prettyPrint = true
         isLenient = true
         ignoreUnknownKeys = true
+        // 类型化 SessionManifest 需要写全字段（title/mode 等默认值也必须落盘，
+        // 否则 DialogueService 解码 DialogueManifest 会因缺字段报 400）
+        encodeDefaults = true
     }
 
     /**

@@ -67,6 +67,8 @@ class LocalBackendController(
                             prettyPrint = true
                             isLenient = true
                             ignoreUnknownKeys = true
+                            // 新格式：类型化 DTO 序列化必须写全字段（默认值也落盘）
+                            encodeDefaults = true
                         },
                     )
                 }
