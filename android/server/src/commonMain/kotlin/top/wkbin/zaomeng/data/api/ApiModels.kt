@@ -633,11 +633,30 @@ data class SuggestPersonaFieldResponse(
 
 @Serializable
 data class SessionsResponse(
-    val items: List<DialogueSessionDto> = emptyList(),
+    val items: List<SessionListItem> = emptyList(),
     /** 当前过滤/排序条件下的会话总数（不含 offset/limit 截断）。 */
     val total: Int = 0,
     /** 是否还有下一页（Paging 3 据此决定 nextKey）。 */
     @SerialName("has_more") val hasMore: Boolean = false,
+)
+
+/** 列表投影 → 全量会话 DTO（列表接口只返回投影字段，其余保持默认值）。 */
+fun SessionListItem.toDialogueSessionDto(): DialogueSessionDto = DialogueSessionDto(
+    sessionId = sessionId,
+    runId = runId,
+    novelId = novelId,
+    title = title,
+    mode = mode,
+    modeDisplay = modeDisplay,
+    participants = participants,
+    characterAvatars = characterAvatars,
+    controlledCharacter = controlledCharacter,
+    status = status,
+    turnCount = turnCount,
+    currentTurnId = currentTurnId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    lastEntryPreview = lastEntryPreview,
 )
 
 /** 服务端会话列表分页响应（类型化，避免 Map<String, Any> 携带自定义类型无法序列化）。 */
@@ -899,7 +918,7 @@ data class DialogueReplyRequest(
     @SerialName("include_inner_thoughts") val includeInnerThoughts: Boolean = false,
     @SerialName("include_model_reasoning") val includeModelReasoning: Boolean = false,
     /** false 时响应/流式 complete 不再携带 transcript（客户端用消息分页接口 + appended 增量维护本地列表）。 */
-    @SerialName("include_transcript") val includeTranscript: Boolean = true,
+    @SerialName("include_transcript") val includeTranscript: Boolean = false,
     @SerialName("operation_id") val operationId: String = "",
 )
 

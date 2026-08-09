@@ -4,7 +4,7 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingSource.LoadParams
 import androidx.paging.PagingSource.LoadResult
 import kotlinx.coroutines.test.runTest
-import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.SessionListItem
 import top.wkbin.zaomeng.data.api.SessionsResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,7 +16,7 @@ import kotlin.test.assertNull
  */
 class SessionsPagingSourceTest {
     private val sessions = (1..45).map { index ->
-        DialogueSessionDto(
+        SessionListItem(
             sessionId = "session-$index",
             runId = "run-alpha",
             updatedAt = "2026-08-0${index % 9 + 1}T00:00:00Z",

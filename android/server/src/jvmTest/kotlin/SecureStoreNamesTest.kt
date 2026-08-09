@@ -6,9 +6,9 @@ import top.wkbin.zaomeng.backend.SecureStoreNames
 
 class ModelApiKeyStoreTest {
     @Test
-    fun `default profile uses legacy compatible secret name`() {
-        assertEquals("model_api_key", SecureStoreNames.secretName("default"))
-        assertEquals("model_api_key", SecureStoreNames.secretName(""))
+    fun `default profile uses normalized secret name`() {
+        assertEquals("model_api_key_default", SecureStoreNames.secretName("default"))
+        assertEquals("model_api_key_default", SecureStoreNames.secretName(""))
     }
 
     @Test

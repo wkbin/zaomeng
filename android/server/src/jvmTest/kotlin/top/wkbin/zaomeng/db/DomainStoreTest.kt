@@ -15,8 +15,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * 领域实体表测试：验证 StorageService 写入时同步实体、列表读取切实体、
- * 删除级联、以及 documents → 实体的一次性回填。
+ * 领域实体表测试：验证 StorageService 写入时同步实体、列表读取切实体、删除级联。
  */
 class DomainStoreTest {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }

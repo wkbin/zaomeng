@@ -302,7 +302,7 @@ class ChatViewModel(
                             transcriptCount = tail.total,
                         )
                     } else {
-                        loadedSession.copy(transcriptCount = effectiveTranscriptCount(loadedSession))
+                        loadedSession
                     }
                 } else {
                     val recovered = repository.recoverSession(
@@ -310,7 +310,7 @@ class ChatViewModel(
                         normalizedSessionId,
                         force = true,
                     )
-                    recovered.copy(transcriptCount = effectiveTranscriptCount(recovered))
+                    recovered
                 }
                 val avatars = loadAvatars(normalizedRunId, session)
                 val plugins = loadChatPlugins()
@@ -915,19 +915,11 @@ class ChatViewModel(
                                     }
                                     else -> base + appended
                                 }
-                                val session = if (event.session.transcript.isNotEmpty()) {
-                                    // 服务端仍返回全量（include_transcript=true 的调用方）：直接采用权威会话
-                                    event.session.copy(transcriptCount = effectiveTranscriptCount(event.session))
-                                } else {
-                                    event.session.copy(
-                                        transcript = merged,
-                                        transcriptCount = if (event.transcriptCount > 0) {
-                                            event.transcriptCount
-                                        } else {
-                                            merged.size
-                                        },
-                                    )
-                                }
+                                // 新格式：流式 complete 始终为轻量会话（transcript_count 由服务端携带）
+                                val session = event.session.copy(
+                                    transcript = merged,
+                                    transcriptCount = event.transcriptCount,
+                                )
                                 current.copy(
                                     sending = false,
                                     session = session,
@@ -978,7 +970,7 @@ class ChatViewModel(
         current: DialogueSessionDto,
     ): List<TranscriptItemDto> {
         if (current.status != "ready") return emptyList()
-        val count = effectiveTranscriptCount(current)
+        val count = current.transcriptCount
         if (count <= baselineCount) return emptyList()
         if (current.transcript.isNotEmpty() && current.transcript.size == count) {
             return committedAppend(baselineCount, current.transcript)
@@ -1066,7 +1058,7 @@ class ChatViewModel(
                 sending = false,
                 session = refreshed?.copy(
                     transcript = baseline + committedAppend,
-                    transcriptCount = effectiveTranscriptCount(refreshed),
+                    transcriptCount = refreshed.transcriptCount,
                 ) ?: it.session,
                 draft = if (responseWasCommitted) "" else it.draft,
                 sendOutcomeUnknown = outcomeUnknown,
@@ -1169,7 +1161,7 @@ class ChatViewModel(
                             } else {
                                 baseline + committedAppend
                             },
-                            transcriptCount = recovered.transcript.size,
+                            transcriptCount = recovered.transcriptCount,
                         ),
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = snapshot.sendOutcomeUnknown && !resolved,
@@ -1252,7 +1244,7 @@ class ChatViewModel(
                             } else {
                                 baseline + committedAppend
                             },
-                            transcriptCount = effectiveTranscriptCount(refreshed),
+                            transcriptCount = refreshed.transcriptCount,
                         ),
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = !resolved,
@@ -1839,10 +1831,6 @@ class ChatViewModel(
         const val EARLIER_TRANSCRIPT_PAGE = 100
     }
 }
-
-/** transcript 总数：轻量响应带 count；全量响应缺省时以本地列表长度为准。 */
-internal fun effectiveTranscriptCount(session: DialogueSessionDto): Int =
-    if (session.transcriptCount > 0) session.transcriptCount else session.transcript.size
 
 /**
  * 从完整 transcript 中提取 baseline 之后「已提交」的新增条目。

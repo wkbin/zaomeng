@@ -187,11 +187,9 @@ class PersonaService(
         PlatformLog.d(TAG, "Loading persona profile from: $file")
         val text = storage.readText(file)
         val yamlText = text.frontmatter()
-        val loaded: Map<*, *>? = if (yamlText != null) {
-            runCatching { parseYaml(yamlText) as? Map<*, *> }.getOrNull()
-        } else {
-            // 无 frontmatter 标记：尝试把整个文件解析为 YAML map（兼容纯 YAML 档案）
-            runCatching { parseYaml(text) as? Map<*, *> }.getOrNull()
+        // 新格式：人物档案统一使用 YAML frontmatter（---\n...\n---）
+        val loaded: Map<*, *>? = yamlText?.let {
+            runCatching { parseYaml(it) as? Map<*, *> }.getOrNull()
         }
         if (loaded != null) {
             return loaded.entries.associate { it.key.toString() to normalizeYamlValue(it.value) }

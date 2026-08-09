@@ -218,7 +218,7 @@ private fun io.ktor.server.application.ApplicationCall.sessionPageParams(): Sess
     return SessionPageParams(offset = offset, limit = limit, query = query, sort = sort)
 }
 
-/** 会话列表响应：与旧格式兼容（items），并新增分页字段。 */
+/** 会话列表响应：items + 分页字段（类型化 DTO）。 */
 private fun SessionsPage.toResponse(): SessionsPageResponse = SessionsPageResponse(
     items = items,
     total = total,

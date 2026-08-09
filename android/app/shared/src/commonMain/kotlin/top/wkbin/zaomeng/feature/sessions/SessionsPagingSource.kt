@@ -5,6 +5,7 @@ import androidx.paging.PagingState
 import kotlinx.coroutines.CancellationException
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
+import top.wkbin.zaomeng.data.api.toDialogueSessionDto
 
 /**
  * 会话列表分页数据源：按 offset/limit 走本地 Ktor 接口。
@@ -25,7 +26,7 @@ class SessionsPagingSource(
             if (offset == 0) onFirstPage(page.total)
             val nextOffset = offset + page.items.size
             LoadResult.Page(
-                data = page.items,
+                data = page.items.map { it.toDialogueSessionDto() },
                 prevKey = if (offset == 0) null else (offset - limit).coerceAtLeast(0),
                 nextKey = if (page.hasMore) nextOffset else null,
             )

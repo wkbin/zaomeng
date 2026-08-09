@@ -263,13 +263,7 @@ class SessionManagementService(
             ?.let { it["title"]?.jsonPrimitive?.contentOrNull }
             .orEmpty()
         val sessions = storageService.listDialogueSessions(runId).map { session ->
-            toSessionListItem(
-                manifest = if (session["run_id"] != null) session else buildJsonObject {
-                    session.forEach { (key, value) -> put(key, value) }
-                    put("run_id", JsonPrimitive(runId))
-                },
-                runTitle = runTitle,
-            )
+            toSessionListItem(manifest = session, runTitle = runTitle)
         }
         return pageSessions(
             sessions = sessions,
@@ -299,13 +293,7 @@ class SessionManagementService(
             .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
             .flatMap { runDir ->
                 storageService.listDialogueSessions(runDir.name).asSequence().map { session ->
-                    toSessionListItem(
-                        manifest = if (session["run_id"] != null) session else buildJsonObject {
-                            session.forEach { (key, value) -> put(key, value) }
-                            put("run_id", JsonPrimitive(runDir.name))
-                        },
-                        runTitle = runTitles[runDir.name].orEmpty(),
-                    )
+                    toSessionListItem(manifest = session, runTitle = runTitles[runDir.name].orEmpty())
                 }
             }
             .toList()

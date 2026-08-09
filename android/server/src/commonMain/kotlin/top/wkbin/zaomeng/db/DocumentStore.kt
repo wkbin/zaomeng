@@ -11,7 +11,7 @@ import top.wkbin.zaomeng.platform.runBlockingPlatform
 /**
  * 文档存储后端抽象：StorageService 的业务文件语义（文本/二进制、目录、递归删除、改名）。
  *
- * - [FileSystemDocumentStore]：原 JSON 文件行为（旧 :app 与测试兼容）。
+ * - [FileSystemDocumentStore]：原 JSON 文件行为（测试/开发用）。
  * - [RoomDocumentStore]：生产环境统一走 Room（SQLite）。
  */
 interface DocumentStore {

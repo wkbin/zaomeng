@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.ktor.services.DialogueAdvancedService
+import top.wkbin.zaomeng.ktor.services.withTranscriptCount
 
 /**
  * 对话高级功能路由
@@ -196,7 +197,7 @@ private suspend fun runRoute(
     block: suspend () -> JsonObject,
 ) {
     try {
-        call.respond(HttpStatusCode.OK, block())
+        call.respond(HttpStatusCode.OK, withTranscriptCount(block()))
     } catch (e: NoSuchElementException) {
         call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
     } catch (e: IllegalArgumentException) {

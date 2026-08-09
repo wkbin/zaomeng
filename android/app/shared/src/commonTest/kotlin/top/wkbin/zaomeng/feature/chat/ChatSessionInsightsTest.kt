@@ -151,12 +151,12 @@ class ChatSessionInsightsTest {
     }
 
     @Test
-    fun eventSignalsAcceptLegacyEventTypeAndSummaryFields() {
+    fun eventSignalsUseKindAndCueFields() {
         val payload = json.parseToJsonElement(
             """
             {
               "recent": [
-                {"event_type": "promise", "summary": "甲答应保守秘密"}
+                {"kind": "promise", "cue": "甲答应保守秘密"}
               ]
             }
             """.trimIndent(),

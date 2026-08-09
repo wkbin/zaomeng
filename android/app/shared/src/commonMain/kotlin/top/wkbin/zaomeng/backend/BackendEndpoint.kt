@@ -1,6 +1,6 @@
 package top.wkbin.zaomeng.backend
 
-/** 内嵌 Ktor 后端端点（shared 版，旧 :app 的 BackendManager.BackendEndpoint 退役后统一）。 */
+/** 内嵌 Ktor 后端端点（Android/桌面/iOS 统一）。 */
 data class BackendEndpoint(val baseUrl: String)
 
 /**

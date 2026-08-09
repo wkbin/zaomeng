@@ -2,7 +2,6 @@ package top.wkbin.zaomeng.feature.chat
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
 
 class ChatSendStateTest {
@@ -37,15 +36,4 @@ class ChatSendStateTest {
         assertEquals(emptyList<TranscriptItemDto>(), committedAppend(baseline.size, baseline))
     }
 
-    @Test
-    fun effectiveCountUsesServerCountWhenPresent() {
-        val lean = DialogueSessionDto(transcriptCount = 120)
-        assertEquals(120, effectiveTranscriptCount(lean))
-    }
-
-    @Test
-    fun effectiveCountFallsBackToLocalTranscriptSize() {
-        val full = DialogueSessionDto(transcript = baseline)
-        assertEquals(baseline.size, effectiveTranscriptCount(full))
-    }
 }

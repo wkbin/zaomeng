@@ -28,7 +28,7 @@ import top.wkbin.zaomeng.platform.toHex
  *
  * 管理运行数据的持久化访问，对应 Python 的 manifest/store.py。
  *
- * 生产环境统一走 Room（SQLite）文档存储；保留文件系统后端供测试与旧 :app 兼容。
+ * 生产环境统一走 Room（SQLite）文档存储；文件系统后端仅用于测试/开发。
  * 所有业务路径语义（目录、递归删除、改名、mtime/大小）由 [DocumentStore] 承载。
  */
 class StorageService(
@@ -36,7 +36,7 @@ class StorageService(
     private val store: DocumentStore,
     private val domain: DomainStore? = null,
 ) {
-    /** 兼容旧构造：文件系统后端（测试/旧 :app 使用）。 */
+    /** 测试/开发用的文件系统后端构造。 */
     constructor(storageRoot: Path, fs: FileSystem = FileSystem.SYSTEM) :
         this(storageRoot, FileSystemDocumentStore(fs), null)
 

@@ -1290,8 +1290,9 @@ internal fun JsonObject.eventSignalInsights(): List<EventSignalInsight> = object
     .takeLast(8)
     .asReversed()
     .mapNotNull { event ->
-        val kind = event.firstString("kind", "event_type")
-        val cue = event.firstString("cue", "summary", "title")
+        // 新格式：事件信号统一为 kind / cue（旧 event_type/summary 不再兼容）
+        val kind = event.stringValue("kind")
+        val cue = event.stringValue("cue")
         if (kind.isBlank() || cue.isBlank()) return@mapNotNull null
         val actor = event.stringValue("actor")
         val target = event.stringValue("target")

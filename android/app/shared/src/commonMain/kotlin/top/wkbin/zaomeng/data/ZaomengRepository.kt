@@ -82,6 +82,7 @@ import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
+import top.wkbin.zaomeng.data.api.toDialogueSessionDto
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldRequest
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldResponse
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
@@ -641,7 +642,7 @@ class ZaomengRepository(
             } else {
                 ktorSessions.listForRun(runId, offset = offset, limit = pageSize)
             }
-            items += page.items
+            items += page.items.map { it.toDialogueSessionDto() }
             if (!page.hasMore || page.items.isEmpty()) break
             offset += page.items.size
         }

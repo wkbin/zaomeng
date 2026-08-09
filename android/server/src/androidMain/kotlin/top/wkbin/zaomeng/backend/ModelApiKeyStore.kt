@@ -45,20 +45,6 @@ class ModelApiKeyStore(context: Context) : SecureKeyValueStore {
     }
 
     @Synchronized
-    fun importLegacyJson(payload: String) {
-        val document = runCatching { JSONObject(payload.ifBlank { "{}" }) }.getOrElse { JSONObject() }
-        preferences.edit {
-            document.keys().forEach { name ->
-                val value = document.optString(name).trim()
-                val preferenceName = preferenceName(name)
-                if (value.isNotEmpty() && !preferences.contains(preferenceName)) {
-                    putString(preferenceName, encrypt(value))
-                }
-            }
-        }
-    }
-
-    @Synchronized
     fun snapshotJson(): String {
         val document = JSONObject()
         preferences.all.forEach { (name, encrypted) ->
