@@ -37,7 +37,8 @@ jobs:
         shell: bash
         run: |
           ./gradlew :server:compileKotlinIosSimulatorArm64 :app:shared:compileKotlinIosSimulatorArm64 :app:shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace --console=plain > /tmp/gradle-ios.log 2>&1 || {
-            grep -n -B2 -A12 -E '^e: |^w: |What went wrong|Caused by:|FAILURE:|not found|[Cc]ould not|Exception|> Task .* FAILED|resolve' /tmp/gradle-ios.log | head -240 | sed 's/^/::error::/'
-            tail -60 /tmp/gradle-ios.log | sed 's/^/::error::tail /'
+            grep -n -A14 -E '^e: ' /tmp/gradle-ios.log | tail -100 | sed 's/^/::error::/'
+            grep -n -B4 -A20 -E 'KMP Dependencies|Compilation finished with errors|What went wrong' /tmp/gradle-ios.log | tail -120 | sed 's/^/::error::/'
+            tail -80 /tmp/gradle-ios.log | sed 's/^/::error::tail /'
             exit 1
           }
