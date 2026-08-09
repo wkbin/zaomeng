@@ -20,6 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -187,7 +191,8 @@ private fun ReadyBookshelf(
     modifier: Modifier = Modifier,
 ) {
     val visibleRuns = state.runs
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 380.dp),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = AppDimens.screenPadding,
@@ -196,16 +201,17 @@ private fun ReadyBookshelf(
             bottom = 104.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
     ) {
         val activeRuns = state.runs.filter { it.status == "running" }
         if (state.modelConfigured == false) {
-            item { ModelRequiredCard(onOpenSettings) }
+            item(span = { GridItemSpan(maxLineSpan) }) { ModelRequiredCard(onOpenSettings) }
         }
         if (state.modelConfigured == true) {
-            item { ActiveModelCard(state.activeModelLabel, onOpenSettings) }
+            item(span = { GridItemSpan(maxLineSpan) }) { ActiveModelCard(state.activeModelLabel, onOpenSettings) }
         }
         if (state.runs.count { it.betaFeature == null && it.availableCharacters.isNotEmpty() } >= 2) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenCrossover),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -224,7 +230,7 @@ private fun ReadyBookshelf(
             }
         }
         if (activeRuns.isNotEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ActiveDistillationTasksCard(
                     runs = activeRuns,
                     stopping = state.stoppingTasks,
@@ -233,7 +239,7 @@ private fun ReadyBookshelf(
             }
         }
         if (state.recoveredRuns.isNotEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 RecoveredDistillationCard(
                     runs = state.recoveredRuns,
                     resumingRunId = state.resumingRecoveredRunId,
@@ -244,7 +250,7 @@ private fun ReadyBookshelf(
         }
 
         if (state.error.isNotBlank()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ErrorCard(
                     message = state.error,
                     onRetry = onRefresh,
@@ -254,7 +260,7 @@ private fun ReadyBookshelf(
         }
 
         if (state.loadingRuns) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center,
@@ -267,7 +273,7 @@ private fun ReadyBookshelf(
                 }
             }
         } else if (state.runs.isEmpty()) {
-            item { EmptyBookshelf(onImport) }
+            item(span = { GridItemSpan(maxLineSpan) }) { EmptyBookshelf(onImport) }
         } else {
             items(visibleRuns, key = RunManifestDto::runId) { run ->
                 RunCard(run = run, onClick = { onOpenRun(run.runId) })
