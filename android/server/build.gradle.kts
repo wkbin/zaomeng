@@ -98,6 +98,5 @@ dependencies {
     if (isMacHost) {
         add("kspIosArm64", libs.androidx.room3.compiler)
         add("kspIosSimulatorArm64", libs.androidx.room3.compiler)
-        add("kspIosX64", libs.androidx.room3.compiler)
     }
 }
