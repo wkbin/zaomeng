@@ -44,4 +44,11 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
     val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins)
     val pluginOperations = PluginOperationsService(storage, plugins, pluginHost)
+
+    init {
+        // Distillation jobs are process-local coroutines. If the backend was restarted,
+        // a persisted "running" manifest no longer has a worker behind it; expose it as
+        // an interruptible run so the existing resume flow can recover it.
+        distillExecutor.markPersistedRunsInterrupted()
+    }
 }

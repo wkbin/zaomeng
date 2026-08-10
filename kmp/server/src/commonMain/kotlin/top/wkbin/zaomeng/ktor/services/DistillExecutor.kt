@@ -84,26 +84,55 @@ class DistillExecutor(
     fun start(runId: String, characters: List<String>) {
         val normalized = characters.map(String::trim).filter(String::isNotEmpty).distinct()
         if (normalized.isEmpty()) return
-        val alreadyRunning = runningLock.withLock {
+        val started = runningLock.withLock {
             if (running.containsKey(runId)) {
-                true
-            } else {
-                running[runId] = Job() // 占位，避免并发双启动
                 false
+            } else {
+                // Job 的创建和注册必须在同一把锁内完成。旧实现先注册 Job() 占位，
+                // 快速失败时 finally 可能先删掉占位，随后又把已完成 Job 放回 map，
+                // 导致该 run 永久被认为仍在运行。
+                running[runId] = scope.launch {
+                    try {
+                        execute(runId, normalized)
+                    } catch (e: Exception) {
+                        PlatformLog.e(TAG, "Distillation failed for run=$runId: ${e.message}", e)
+                        fail(runId, e.message ?: "蒸馏失败")
+                    } finally {
+                        runningLock.withLock { running.remove(runId) }
+                    }
+                }
+                true
             }
         }
-        if (alreadyRunning) return
-        val job = scope.launch {
-            try {
-                execute(runId, normalized)
-            } catch (e: Exception) {
-                PlatformLog.e(TAG, "Distillation failed for run=$runId: ${e.message}", e)
-                fail(runId, e.message ?: "蒸馏失败")
-            } finally {
-                runningLock.withLock { running.remove(runId) }
+        if (!started) return
+    }
+
+    /** 后端进程重启后，将失去内存协程的 running 任务转换为可恢复状态。 */
+    fun markPersistedRunsInterrupted(reason: String = "process_ended") {
+        val now = nowIsoString()
+        storage.listRunManifests().forEach { manifest ->
+            if (manifest["status"]?.jsonPrimitive?.contentOrNull != "running") return@forEach
+            val runId = manifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (runId.isBlank()) return@forEach
+            val updated = buildJsonObject {
+                manifest.forEach { (key, value) -> put(key, value) }
+                put("status", "stopped")
+                put("updated_at", now)
+                put("progress", buildJsonObject {
+                    manifest["progress"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+                    put("stage", "interrupted")
+                    put("message", "蒸馏进程已中断，可以继续恢复。")
+                    put("current_character", "")
+                })
+                put("control", buildJsonObject {
+                    manifest["control"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+                    put("stop_requested", false)
+                    put("interrupted_at", now)
+                    put("interruption_reason", reason)
+                })
             }
+            storage.writeRunManifest(runId, updated)
         }
-        runningLock.withLock { running[runId] = job }
     }
 
     /** 是否正在蒸馏。 */
@@ -954,7 +983,7 @@ class DistillExecutor(
 
     private fun resolveSourcePath(manifest: JsonObject, runDir: Path): String {
         manifest["novel_sources"]?.jsonArray
-            ?.firstOrNull()?.jsonObject?.get("source_path")?.jsonPrimitive?.contentOrNull
+            ?.lastOrNull()?.jsonObject?.get("source_path")?.jsonPrimitive?.contentOrNull
             ?.takeIf(String::isNotBlank)?.let { return it }
         val novelPath = manifest["novel_path"]?.jsonPrimitive?.contentOrNull
         if (!novelPath.isNullOrBlank() && storage.isFile(novelPath.toPath())) return novelPath

@@ -234,7 +234,7 @@ data class RunManifestDto(
     @SerialName("beta_feature") val betaFeature: BetaFeatureDto? = null,
 ) {
     val title: String
-        get() = novelSources.firstOrNull()?.sourceName
+        get() = novelSources.lastOrNull()?.sourceName
             ?.substringBeforeLast('.')
             ?.takeIf(String::isNotBlank)
             ?: novelName.ifBlank { novelId.ifBlank { runId } }
@@ -245,7 +245,7 @@ data class RunManifestDto(
     val isInterrupted: Boolean
         get() = status == "stopped" &&
             progress.stage == "interrupted" &&
-            control.interruptionReason == "android_process_ended"
+            control.interruptionReason in setOf("android_process_ended", "process_ended")
 
     val availableCharacters: List<String>
         get() = artifactIndex.characters.map(PersonaIndexDto::name).filter(String::isNotBlank)

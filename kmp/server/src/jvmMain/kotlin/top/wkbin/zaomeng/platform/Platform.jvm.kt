@@ -56,17 +56,38 @@ actual fun randomUuid(): String = UUID.randomUUID().toString()
 
 actual fun readZipEntries(bytes: ByteArray): List<ZipEntryData> {
     val entries = mutableListOf<ZipEntryData>()
+    var totalUncompressed = 0L
     ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
             if (!entry.isDirectory) {
-                entries += ZipEntryData(entry.name, zip.readBytes())
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(16 * 1024)
+                var entrySize = 0L
+                while (true) {
+                    val count = zip.read(buffer)
+                    if (count < 0) break
+                    entrySize += count
+                    totalUncompressed += count
+                    require(entrySize <= MAX_ZIP_ENTRY_BYTES) { "ZIP entry is too large" }
+                    require(totalUncompressed <= MAX_ZIP_TOTAL_BYTES) { "ZIP archive is too large" }
+                    output.write(buffer, 0, count)
+                }
+                val compressedSize = entry.compressedSize
+                if (compressedSize > 0 && entrySize > compressedSize * MAX_ZIP_COMPRESSION_RATIO) {
+                    throw IllegalArgumentException("ZIP compression ratio is too high")
+                }
+                entries += ZipEntryData(entry.name, output.toByteArray())
             }
             zip.closeEntry()
         }
     }
     return entries
 }
+
+private const val MAX_ZIP_ENTRY_BYTES = 64L * 1024 * 1024
+private const val MAX_ZIP_TOTAL_BYTES = 512L * 1024 * 1024
+private const val MAX_ZIP_COMPRESSION_RATIO = 200L
 
 actual fun writeZipEntries(entries: List<ZipEntryData>): ByteArray {
     val output = ByteArrayOutputStream()

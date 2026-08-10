@@ -60,17 +60,47 @@ class RunPackageService(private val storage: StorageService) {
 
     private fun extractSafely(bytes: ByteArray, root: Path) {
         storage.mkdirs(root)
+        require(bytes.size.toLong() <= MAX_PACKAGE_BYTES) { "archive is too large" }
         val entries = readZipEntries(bytes)
+        val files = HashSet<String>()
+        val directories = HashSet<String>()
         require(entries.size <= MAX_ENTRIES) { "书卷包文件数量超过限制。" }
         var totalBytes = 0L
         for (entry in entries) {
+            val name = normalizeArchiveEntryName(entry.name)
+            val key = name.lowercase()
+            require(files.add(key)) { "duplicate archive path" }
+            require(key !in directories) { "archive file/directory collision" }
+            var prefix = ""
+            name.split('/').dropLast(1).forEach { component ->
+                prefix = if (prefix.isEmpty()) component else "$prefix/$component"
+                val prefixKey = prefix.lowercase()
+                require(prefixKey !in files) { "archive file/directory collision" }
+                directories += prefixKey
+            }
             totalBytes += entry.content.size
             require(entry.content.size <= MAX_ENTRY_BYTES) { "书卷包解压大小超过限制。" }
             require(totalBytes <= MAX_TOTAL_BYTES) { "书卷包解压大小超过限制。" }
-            val target = resolveSafe(root, entry.name.replace('\\', '/'))
+            val target = resolveSafe(root, name)
             storage.mkdirs(target.parent!!)
             storage.writeBytes(target, entry.content)
         }
+    }
+
+    private fun normalizeArchiveEntryName(rawName: String): String {
+        val name = rawName.replace('\\', '/')
+        require(name.isNotBlank() && name.length <= MAX_PATH_LENGTH) { "invalid archive file name" }
+        require(!name.startsWith('/') && !WINDOWS_ABSOLUTE_PATH.matches(name)) { "absolute archive path" }
+        val components = name.split('/')
+        require(components.size <= MAX_PATH_DEPTH) { "archive path is too deep" }
+        components.forEach { component ->
+            require(component.isNotEmpty() && component != "." && component != "..") { "unsafe archive path" }
+            require(component.length <= MAX_COMPONENT_LENGTH) { "archive file name is too long" }
+            require(component.none { it == ':' || it.code < 0x20 }) { "invalid archive file name" }
+            val stem = component.substringBefore('.').uppercase()
+            require(stem !in WINDOWS_RESERVED_NAMES) { "reserved archive file name" }
+        }
+        return components.joinToString("/")
     }
 
     /** 路径穿越防护：归一化后必须仍在 root 内部。 */
@@ -114,7 +144,7 @@ class RunPackageService(private val storage: StorageService) {
         val packageFilename = filename.substringAfterLast('/').substringAfterLast('\\')
         return buildJsonObject {
             manifest.forEach { (key, value) ->
-                put(key, if (key == "run_id") JsonPrimitive(runId) else rewritePaths(value, sourceRoot, target.toString()))
+                put(key, if (key == "run_id") JsonPrimitive(runId) else rewritePaths(value, sourceRoot, target.toString(), key))
             }
             put("run_id", runId)
             put("created_at", importedAt)
@@ -155,13 +185,56 @@ class RunPackageService(private val storage: StorageService) {
         }
     }
 
-    private fun rewritePaths(value: JsonElement, sourceRoot: String, targetRoot: String): JsonElement = when (value) {
-        is JsonObject -> JsonObject(value.mapValues { rewritePaths(it.value, sourceRoot, targetRoot) })
-        is JsonArray -> JsonArray(value.map { rewritePaths(it, sourceRoot, targetRoot) })
-        is JsonPrimitive -> if (value.isString && sourceRoot.isNotBlank() && value.contentOrNull.orEmpty().startsWith(sourceRoot)) {
-            JsonPrimitive(targetRoot + value.contentOrNull.orEmpty().removePrefix(sourceRoot).replace('\\', '/'))
+    private fun rewritePaths(
+        value: JsonElement,
+        sourceRoot: String,
+        targetRoot: String,
+        fieldName: String = "",
+    ): JsonElement = when (value) {
+        is JsonObject -> JsonObject(value.mapValues { (key, item) -> rewritePaths(item, sourceRoot, targetRoot, key) })
+        is JsonArray -> JsonArray(value.map { rewritePaths(it, sourceRoot, targetRoot, fieldName) })
+        is JsonPrimitive -> if (value.isString && isManifestPathField(fieldName)) {
+            JsonPrimitive(rewriteManifestPath(value.contentOrNull.orEmpty(), sourceRoot, targetRoot, fieldName))
+        } else if (value.isString && sourceRoot.isNotBlank() && isPathWithin(value.contentOrNull.orEmpty(), sourceRoot)) {
+            val path = value.contentOrNull.orEmpty().replace('\\', '/')
+            val root = sourceRoot.replace('\\', '/').trimEnd('/')
+            JsonPrimitive(joinTargetRoot(targetRoot, path.removeRange(0, root.length).trimStart('/')))
         } else value
     }
+
+    private fun rewriteManifestPath(value: String, sourceRoot: String, targetRoot: String, fieldName: String): String {
+        if (value.isBlank()) return value
+        val normalized = value.replace('\\', '/')
+        val source = sourceRoot.replace('\\', '/').trimEnd('/')
+        return when {
+            source.isNotBlank() && isPathWithin(normalized, source) ->
+                joinTargetRoot(targetRoot, normalized.removeRange(0, source.length).trimStart('/'))
+            isAbsolutePath(normalized) ->
+                throw IllegalArgumentException("Manifest $fieldName points outside the imported package")
+            else -> {
+                val components = normalized.split('/')
+                require(components.none { it.isEmpty() || it == "." || it == ".." }) {
+                    "Manifest $fieldName contains an unsafe relative path"
+                }
+                joinTargetRoot(targetRoot, normalized)
+            }
+        }
+    }
+
+    private fun isManifestPathField(fieldName: String): Boolean =
+        fieldName.endsWith("_path") || fieldName.endsWith("_file") || fieldName.endsWith("_dir")
+
+    private fun isAbsolutePath(value: String): Boolean =
+        value.startsWith('/') || WINDOWS_ABSOLUTE_PATH.matches(value)
+
+    private fun isPathWithin(value: String, root: String): Boolean {
+        val normalizedValue = value.replace('\\', '/').trimEnd('/').lowercase()
+        val normalizedRoot = root.replace('\\', '/').trimEnd('/').lowercase()
+        return normalizedValue == normalizedRoot || normalizedValue.startsWith("$normalizedRoot/")
+    }
+
+    private fun joinTargetRoot(targetRoot: String, relative: String): String =
+        targetRoot.trimEnd('/', '\\') + if (relative.isBlank()) "" else "/${relative.trimStart('/')}"
 
     private fun rewriteSessionRunIds(target: Path, runId: String) {
         storage.listFiles(target / "dialogue/sessions").filter { storage.isDirectory(it) }.forEach { directory ->
@@ -179,5 +252,15 @@ class RunPackageService(private val storage: StorageService) {
         const val MAX_ENTRIES = 10_000
         const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
         const val MAX_TOTAL_BYTES = 512L * 1024 * 1024
+        const val MAX_PACKAGE_BYTES = 128L * 1024 * 1024
+        const val MAX_PATH_LENGTH = 1024
+        const val MAX_PATH_DEPTH = 32
+        const val MAX_COMPONENT_LENGTH = 255
+        val WINDOWS_ABSOLUTE_PATH = Regex("^[A-Za-z]:/")
+        val WINDOWS_RESERVED_NAMES = setOf(
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        )
     }
 }

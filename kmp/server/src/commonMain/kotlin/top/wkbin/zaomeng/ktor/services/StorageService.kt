@@ -73,10 +73,14 @@ class StorageService(
     /** 字节版原子写入（避免大文件先解码成 String 再回写）。 */
     fun writeBytesAtomically(target: Path, bytes: ByteArray) {
         lockFor(target).withLock {
-            val mtime = nowEpochMillis()
-            store.writeBytes(target, bytes, mtime)
-            domain?.onWrite(target, bytes, mtime)
+            writeBytesLocked(target, bytes)
         }
+    }
+
+    private fun writeBytesLocked(target: Path, bytes: ByteArray) {
+        val mtime = nowEpochMillis()
+        store.writeBytes(target, bytes, mtime)
+        domain?.onWrite(target, bytes, mtime)
     }
 
     /** 读取文本文件；不存在返回 null。 */
@@ -110,8 +114,10 @@ class StorageService(
 
     /** 追加文本（创建文件或续写；对齐 File.appendText）。 */
     fun appendText(path: Path, content: String) {
-        val existing = store.readBytes(path) ?: ByteArray(0)
-        writeBytesAtomically(path, existing + content.encodeToByteArray())
+        lockFor(path).withLock {
+            val existing = store.readBytes(path) ?: ByteArray(0)
+            writeBytesLocked(path, existing + content.encodeToByteArray())
+        }
     }
 
     fun mkdirs(path: Path) {
