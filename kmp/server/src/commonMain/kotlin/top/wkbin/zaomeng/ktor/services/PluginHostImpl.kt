@@ -73,6 +73,7 @@ class PluginHostImpl(
             ),
             temperature = 0.9,
             maxTokens = 600,
+            requireJsonObject = true,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (content.isBlank()) throw IllegalArgumentException("临时 NPC 生成失败：模型返回为空。")
         val element = runCatching {

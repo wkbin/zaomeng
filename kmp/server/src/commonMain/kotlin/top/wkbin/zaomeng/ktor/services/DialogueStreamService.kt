@@ -6,6 +6,7 @@ import top.wkbin.zaomeng.ktor.models.DialogueResponse
 import top.wkbin.zaomeng.ktor.utils.DialogueStreamParser
 import top.wkbin.zaomeng.ktor.utils.StreamEvent
 import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.randomUuid
 
 /**
@@ -45,11 +46,13 @@ class DialogueStreamService(
         suppressTranscriptMessage: Boolean = false,
         includeModelReasoning: Boolean = false,
     ): Flow<StreamEvent> = flow {
+        val startedAt = nowEpochMillis()
         PlatformLog.d(TAG, "Starting streaming dialogue reply: run=$runId, session=$sessionId")
 
         // 1. 加载模型设置
         val modelSettings = storageService.loadModelSettings()
         val modelName = modelSettings["model"] as? String ?: "gpt-4"
+        val settingsLoadedAt = nowEpochMillis()
 
         // 2. 构建提示词（对齐 Python build_dialogue_llm_messages 完整管道）
         val payloadBuilder = DialoguePayloadBuilder(storageService)
@@ -57,6 +60,7 @@ class DialogueStreamService(
         val runManifest = storageService.readRunManifest(runId)
             ?: throw NoSuchElementException("Run not found: $runId")
         val sessionManifestJson = storageService.loadSessionManifest(runId, sessionId)
+        val manifestsLoadedAt = nowEpochMillis()
         val turnId = operationId.ifBlank { randomUuid() }
         val payload = payloadBuilder.buildTurnPayload(
             runManifest = runManifest,
@@ -66,20 +70,28 @@ class DialogueStreamService(
             messageKind = messageKind,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
         )
+        val payloadBuiltAt = nowEpochMillis()
 
         // 3. 构建对话历史
         val conversationHistory = promptBuilder.buildDialogueLlmMessages(
             payload = payload,
             retryOnEmpty = false,
         )
+        val promptBuiltAt = nowEpochMillis()
+        val promptChars = conversationHistory.sumOf { it.content?.length ?: 0 }
 
         // 4. 计算 max_tokens（对齐 Python：推理模型 reasoning_content 计入预算，默认至少 8192）
         val responseLimit = ((payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() }
             ?.get("response_limit_hint") as? Number)?.toInt() ?: 0
-        val maxTokens = DialogueService.resolveDialogueMaxTokens(responseLimit)
+        val maxTokens = DialogueService.resolveDialogueMaxTokens(
+            responseLimitHint = responseLimit,
+            reasoningEffort = modelSettings["reasoning_effort"] as? String ?: "auto",
+        )
 
         // 5. 创建流式解析器（密钥由 LlmClient 从活动模型配置与 Keystore 解析，无需在此获取）
         val parser = DialogueStreamParser(chunkSize = 24)
+        val modelStartedAt = nowEpochMillis()
+        var firstContentAt: Long? = null
 
         // 6. 调用 LLM 流式 API
         try {
@@ -91,6 +103,7 @@ class DialogueStreamService(
                 // 请求参数（thinking / reasoning_effort）由模型设置的 reasoning_effort 决定（对齐 Python _apply_reasoning_controls）；
                 // enableReasoning 仅控制下方 onReasoning 是否把推理过程透传为 model_reasoning delta，不影响模型是否思考
                 enableReasoning = includeModelReasoning,
+                requireJsonObject = false,
                 onReasoning = { reasoning ->
                     // 推理过程透传为 model_reasoning delta（对齐 Python on_reasoning → SSE model_reasoning）
                     if (includeModelReasoning) {
@@ -98,8 +111,18 @@ class DialogueStreamService(
                     }
                 },
             ).collect { contentDelta ->
+                if (firstContentAt == null) {
+                    val firstAt = nowEpochMillis()
+                    firstContentAt = firstAt
+                    PlatformLog.d(
+                        TAG,
+                        "Dialogue first content: preprocess_ms=${modelStartedAt - startedAt}, " +
+                            "ttft_ms=${firstAt - modelStartedAt}, prompt_chars=$promptChars",
+                    )
+                }
                 parser.feed(contentDelta).forEach { emit(it) }
             }
+            val firstModelCompletedAt = nowEpochMillis()
 
             // 7. 流结束：从完整输出解析 responses 并提交 turn（对齐 Python generate_and_commit）
             val full = parser.fullContent()
@@ -116,24 +139,73 @@ class DialogueStreamService(
             try {
                 responses = DialogueResponseParser.parse(full, participants, forbidden)
             } catch (e: IllegalArgumentException) {
-                PlatformLog.e(
-                    TAG,
-                    "Streaming reply parse failed (attempt 1/2): ${e.message}" +
-                        "\n--- full output (first 800 chars) ---\n${full.take(800)}" +
-                        "\n--- participants: $participants / forbidden: $forbidden ---",
+                val plainTextFallback = DialogueResponseParser.parseSingleSpeakerPlainText(
+                    full,
+                    participants,
+                    forbidden,
                 )
-                val retryHistory = promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true)
-                val retryMaxTokens = minOf(maxTokens * 2, DialogueService.DIALOGUE_RESPONSE_MAX_MAX_TOKENS)
-                val retryReply = llmClient.chatCompletion(
-                    messages = retryHistory,
-                    model = modelName,
-                    temperature = 0.7,
-                    maxTokens = retryMaxTokens,
-                )
-                val retryFull = retryReply.choices.firstOrNull()?.message?.content?.trim().orEmpty()
-                PlatformLog.d(TAG, "Streaming reply retry (attempt 2/2) returned: ${retryFull.take(200)}")
-                responses = DialogueResponseParser.parse(retryFull, participants, forbidden)
+                if (plainTextFallback != null) {
+                    responses = plainTextFallback
+                    PlatformLog.w(
+                        TAG,
+                        "Streaming reply used single-speaker plain-text fallback after format error: ${e.message}",
+                    )
+                } else {
+                    PlatformLog.e(
+                        TAG,
+                        "Streaming reply parse failed (attempt 1/2): ${e.message}" +
+                            "\n--- full output (first 800 chars) ---\n${full.take(800)}" +
+                            "\n--- participants: $participants / forbidden: $forbidden ---",
+                    )
+                    val retryHistory = promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true)
+                    val retryMaxTokens = minOf(maxTokens * 2, DialogueService.DIALOGUE_RESPONSE_MAX_MAX_TOKENS)
+                    emit(
+                        StreamEvent(
+                            index = 0,
+                            speaker = "",
+                            role = "status",
+                            field = "message",
+                            text = "正在重新整理回复…",
+                            kind = "reset",
+                        ),
+                    )
+                    val retryParser = DialogueStreamParser(chunkSize = 24)
+                    val retryStartedAt = nowEpochMillis()
+                    var retryFirstContentAt: Long? = null
+                    llmClient.chatCompletionStream(
+                        messages = retryHistory,
+                        model = modelName,
+                        temperature = 0.7,
+                        maxTokens = retryMaxTokens,
+                        enableReasoning = includeModelReasoning,
+                        requireJsonObject = false,
+                        onReasoning = { reasoning ->
+                            if (includeModelReasoning) {
+                                emit(
+                                    StreamEvent(
+                                        index = 0,
+                                        speaker = "",
+                                        role = "reasoning",
+                                        field = "model_reasoning",
+                                        text = reasoning,
+                                    ),
+                                )
+                            }
+                        },
+                    ).collect { contentDelta ->
+                        if (retryFirstContentAt == null) retryFirstContentAt = nowEpochMillis()
+                        retryParser.feed(contentDelta).forEach { emit(it) }
+                    }
+                    val retryFull = retryParser.fullContent().trim()
+                    PlatformLog.d(
+                        TAG,
+                        "Streaming reply retry (attempt 2/2) returned in ${nowEpochMillis() - retryStartedAt}ms " +
+                            "(ttft_ms=${retryFirstContentAt?.minus(retryStartedAt) ?: -1}): ${retryFull.take(200)}",
+                    )
+                    responses = DialogueResponseParser.parse(retryFull, participants, forbidden)
+                }
             }
+            val parsedAt = nowEpochMillis()
             dialogue.commitTurn(
                 runId = runId,
                 sessionId = sessionId,
@@ -144,9 +216,17 @@ class DialogueStreamService(
                 suppressTranscriptMessage = suppressTranscriptMessage,
                 existingSession = sessionManifestJson,
             )
-            PlatformLog.d(TAG, "Streaming dialogue reply completed and committed")
+            val committedAt = nowEpochMillis()
+            PlatformLog.d(
+                TAG,
+                "Streaming dialogue reply completed and committed: total_ms=${committedAt - startedAt}, " +
+                    "settings_ms=${settingsLoadedAt - startedAt}, manifests_ms=${manifestsLoadedAt - settingsLoadedAt}, " +
+                    "payload_ms=${payloadBuiltAt - manifestsLoadedAt}, prompt_ms=${promptBuiltAt - payloadBuiltAt}, " +
+                    "first_model_ms=${firstModelCompletedAt - modelStartedAt}, parse_retry_ms=${parsedAt - firstModelCompletedAt}, " +
+                    "commit_ms=${committedAt - parsedAt}, prompt_chars=$promptChars",
+            )
         } catch (e: Exception) {
-            PlatformLog.e(TAG, "Error during streaming dialogue reply", e)
+            PlatformLog.e(TAG, "Error during streaming dialogue reply after ${nowEpochMillis() - startedAt}ms", e)
             throw e
         }
     }

@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okio.Path
+import okio.ByteString.Companion.toByteString
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.base64Decode
 import top.wkbin.zaomeng.platform.base64Encode
@@ -352,8 +353,25 @@ class RunOperationsService(
             val bytes = runCatching { base64Decode(novelContentBase64) }
                 .getOrElse { throw IllegalArgumentException("小说内容 Base64 无效。") }
             val safeName = PathSafety.sanitizePathComponent(novelName.ifBlank { "redistill-source.txt" }, "novelName")
-            val sourceFile = runDir / "redistill-sources/$safeName"
-            storage.writeBytesAtomically(sourceFile, bytes)
+            val existingPaths = buildList {
+                manifest["novel_sources"]?.jsonArray?.forEach { source ->
+                    source.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull
+                        ?.takeIf(String::isNotBlank)?.let { add(it.toPath()) }
+                }
+                manifest["novel_path"]?.jsonPrimitive?.contentOrNull
+                    ?.takeIf(String::isNotBlank)?.let { add(it.toPath()) }
+                add(runDir / "novel.txt")
+            }.distinct()
+            val sourceFile = existingPaths.firstOrNull { candidate ->
+                storage.isFile(candidate) && storage.fileSize(candidate) == bytes.size.toLong() &&
+                    runCatching { storage.readBytes(candidate).contentEquals(bytes) }.getOrDefault(false)
+            } ?: run {
+                val digest = bytes.toByteString().sha256().hex()
+                val extension = safeName.substringAfterLast('.', "txt").take(12)
+                val contentAddressed = runDir / "redistill-sources/$digest.$extension"
+                if (!storage.isFile(contentAddressed)) storage.writeBytesAtomically(contentAddressed, bytes)
+                contentAddressed
+            }
             val sourceText = bytes.decodeToString()
             buildJsonObject {
                 put("source_name", safeName)
@@ -368,7 +386,12 @@ class RunOperationsService(
         }
 
         val existingSources = manifest["novel_sources"]?.jsonArray?.toMutableList() ?: mutableListOf()
-        novelSource?.let { existingSources.add(it) }
+        novelSource?.let { source ->
+            val sourcePath = source.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull
+            val latestPath = existingSources.lastOrNull()?.jsonObject
+                ?.get("source_path")?.jsonPrimitive?.contentOrNull
+            if (sourcePath != latestPath) existingSources.add(source)
+        }
 
         val updated = buildJsonObject {
             manifest.forEach { (key, value) -> put(key, value) }

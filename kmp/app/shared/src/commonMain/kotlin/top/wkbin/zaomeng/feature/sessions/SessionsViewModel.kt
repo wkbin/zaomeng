@@ -349,9 +349,13 @@ class SessionsViewModel(
             val selected = current.draft.participants.toMutableSet().apply {
                 if (!add(character)) remove(character)
             }
-            val controlled = current.draft.controlledCharacter
-                .takeIf { it in selected }
-                ?: selected.firstOrNull().orEmpty()
+            val controlled = if (current.draft.mode == "act") {
+                current.draft.controlledCharacter
+                    .takeIf { it in selected }
+                    ?: selected.firstOrNull().orEmpty()
+            } else {
+                ""
+            }
             current.copy(
                 draft = current.draft.copy(
                     participants = selected,
@@ -557,7 +561,7 @@ class SessionsViewModel(
                     runId = draft.runId,
                     mode = draft.mode,
                     participants = draft.participants.toList(),
-                    controlledCharacter = draft.controlledCharacter,
+                    controlledCharacter = draft.controlledCharacter.takeIf { draft.mode == "act" }.orEmpty(),
                     selfName = draft.selfName.trim(),
                     selfIdentity = draft.selfIdentity.trim(),
                     selfStyle = draft.selfStyle.trim(),

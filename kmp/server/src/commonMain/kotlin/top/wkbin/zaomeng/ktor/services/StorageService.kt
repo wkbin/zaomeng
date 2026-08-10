@@ -12,6 +12,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import okio.ByteString.Companion.toByteString
 import okio.FileSystem
@@ -46,6 +47,13 @@ class StorageService(
      * 固定 64 路，避免全局锁串行化与无界锁表增长。
      */
     private val writeLocks = Array(64) { SimpleLock() }
+    private data class CachedJsonDocument(
+        val modifiedAt: Long,
+        val size: Long,
+        val value: JsonObject,
+    )
+    private val sessionManifestCache = HashMap<String, CachedJsonDocument>()
+    private val sessionManifestCacheLock = SimpleLock()
 
     private fun lockFor(target: Path): SimpleLock {
         val path = target.toString()
@@ -81,6 +89,7 @@ class StorageService(
         val mtime = nowEpochMillis()
         store.writeBytes(target, bytes, mtime)
         domain?.onWrite(target, bytes, mtime)
+        sessionManifestCacheLock.withLock { sessionManifestCache.remove(target.toString()) }
     }
 
     /** 读取文本文件；不存在返回 null。 */
@@ -127,11 +136,16 @@ class StorageService(
     fun deleteFile(path: Path) {
         store.deleteFile(path)
         domain?.onDelete(path)
+        sessionManifestCacheLock.withLock { sessionManifestCache.remove(path.toString()) }
     }
 
     fun deleteRecursively(path: Path) {
         store.deleteRecursively(path)
         domain?.onDelete(path)
+        val prefix = path.toString().trimEnd('/') + "/"
+        sessionManifestCacheLock.withLock {
+            sessionManifestCache.keys.removeAll { it == path.toString() || it.startsWith(prefix) }
+        }
     }
 
     fun listFiles(path: Path): List<Path> = store.listFiles(path)
@@ -140,7 +154,16 @@ class StorageService(
 
     fun fileSize(path: Path): Long = store.fileSize(path)
 
-    fun rename(source: Path, target: Path): Boolean = store.rename(source, target)
+    fun rename(source: Path, target: Path): Boolean {
+        val renamed = store.rename(source, target)
+        if (renamed) {
+            sessionManifestCacheLock.withLock {
+                sessionManifestCache.remove(source.toString())
+                sessionManifestCache.remove(target.toString())
+            }
+        }
+        return renamed
+    }
 
     /**
      * 获取运行目录
@@ -242,6 +265,82 @@ class StorageService(
         return getDialogueSessionsDirectory(runId) / "$sessionId/session_manifest.json"
     }
 
+    private fun getTranscriptArchiveDirectory(runId: String, sessionId: String): Path {
+        PathSafety.validateStorageId(sessionId, "session_id")
+        return getDialogueSessionsDirectory(runId) / "$sessionId/transcript-archive"
+    }
+
+    data class CompactedTranscript(
+        val recent: JsonArray,
+        val startIndex: Int,
+        val totalCount: Int,
+    )
+
+    /**
+     * Keep the generation manifest bounded. Older entries are moved in batches so
+     * the archive is not rewritten on every turn.
+     */
+    fun compactSessionTranscript(
+        runId: String,
+        sessionId: String,
+        manifest: JsonObject,
+        combined: JsonArray,
+    ): CompactedTranscript {
+        var startIndex = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        val archiveDir = getTranscriptArchiveDirectory(runId, sessionId)
+
+        // A full materialized session may have been saved by an edit/correction path.
+        // Its stale archive is no longer authoritative and will be rebuilt if needed.
+        if (startIndex == 0 && exists(archiveDir)) {
+            deleteRecursively(archiveDir)
+        }
+
+        var recent = combined
+        if (recent.size > TRANSCRIPT_ROLLOVER_THRESHOLD) {
+            val archiveCount = recent.size - TRANSCRIPT_RECENT_TARGET
+            val archived = JsonArray(recent.take(archiveCount))
+            mkdirs(archiveDir)
+            val chunkFile = archiveDir / "${startIndex.toString().padStart(10, '0')}.json"
+            writeTextAtomically(chunkFile, json.encodeToString(JsonArray.serializer(), archived))
+            startIndex += archived.size
+            recent = JsonArray(recent.drop(archiveCount))
+        }
+        return CompactedTranscript(
+            recent = recent,
+            startIndex = startIndex,
+            totalCount = startIndex + recent.size,
+        )
+    }
+
+    private fun materializeSessionTranscript(runId: String, sessionId: String, manifest: JsonObject): JsonObject {
+        val startIndex = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        if (startIndex == 0) return manifest
+        val archived = buildList {
+            val archiveDir = getTranscriptArchiveDirectory(runId, sessionId)
+            if (isDirectory(archiveDir)) {
+                listFiles(archiveDir)
+                    .filter { isFile(it) && it.name.endsWith(".json") }
+                    .sortedBy { it.name }
+                    .forEach { file ->
+                        val items = readTextOrNull(file)?.let { raw ->
+                            runCatching { json.decodeFromString(JsonArray.serializer(), raw) }.getOrNull()
+                        }
+                        if (items != null) addAll(items)
+                    }
+            }
+        }
+        val recent = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
+        val full = JsonArray(archived + recent)
+        return buildJsonObject {
+            manifest.forEach { (key, value) ->
+                if (key !in setOf("transcript", "transcript_start", "transcript_count")) put(key, value)
+            }
+            put("transcript", full)
+            put("transcript_start", 0)
+            put("transcript_count", full.size)
+        }
+    }
+
     /**
      * 列出对话会话 ID
      */
@@ -264,14 +363,37 @@ class StorageService(
      */
     fun loadSessionManifest(runId: String, sessionId: String): JsonObject {
         val manifestFile = getDialogueSessionManifestFile(runId, sessionId)
+        val modifiedAt = store.updatedAtMillis(manifestFile)
+            ?: throw NoSuchElementException("Session manifest not found: $sessionId")
+        val size = store.fileSize(manifestFile)
+        val cacheKey = manifestFile.toString()
+        val cached = sessionManifestCacheLock.withLock {
+            sessionManifestCache[cacheKey]
+                ?.takeIf { it.modifiedAt == modifiedAt && it.size == size }
+                ?.value
+        }
+        if (cached != null) return cached
         val content = readTextOrNull(manifestFile)
             ?: throw NoSuchElementException("Session manifest not found: $sessionId")
 
         return try {
-            json.decodeFromString(JsonObject.serializer(), content)
+            json.decodeFromString(JsonObject.serializer(), content).also { parsed ->
+                sessionManifestCacheLock.withLock {
+                    sessionManifestCache[cacheKey] = CachedJsonDocument(modifiedAt, size, parsed)
+                    while (sessionManifestCache.size > MAX_CACHED_SESSION_MANIFESTS) {
+                        sessionManifestCache.remove(sessionManifestCache.keys.first())
+                    }
+                }
+            }
         } catch (e: Exception) {
             throw IllegalStateException("Failed to load session manifest: ${e.message}", e)
         }
+    }
+
+    private companion object {
+        private const val MAX_CACHED_SESSION_MANIFESTS = 32
+        private const val TRANSCRIPT_RECENT_TARGET = 80
+        private const val TRANSCRIPT_ROLLOVER_THRESHOLD = 120
     }
 
     /**
@@ -365,6 +487,7 @@ class StorageService(
                 profile.provider?.let { put("provider", it) }
                 profile.model?.let { put("model", it) }
                 profile.baseUrl?.let { put("base_url", it) }
+                profile.reasoningEffort?.let { put("reasoning_effort", it) }
             }
         }
     }
@@ -406,7 +529,7 @@ class StorageService(
             ?: throw NoSuchElementException("Session manifest not found: $sessionId")
 
         val decoded = json.decodeFromString(JsonObject.serializer(), content)
-        return withCharacterAvatars(decoded, runId)
+        return withCharacterAvatars(materializeSessionTranscript(runId, sessionId, decoded), runId)
     }
 
     // ------------------------------------------------------------------

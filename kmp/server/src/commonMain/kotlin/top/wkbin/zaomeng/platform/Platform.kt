@@ -67,6 +67,23 @@ expect val platformIoDispatcher: CoroutineDispatcher
 /** 平台 HTTP 客户端引擎（Android/JVM 均用 OkHttp）。 */
 expect fun createHttpClientEngine(): HttpClientEngine
 
+/** A response body that remains incremental instead of being buffered until EOF. */
+interface PlatformStreamingResponse {
+    val statusCode: Int
+    val statusDescription: String
+
+    suspend fun readUtf8Line(): String?
+    suspend fun readRemainingText(): String
+    fun close()
+}
+
+/** Open a POST request whose response body must be consumed as bytes arrive. */
+expect suspend fun openStreamingHttpPost(
+    url: String,
+    headers: Map<String, String>,
+    body: String,
+): PlatformStreamingResponse
+
 /** 平台阻塞桥接（JVM/Android 用 runBlocking；Room DAO 为 suspend，服务层保持同步语义）。 */
 expect fun <T> runBlockingPlatform(block: suspend kotlinx.coroutines.CoroutineScope.() -> T): T
 

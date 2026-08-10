@@ -127,7 +127,8 @@ class SuggestionsService(
                 messages = messages,
                 model = modelName,
                 temperature = 0.9,
-                maxTokens = 1024
+                maxTokens = 1024,
+                requireJsonObject = true,
             )
 
             // 7. 解析响应

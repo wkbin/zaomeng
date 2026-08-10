@@ -149,7 +149,8 @@ class CardsService(
                 LlmClient.ChatMessage("user", instruction)
             ),
             temperature = 0.9,
-            maxTokens = 2200
+            maxTokens = 2200,
+            requireJsonObject = true,
         )
         val content = response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (content.isBlank()) throw IllegalStateException("LLM returned empty card")

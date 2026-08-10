@@ -2,7 +2,6 @@ package top.wkbin.zaomeng.data
 
 import okio.Path.Companion.toPath
 import okio.Path
-import kotlin.time.TimeSource
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.backend.BackendController
 import top.wkbin.zaomeng.backend.SecureStoreNames
@@ -680,7 +679,7 @@ class ZaomengRepository(
         val payload = CreateDialogueSessionRequest(
                 mode = mode,
                 participants = participants,
-                controlledCharacter = controlledCharacter,
+                controlledCharacter = controlledCharacter.takeIf { mode == "act" }.orEmpty(),
                 sceneCardId = sceneCardId,
                 sceneProfile = sceneProfile,
                 selfCardId = selfCardId,
@@ -781,8 +780,6 @@ class ZaomengRepository(
                             dataLines.clear()
                             eventName = "message"
                             if (event != null) {
-                                val text = (event as? DialogueStreamEvent.Delta)?.text
-                                PlatformLog.d("ZaomengRepository", "emit@${TimeSource.Monotonic.markNow().elapsedNow().inWholeMilliseconds} ${text?.take(20)}")
                                 emit(event)
                                 terminalReceived = event is DialogueStreamEvent.Complete ||
                                     event is DialogueStreamEvent.Failure
@@ -866,7 +863,8 @@ class ZaomengRepository(
                             }
                         }
                         .orEmpty(),
-                    transcriptCount = payload["transcript_count"]?.jsonPrimitive?.intOrNull ?: 0,
+                    transcriptCount = payload["transcript_count"]?.jsonPrimitive?.intOrNull
+                        ?: decodedSession.transcriptCount,
                 )
             }
             "error" -> DialogueStreamEvent.Failure(

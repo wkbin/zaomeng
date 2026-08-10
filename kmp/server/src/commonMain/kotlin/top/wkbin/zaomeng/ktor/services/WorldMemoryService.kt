@@ -177,14 +177,29 @@ class WorldMemoryService(private val storage: StorageService) {
             }
 
             knowledgeLedger.forEach { rawSecret ->
-                val summary = (rawSecret["secret"] ?: rawSecret["summary"])?.jsonPrimitive?.contentOrNull
+                val summary = (rawSecret["secret"] ?: rawSecret["summary"] ?: rawSecret["fact"])?.jsonPrimitive?.contentOrNull
                     ?.trim()?.take(500).orEmpty()
                 if (summary.isEmpty()) return@forEach
                 val sourceKey = "knowledge:${summary.lowercase()}"
-                if (sourceKey in bySourceKey) return@forEach
-                val knowers = (rawSecret["knowers"]?.jsonArray ?: JsonArray(emptyList()))
+                val knowers = ((rawSecret["knowers"] ?: rawSecret["holders"])?.jsonArray ?: JsonArray(emptyList()))
                     .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
                     .map(String::trim).filter(String::isNotBlank).distinct()
+                val existingIndex = bySourceKey[sourceKey]
+                if (existingIndex != null) {
+                    val existing = facts[existingIndex].jsonObject
+                    val locked = existing["locked"]?.jsonPrimitive?.contentOrNull == "true" ||
+                        existing["locked"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == true
+                    if (!locked) {
+                        facts[existingIndex] = buildJsonObject {
+                            existing.forEach { (key, value) -> put(key, value) }
+                            put("summary", summary)
+                            put("characters", buildJsonArray { knowers.forEach { add(JsonPrimitive(it)) } })
+                            put("active", true)
+                            put("updated_at", now)
+                        }
+                    }
+                    return@forEach
+                }
                 facts.add(buildJsonObject {
                     put("fact_id", "fact-" + randomUuid().replace("-", "").take(12))
                     put("category", "secret")

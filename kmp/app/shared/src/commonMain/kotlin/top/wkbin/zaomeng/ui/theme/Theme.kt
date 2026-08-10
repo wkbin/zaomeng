@@ -20,7 +20,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun MyApplicationTheme(
+fun ZaomengTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     dynamicColorEnabled: Boolean = false,
     themeSeedColorArgb: Long = 0L,

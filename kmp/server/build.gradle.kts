@@ -58,11 +58,13 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.snakeyaml.engine.kmp)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.okhttp)
             implementation(libs.kotlinx.coroutines.android)
         }
         jvmMain.dependencies {
             implementation(libs.snakeyaml)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.okhttp)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test.junit)

@@ -50,6 +50,9 @@ interface DomainDao {
     @Query("DELETE FROM messages WHERE runId = :runId AND sessionId = :sessionId")
     suspend fun deleteMessagesOf(runId: String, sessionId: String)
 
+    @Query("DELETE FROM messages WHERE runId = :runId AND sessionId = :sessionId AND seq >= :startSeq")
+    suspend fun deleteMessagesFrom(runId: String, sessionId: String, startSeq: Int)
+
     @Query("DELETE FROM messages WHERE runId = :runId")
     suspend fun deleteMessagesOfRun(runId: String)
 

@@ -45,6 +45,7 @@ class DialogueAdvancedService(
         isLenient = true
         ignoreUnknownKeys = true
     }
+    private val longTermMemory = LongTermMemoryService(storage)
 
     // ------------------------------------------------------------------
     // 只读操作
@@ -459,11 +460,15 @@ class DialogueAdvancedService(
         val messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = true)
         val responseLimit = ((payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() }
             ?.get("response_limit_hint") as? Number)?.toInt() ?: 2
-        val maxTokens = DialogueService.resolveDialogueMaxTokens(responseLimit)
+        val maxTokens = DialogueService.resolveDialogueMaxTokens(
+            responseLimitHint = responseLimit,
+            reasoningEffort = storage.loadModelSettings()["reasoning_effort"] as? String ?: "auto",
+        )
         val corrected = client.chatCompletion(
             messages = messages,
             temperature = 0.7,
             maxTokens = maxTokens,
+            requireJsonObject = true,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (corrected.isBlank()) throw IllegalStateException("修正结果为空")
         val forbidden = listOf(
@@ -516,9 +521,20 @@ class DialogueAdvancedService(
             }.getOrNull()
         }
         val state = SceneProgressState.deriveSceneProgressState(updated, transcriptMaps, updatedAt = timestamp)
-        return saveSession(runId, sessionId, updated, extra = buildJsonObject {
+        val finalSession = saveSession(runId, sessionId, updated, extra = buildJsonObject {
             put("state", SceneProgressState.stateToJsonObject(state))
         })
+        val effectiveTurnId = targetTurnId.ifEmpty { turnId }
+        longTermMemory.replaceTurn(
+            runId = runId,
+            sessionId = sessionId,
+            turnId = effectiveTurnId,
+            message = originalMessage,
+            responses = correctedResponses.map { response ->
+                mapOf("speaker" to response.speaker, "message" to response.message)
+            },
+        )
+        return finalSession
     }
 
     /**
@@ -552,6 +568,7 @@ class DialogueAdvancedService(
             messages = messages,
             temperature = 0.3,
             maxTokens = 1200,
+            requireJsonObject = true,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         val review = parseJsonObject(content)
         val timestamp = nowIsoString()
@@ -559,6 +576,7 @@ class DialogueAdvancedService(
         val history = (previous["history"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
         previous["latest"]?.let { latest -> history.add(0, latest) }
         val monitor = buildJsonObject {
+            previous.forEach { (key, value) -> put(key, value) }
             put("latest", review)
             put("history", buildJsonArray { history.take(20).forEach(::add) })
             put("reviewed_at", timestamp)
@@ -601,6 +619,7 @@ class DialogueAdvancedService(
             messages = messages,
             temperature = 0.9,
             maxTokens = 1600,
+            requireJsonObject = true,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         val parsed = parseJsonObject(content)
         val options = parsed["options"]?.jsonArray ?: return buildJsonObject { put("options", JsonArray(emptyList())) }
@@ -841,11 +860,57 @@ class DialogueAdvancedService(
             })
             put("current_turn_id", kept.lastOrNull()?.get("turn_id")?.jsonPrimitive?.contentOrNull.orEmpty())
         }
+        val retainedTurnIds = kept.mapNotNull {
+            it["turn_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+        }.toSet()
+        val branchForState = buildJsonObject {
+            branch.forEach { (key, value) -> put(key, value) }
+            // Re-derive state from the retained transcript; the parent's final state may contain future facts.
+            put("state", JsonObject(emptyMap()))
+        }
+        val retainedTranscript = kept.mapNotNull { item ->
+            runCatching {
+                item.jsonObject.mapValues { (_, value) ->
+                    when (value) {
+                        is JsonObject -> value
+                        else -> value.jsonPrimitive.contentOrNull
+                    }
+                }
+            }.getOrNull()
+        }
+        val branchState = SceneProgressState.deriveSceneProgressState(
+            session = branchForState,
+            transcript = retainedTranscript,
+            updatedAt = timestamp,
+        )
+        val branchWithState = buildJsonObject {
+            branch.forEach { (key, value) -> put(key, value) }
+            put("state", SceneProgressState.stateToJsonObject(branchState))
+            branch["consistency_monitor"]?.jsonObject?.let { monitor ->
+                put("consistency_monitor", buildJsonObject {
+                    monitor.forEach { (key, value) -> put(key, value) }
+                    val ledger = monitor["knowledge_ledger"]?.jsonArray.orEmpty()
+                    put("knowledge_ledger", buildJsonArray {
+                        ledger.forEach { item ->
+                            val entry = runCatching { item.jsonObject }.getOrNull()
+                            val entryTurnId = entry?.get("turn_id")?.jsonPrimitive?.contentOrNull.orEmpty()
+                            if (entryTurnId.isBlank() || entryTurnId in retainedTurnIds) add(item)
+                        }
+                    })
+                })
+            }
+        }
         val dir = storage.getDialogueSessionsDirectory(runId) / branchId
         storage.mkdirs(dir)
         val file = dir / "session_manifest.json"
-        storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), branch))
-        return branch
+        storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), branchWithState))
+        longTermMemory.copyForBranch(
+            runId = runId,
+            sourceSessionId = source["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            targetSessionId = branchId,
+            retainedTurnIds = retainedTurnIds,
+        )
+        return branchWithState
     }
 
     private fun markSessionRecovered(session: JsonObject): JsonObject {

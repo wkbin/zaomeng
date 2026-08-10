@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.ktor.services
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 /** 群聊兜底：同一角色连续多条时合并，避免同一人连着发消息。 */
 class DialogueResponseParserTest {
@@ -34,5 +35,73 @@ class DialogueResponseParserTest {
             allowedSpeakers = listOf("林七夜", "沈青竹"),
         )
         assertEquals(listOf("林七夜", "沈青竹", "林七夜"), parsed.map { it.speaker })
+    }
+
+    @Test
+    fun `responses object contract is parsed`() {
+        val parsed = DialogueResponseParser.parse(
+            """{"responses":[{"speaker":"潘金莲","message":"公子请讲。"}]}""",
+            allowedSpeakers = listOf("潘金莲"),
+        )
+
+        assertEquals("潘金莲", parsed.single().speaker)
+        assertEquals("公子请讲。", parsed.single().message)
+    }
+
+    @Test
+    fun `ndjson dialogue contract is parsed`() {
+        val parsed = DialogueResponseParser.parse(
+            """{"speaker":"潘金莲","message":"第一句。"}
+{"speaker":"旁白","message":"帘外风起。"}
+""",
+            allowedSpeakers = listOf("潘金莲", "旁白"),
+        )
+
+        assertEquals(listOf("潘金莲", "旁白"), parsed.map { it.speaker })
+        assertEquals("帘外风起。", parsed.last().message)
+    }
+
+    @Test
+    fun `ndjson keeps completed lines when final line is truncated`() {
+        val parsed = DialogueResponseParser.parse(
+            """{"speaker":"潘金莲","message":"完整回复。"}
+{"speaker":"旁白","message":"未完成"""",
+            allowedSpeakers = listOf("潘金莲", "旁白"),
+        )
+
+        assertEquals("潘金莲", parsed.single().speaker)
+        assertEquals("完整回复。", parsed.single().message)
+    }
+
+    @Test
+    fun `plain text is assigned when exactly one character can reply`() {
+        val parsed = DialogueResponseParser.parseSingleSpeakerPlainText(
+            "（掩唇一笑）公子这话问得好生直白。",
+            allowedSpeakers = listOf("潘金莲", "旁白", "场景提示"),
+            forbiddenSpeakers = listOf("沈砚舟"),
+        )
+
+        assertEquals("潘金莲", parsed?.single()?.speaker)
+        assertEquals("（掩唇一笑）公子这话问得好生直白。", parsed?.single()?.message)
+    }
+
+    @Test
+    fun `plain text is not guessed in a multi character scene`() {
+        val parsed = DialogueResponseParser.parseSingleSpeakerPlainText(
+            "有人接过了话。",
+            allowedSpeakers = listOf("林七夜", "沈青竹", "旁白"),
+        )
+
+        assertNull(parsed)
+    }
+
+    @Test
+    fun `json shaped output never uses plain text fallback`() {
+        val parsed = DialogueResponseParser.parseSingleSpeakerPlainText(
+            "[{\"speaker\":\"潘金莲\",\"message\":\"未完成\"}",
+            allowedSpeakers = listOf("潘金莲"),
+        )
+
+        assertNull(parsed)
     }
 }

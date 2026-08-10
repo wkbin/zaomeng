@@ -3,6 +3,7 @@
 package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
@@ -314,9 +315,29 @@ object SceneProgressState {
         }
     }
 
+    private fun jsonElementToAny(value: JsonElement): Any? = when (value) {
+        JsonNull -> null
+        is JsonObject -> value.mapValues { (_, child) -> jsonElementToAny(child) }
+        is JsonArray -> value.map(::jsonElementToAny)
+        is JsonPrimitive -> {
+            if (value.isString) {
+                value.content
+            } else {
+                value.content.toBooleanStrictOrNull()
+                    ?: value.content.toLongOrNull()
+                    ?: value.content.toDoubleOrNull()
+                    ?: value.content
+            }
+        }
+    }
+
     fun sessionState(session: JsonObject): Map<String, Any?> {
         val raw = session["state"]?.jsonObject ?: return emptySessionState()
-        return raw
+        // JsonObject implements Map, but its values are still JsonElement instances.
+        // Passing those through as Any makes callers use JsonPrimitive.toString(), which
+        // includes JSON quotes and escapes. Persisting that value again doubles escaping
+        // on every turn. Convert recursively to plain Kotlin values at the boundary.
+        return raw.mapValues { (_, value) -> jsonElementToAny(value) }
     }
 
     fun sessionEventSignals(session: JsonObject): Map<String, Any?> {

@@ -20,6 +20,7 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val promptLoader = PromptLoader(platform.promptSource)
     val llm = LlmClient(modelApiKeys, storage)
     val worldMemory = WorldMemoryService(storage)
+    val originalKnowledge = OriginalKnowledgeService(storage)
     val dialogue = DialogueService(storage, llm, promptLoader, worldMemory)
     val dialogueStream = DialogueStreamService(storage, llm, promptLoader, dialogue)
     val suggestions = SuggestionsService(storage, llm, promptLoader)

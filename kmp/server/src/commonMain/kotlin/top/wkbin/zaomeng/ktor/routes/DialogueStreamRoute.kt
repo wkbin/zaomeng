@@ -17,10 +17,10 @@ import top.wkbin.zaomeng.ktor.services.DialogueStreamService
 import top.wkbin.zaomeng.ktor.services.leanSession
 import top.wkbin.zaomeng.ktor.services.StorageService
 import top.wkbin.zaomeng.ktor.services.transcriptByTurnId
+import top.wkbin.zaomeng.ktor.services.transcriptSize
 import top.wkbin.zaomeng.ktor.services.withTranscriptCount
 import top.wkbin.zaomeng.ktor.utils.SseEncoder
 import top.wkbin.zaomeng.platform.PlatformLog
-import top.wkbin.zaomeng.platform.nowEpochMillis
 
 /** Streaming dialogue endpoint matching the App contract (status / delta / complete / error SSE 事件). */
 fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, storageService: StorageService) {
@@ -54,15 +54,19 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                     suppressTranscriptMessage = request.suppressTranscriptMessage,
                     includeModelReasoning = request.includeModelReasoning,
                 ).collect { event ->
-                    // 真流式：逐事件即时 write + flush（打字机节流 delay(20) 已移除，用户确认恢复真流式）
-                    PlatformLog.d("DialogueStreamRoute", "write@${nowEpochMillis()} ${event.text.take(20)}")
-                    writeString(SseEncoder.encodeEvent("delta", buildJsonObject {
-                        put("index", event.index)
-                        put("speaker", event.speaker)
-                        put("role", event.role)
-                        put("field", event.field)
-                        put("text", event.text)
-                    }))
+                    val eventName = event.kind.ifBlank { "delta" }
+                    val payload = if (eventName == "reset") {
+                        buildJsonObject { put("message", event.text) }
+                    } else {
+                        buildJsonObject {
+                            put("index", event.index)
+                            put("speaker", event.speaker)
+                            put("role", event.role)
+                            put("field", event.field)
+                            put("text", event.text)
+                        }
+                    }
+                    writeString(SseEncoder.encodeEvent(eventName, payload))
                     flush()
                 }
                 // 3. 完成事件：携带更新后的会话
@@ -73,6 +77,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                         if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
                     )
                     put("replayed", false)
+                    put("transcript_count", transcriptSize(session))
                     if (!request.includeTranscript) {
                         // 增量模式：只回传本轮新增的 transcript 条目（按 turn_id 提取，幂等重放同样成立）
                         put("appended_transcript", buildJsonArray {

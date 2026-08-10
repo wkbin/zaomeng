@@ -261,5 +261,6 @@ data class StreamEvent(
     val speaker: String,
     val role: String,
     val field: String,
-    val text: String
+    val text: String,
+    val kind: String = "delta",
 )

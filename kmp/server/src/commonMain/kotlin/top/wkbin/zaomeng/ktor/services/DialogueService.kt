@@ -1,5 +1,9 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -7,6 +11,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -19,8 +24,10 @@ import top.wkbin.zaomeng.ktor.models.DialogueResponse
 import top.wkbin.zaomeng.ktor.models.DialogueTurnResponse
 import okio.Path
 import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.nowIsoString
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.platform.randomUuid
 
 /**
@@ -35,6 +42,8 @@ class DialogueService(
     private val promptLoader: PromptLoader? = null,
     private val worldMemory: WorldMemoryService? = null,
 ) {
+    private val longTermMemory = LongTermMemoryService(storageService)
+    private val originalKnowledge = OriginalKnowledgeService(storageService)
     companion object {
         private const val TAG = "DialogueService"
 
@@ -42,12 +51,24 @@ class DialogueService(
         // 推理模型会把 reasoning_content 计入输出预算，默认给足一轮预算避免重复推理
         const val DIALOGUE_RESPONSE_MIN_MAX_TOKENS = 8192
         const val DIALOGUE_RESPONSE_MAX_MAX_TOKENS = 16000
+        const val DIALOGUE_RESPONSE_NON_REASONING_MIN_MAX_TOKENS = 1200
+        const val DIALOGUE_RESPONSE_NON_REASONING_MAX_MAX_TOKENS = 4096
 
         /**
          * 解析对话回复的 max_tokens（对齐 Python _resolve_dialogue_max_tokens 的无配置分支）。
          */
-        fun resolveDialogueMaxTokens(responseLimitHint: Int): Int {
+        fun resolveDialogueMaxTokens(responseLimitHint: Int, reasoningEffort: String = "auto"): Int {
             val limit = responseLimitHint
+            if (reasoningEffort.trim().equals("off", ignoreCase = true)) {
+                return if (limit > 0) {
+                    minOf(
+                        maxOf(DIALOGUE_RESPONSE_NON_REASONING_MIN_MAX_TOKENS, 520 + limit * 360),
+                        DIALOGUE_RESPONSE_NON_REASONING_MAX_MAX_TOKENS,
+                    )
+                } else {
+                    DIALOGUE_RESPONSE_NON_REASONING_MIN_MAX_TOKENS
+                }
+            }
             return if (limit > 0) {
                 minOf(
                     maxOf(DIALOGUE_RESPONSE_MIN_MAX_TOKENS, 520 + limit * 360),
@@ -68,6 +89,23 @@ class DialogueService(
     }
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val backgroundScope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
+    private val backgroundJobs = HashMap<String, Job>()
+    private val backgroundPending = HashMap<String, MutableList<PostTurnWork>>()
+    private val backgroundJobsLock = SimpleLock()
+    private val sessionMutationLocks = HashMap<String, SimpleLock>()
+    private val sessionMutationLocksLock = SimpleLock()
+
+    private fun sessionMutationLock(runId: String, sessionId: String): SimpleLock =
+        sessionMutationLocksLock.withLock {
+            sessionMutationLocks.getOrPut("$runId:$sessionId") { SimpleLock() }
+        }
+
+    private data class PostTurnWork(
+        val turnId: String,
+        val message: String,
+        val responses: List<DialogueResponse>,
+    )
 
     @Serializable
     private data class DialogueManifest(
@@ -160,13 +198,16 @@ class DialogueService(
         //    推理模型会把 reasoning_content 计入输出预算，默认至少 8192，上限 16000）
         val responseLimit = ((payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() }
             ?.get("response_limit_hint") as? Number)?.toInt() ?: 0
-        val maxTokens = resolveDialogueMaxTokens(responseLimit)
+        val maxTokens = resolveDialogueMaxTokens(
+            responseLimitHint = responseLimit,
+            reasoningEffort = modelSettings["reasoning_effort"] as? String ?: "auto",
+        )
 
         // 5. 调用 LLM API（对齐 Python generate_dialogue_responses：解析失败重试一次，maxTokens 翻倍 + retryOnEmpty 提示词）
         val llmClient = llmClient
             ?: throw IllegalStateException("LLM not configured (client unavailable)")
         val forbiddenSpeakers = listOf(
-            sessionManifest.controlledCharacter.orEmpty(),
+            sessionManifest.controlledCharacter.orEmpty().takeIf { sessionManifest.mode == "act" }.orEmpty(),
             (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.get("speaker")?.toString().orEmpty(),
         )
         var responses: List<DialogueResponse>? = null
@@ -183,6 +224,7 @@ class DialogueService(
                     model = modelName,
                     temperature = 0.7,
                     maxTokens = if (retry) minOf(maxTokens * 2, DIALOGUE_RESPONSE_MAX_MAX_TOKENS) else maxTokens,
+                    requireJsonObject = false,
                 )
                 val responseContent = llmResponse.choices.firstOrNull()?.message?.content
                     ?: throw IllegalArgumentException("Empty response from LLM")
@@ -241,7 +283,7 @@ class DialogueService(
     /**
      * Parse LLM response into dialogue responses.
      *
-     * 对齐 Python parse_dialogue_responses：解析 JSON 数组 [{speaker, message, inner_thought}]，
+     * 解析 NDJSON 对话对象，并兼容旧 JSON 数组/包装对象，
      * 允许旁白/场景提示，禁止受控角色与用户身份；无有效回复时抛异常（不 fallback 原文）。
      */
     private fun parseDialogueResponses(
@@ -264,22 +306,194 @@ class DialogueService(
         messageKind: String,
         responses: List<DialogueResponse>,
         suppressTranscriptMessage: Boolean = false,
-        // 性能：调用方已加载的最新 manifest 直接复用（避免每回复重复读 session_manifest.json）
+        // Kept for call-site compatibility. Commit still reloads under the mutation lock so
+        // background enrichment cannot be overwritten; StorageService reuses the parsed
+        // manifest when the document has not changed.
         existingSession: JsonObject? = null,
     ): JsonObject {
-        val sessionManifest = existingSession ?: storageService.loadSessionManifest(runId, sessionId)
-        saveTurn(runId, sessionId, turnId, message, messageKind, responses)
-        return updateSessionManifest(
+        // The pre-generation snapshot may already be stale because the previous turn's
+        // enrichment runs in the background. Reload and persist under one session lock.
+        val updated = sessionMutationLock(runId, sessionId).withLock {
+            val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
+            saveTurn(runId, sessionId, turnId, message, messageKind, responses)
+            updateSessionManifest(
+                runId = runId,
+                sessionId = sessionId,
+                newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
+                turnId = turnId,
+                userMessage = message,
+                suppressUserMessage = suppressTranscriptMessage,
+                responses = responses,
+                mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
+                manifest = sessionManifest,
+                deriveState = false,
+            )
+        }
+        enqueueBackgroundPostTurn(
             runId = runId,
             sessionId = sessionId,
-            newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
             turnId = turnId,
-            userMessage = message,
-            suppressUserMessage = suppressTranscriptMessage,
+            message = message,
             responses = responses,
-            mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
-            manifest = sessionManifest,
         )
+        return updated
+    }
+
+    /** Run derived memory/state work off the response path and coalesce bursts per session. */
+    private fun enqueueBackgroundPostTurn(
+        runId: String,
+        sessionId: String,
+        turnId: String,
+        message: String,
+        responses: List<DialogueResponse>,
+    ) {
+        val key = "$runId:$sessionId"
+        backgroundJobsLock.withLock {
+            backgroundPending.getOrPut(key) { mutableListOf() }
+                .add(PostTurnWork(turnId = turnId, message = message, responses = responses))
+            if (backgroundJobs[key]?.isActive == true) return@withLock
+            backgroundJobs[key] = backgroundScope.launch {
+                drainBackgroundPostTurns(key, runId, sessionId)
+            }
+        }
+    }
+
+    private suspend fun drainBackgroundPostTurns(key: String, runId: String, sessionId: String) {
+        while (true) {
+            val batch = backgroundJobsLock.withLock {
+                val pending = backgroundPending.remove(key)?.toList().orEmpty()
+                if (pending.isEmpty()) backgroundJobs.remove(key)
+                pending
+            }
+            if (batch.isEmpty()) return
+            val startedAt = nowEpochMillis()
+            val derivedSession = runCatching {
+                sessionMutationLock(runId, sessionId).withLock {
+                    var manifest = storageService.loadSessionManifest(runId, sessionId)
+                    batch.forEach { work ->
+                        manifest = updateKnowledgeLedger(
+                            session = manifest,
+                            turnId = work.turnId,
+                            message = work.message,
+                            responses = work.responses,
+                        )
+                    }
+                    refreshDerivedSessionState(runId, sessionId, manifest)
+                }
+            }.onFailure { error ->
+                PlatformLog.w(TAG, "Background scene/ledger update failed for $runId/$sessionId: ${error.message}", error)
+            }.getOrNull()
+
+            if (derivedSession != null) {
+                batch.forEach { work -> syncWorldMemory(runId, sessionId, work, derivedSession) }
+            }
+            batch.forEach { work ->
+                runCatching {
+                    longTermMemory.appendTurn(
+                        runId = runId,
+                        sessionId = sessionId,
+                        turnId = work.turnId,
+                        message = work.message,
+                        responses = work.responses.map { response ->
+                            mapOf("speaker" to response.speaker, "message" to response.message)
+                        },
+                    )
+                }.onFailure { error ->
+                    PlatformLog.w(TAG, "Background long-term memory update failed for $runId/$sessionId: ${error.message}", error)
+                }
+            }
+            runCatching {
+                storageService.readRunManifest(runId)?.let { runManifest ->
+                    val participants = (derivedSession?.get("participants")?.jsonArray ?: JsonArray(emptyList()))
+                        .mapNotNull { it.jsonPrimitive.contentOrNull }
+                    originalKnowledge.ensure(
+                        runManifest = runManifest,
+                        characterNames = participants + batch.flatMap { it.responses }.map { it.speaker },
+                    )
+                }
+            }.onFailure { error ->
+                PlatformLog.w(TAG, "Background original-source index update failed for $runId: ${error.message}", error)
+            }
+            PlatformLog.d(
+                TAG,
+                "Background post-turn batch completed: run=$runId, session=$sessionId, " +
+                    "turns=${batch.size}, elapsed_ms=${nowEpochMillis() - startedAt}",
+            )
+        }
+    }
+
+    private fun updateKnowledgeLedger(
+        session: JsonObject,
+        turnId: String,
+        message: String,
+        responses: List<DialogueResponse>,
+    ): JsonObject {
+        val participants = (session["participants"]?.jsonArray ?: JsonArray(emptyList()))
+            .mapNotNull { it.jsonPrimitive.contentOrNull }.map(String::trim).filter(String::isNotBlank).distinct()
+        val scenePresentParticipants = session["scene_progress"]?.jsonObject
+            ?.get("present_participants")?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+            ?.filter(String::isNotBlank)
+            ?.distinct()
+            .orEmpty()
+        val statePresentParticipants = session["state"]?.jsonObject
+            ?.get("presence")?.jsonObject
+            ?.get("present_participants")?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+            ?.filter(String::isNotBlank)
+            ?.distinct()
+            .orEmpty()
+        val holdersBase = (scenePresentParticipants.ifEmpty { statePresentParticipants }).ifEmpty { participants }
+        val entries = buildList {
+            add("User" to message)
+            responses.forEach { add(it.speaker to it.message) }
+        }
+        val ledger = (session["consistency_monitor"]?.jsonObject?.get("knowledge_ledger")?.jsonArray
+            ?: JsonArray(emptyList())).mapNotNull { runCatching { it.jsonObject }.getOrNull() }.toMutableList()
+        val now = nowIsoString()
+        val patterns = listOf(
+            Regex("(?:秘密|真相|实情|底牌)(?:是|为|：|:)\\s*([^。！？!?\\n]{4,80})"),
+            Regex("(?:只告诉你|别告诉别人|不要告诉别人)[，,:：]?\\s*([^。！？!?\\n]{4,80})"),
+        )
+        entries.forEach { (speaker, text) ->
+            patterns.flatMap { pattern -> pattern.findAll(text).map { it.groupValues[1].trim() }.toList() }
+                .distinct().forEach { fact ->
+                    val index = ledger.indexOfFirst {
+                        it["fact"]?.jsonPrimitive?.contentOrNull.orEmpty().replace(Regex("\\s+"), "") ==
+                            fact.replace(Regex("\\s+"), "")
+                    }
+                    val holders = (holdersBase + speaker).filter(String::isNotBlank).distinct()
+                    if (index >= 0) {
+                        ledger[index] = buildJsonObject {
+                            ledger[index].forEach { (key, value) -> put(key, value) }
+                            put("holders", buildJsonArray {
+                                ((ledger[index]["holders"]?.jsonArray ?: JsonArray(emptyList()))
+                                    .mapNotNull { it.jsonPrimitive.contentOrNull } + holders)
+                                    .distinct().forEach { add(JsonPrimitive(it)) }
+                            })
+                            put("updated_at", now)
+                        }
+                    } else {
+                        ledger += buildJsonObject {
+                            put("fact", fact)
+                            put("source", speaker)
+                            put("turn_id", turnId)
+                            put("holders", buildJsonArray { holders.forEach { add(JsonPrimitive(it)) } })
+                            put("created_at", now)
+                            put("updated_at", now)
+                        }
+                    }
+                }
+        }
+        if (ledger.isEmpty()) return session
+        val monitor = buildJsonObject {
+            session["consistency_monitor"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+            put("knowledge_ledger", buildJsonArray { ledger.takeLast(40).forEach(::add) })
+        }
+        return buildJsonObject {
+            session.forEach { (key, value) -> put(key, value) }
+            put("consistency_monitor", monitor)
+        }
     }
 
     /**
@@ -321,43 +535,60 @@ class DialogueService(
         responses: List<DialogueResponse>,
         mode: String = "observe",
         manifest: JsonObject,
+        deriveState: Boolean = true,
     ): JsonObject {
         val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
 
         val timestamp = nowIsoString()
         val transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
+        val combinedTranscript = buildJsonArray {
+            transcript.forEach(::add)
+            if (!suppressUserMessage) add(buildJsonObject {
+                put("speaker", "我")
+                put("message", userMessage)
+                put("role", "user")
+                put("turn_id", turnId)
+                put("timestamp", timestamp)
+            })
+            responses.forEach { response -> add(buildJsonObject {
+                put("speaker", response.speaker)
+                put("message", response.message)
+                response.innerThought?.let { put("inner_thought", it) }
+                put("role", if (response.speaker in setOf("旁白", "场景提示")) {
+                    if (mode == "observe") "director" else "scene"
+                } else {
+                    "character"
+                })
+                put("turn_id", turnId)
+                put("timestamp", timestamp)
+            }) }
+        }
+        val compacted = storageService.compactSessionTranscript(
+            runId = runId,
+            sessionId = sessionId,
+            manifest = manifest,
+            combined = combinedTranscript,
+        )
         val updatedBase = buildJsonObject {
             manifest.forEach { (key, value) -> put(key, value) }
             put("turn_count", newTurnCount)
             put("current_turn_id", turnId)
             put("updated_at", timestamp)
             put("last_entry_preview", responses.lastOrNull()?.message.orEmpty())
-            put("transcript", buildJsonArray {
-                transcript.forEach(::add)
-                if (!suppressUserMessage) add(buildJsonObject {
-                    put("speaker", "我")
-                    put("message", userMessage)
-                    put("role", "user")
-                    put("turn_id", turnId)
-                    put("timestamp", timestamp)
-                })
-                responses.forEach { response -> add(buildJsonObject {
-                    put("speaker", response.speaker)
-                    put("message", response.message)
-                    response.innerThought?.let { put("inner_thought", it) }
-                    // 对齐 Python serialize_transcript：旁白/场景提示的 role 按 mode 标记 scene/director
-                    put("role", if (response.speaker in setOf("旁白", "场景提示")) {
-                        if (mode == "observe") "director" else "scene"
-                    } else {
-                        "character"
-                    })
-                    put("turn_id", turnId)
-                    put("timestamp", timestamp)
-                }) }
-            })
+            put("transcript", compacted.recent)
+            put("transcript_start", compacted.startIndex)
+            put("transcript_count", compacted.totalCount)
         }
 
         // 每轮提交后推导场景进度状态（对齐 Python _refresh_dialogue_scene_progress）
+        if (!deriveState) {
+            storageService.writeTextAtomically(
+                manifestFile,
+                Json.encodeToString(JsonObject.serializer(), updatedBase),
+            )
+            return updatedBase
+        }
+
         val newTranscript = updatedBase["transcript"]?.jsonArray ?: JsonArray(emptyList())
         val transcriptMaps = newTranscript.mapNotNull { raw ->
             runCatching {
@@ -407,5 +638,74 @@ class DialogueService(
             )
         }
         return updated
+    }
+
+    private fun refreshDerivedSessionState(
+        runId: String,
+        sessionId: String,
+        manifest: JsonObject,
+    ): JsonObject {
+        val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
+        val timestamp = nowIsoString()
+        val transcript = manifest["transcript"]?.jsonArray ?: JsonArray(emptyList())
+        val transcriptMaps = transcript.mapNotNull { raw ->
+            runCatching {
+                raw.jsonObject.mapValues { (_, value) ->
+                    when (value) {
+                        is JsonObject -> value
+                        else -> value.jsonPrimitive.contentOrNull
+                    }
+                }
+            }.getOrNull()
+        }
+        val derivedState = SceneProgressState.deriveSceneProgressState(
+            session = manifest,
+            transcript = transcriptMaps,
+            updatedAt = timestamp,
+        )
+        val updated = buildJsonObject {
+            manifest.forEach { (key, value) -> put(key, value) }
+            put("state", SceneProgressState.stateToJsonObject(derivedState))
+        }
+        storageService.writeTextAtomically(
+            manifestFile,
+            Json.encodeToString(JsonObject.serializer(), updated),
+        )
+        return updated
+    }
+
+    private fun syncWorldMemory(
+        runId: String,
+        sessionId: String,
+        work: PostTurnWork,
+        updated: JsonObject,
+    ) {
+        val timestamp = updated["state"]?.jsonObject?.get("scene")?.jsonObject
+            ?.get("updated_at")?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { nowIsoString() }
+        runCatching {
+            worldMemory?.syncCompletedTurn(
+                runId = runId,
+                sessionId = sessionId,
+                turnId = work.turnId,
+                title = work.message,
+                participants = (updated["participants"]?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() },
+                events = (updated["state"]?.jsonObject?.get("signals")?.jsonObject
+                    ?.get("recent")?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                    .filter { it["turn_id"]?.jsonPrimitive?.contentOrNull == work.turnId },
+                location = updated["state"]?.jsonObject?.get("scene")?.jsonObject
+                    ?.get("location")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                timeHint = "",
+                consistencyStatus = updated["consistency_monitor"]?.jsonObject?.get("latest")?.jsonObject
+                    ?.get("status")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                knowledgeLedger = (updated["consistency_monitor"]?.jsonObject
+                    ?.get("knowledge_ledger")?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() },
+                updatedAt = timestamp,
+            )
+        }.onFailure { error ->
+            PlatformLog.w(TAG, "Background world-memory update failed for $runId/$sessionId: ${error.message}", error)
+        }
     }
 }

@@ -550,11 +550,12 @@ class DialoguePromptBuilder(
         val stableSystemPrompt = stableSystemParts.filter { it.isNotEmpty() }.joinToString("\n")
         val turnSystemPrompt = turnSystemParts.filter { it.isNotEmpty() }.joinToString("\n")
 
-        val expectedOutput: List<Any?> = if (includeInnerThoughts) {
+        val expectedResponses: List<Any?> = if (includeInnerThoughts) {
             listOf(mapOf("speaker" to "角色名", "message" to "回复内容", "inner_thought" to "角色没说出口的真实想法"))
         } else {
             listOf(mapOf("speaker" to "角色名", "message" to "回复内容"))
         }
+        val expectedOutput = mapOf("responses" to expectedResponses)
         val userPayload = mapOf(
             "mode" to sessionMode,
             "message_kind" to messageKind,
@@ -807,6 +808,9 @@ class DialoguePromptBuilder(
             "persona_contexts" to (payload["persona_contexts"] as? List<*> ?: emptyList<Any?>()),
             "relation_context" to ((payload["relation_context"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap<String, Any?>()),
             "knowledge_context" to (payload["knowledge_context"] as? List<*> ?: emptyList<Any?>()),
+            "original_source_context" to (((payload["original_source_context"] as? Map<*, *>)
+                ?.mapKeys { it.key.toString() }
+                ?.get("entries") as? List<*>) ?: emptyList<Any?>()).take(3),
             "history" to (((payload["history"] as? List<*>) ?: emptyList<Any?>()).takeLast(8)),
             "input" to ((payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap<String, Any?>()),
             "responses" to (payload["responses"] as? List<*> ?: emptyList<Any?>()),

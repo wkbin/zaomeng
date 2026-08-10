@@ -1070,6 +1070,19 @@ data class SaveWorldFactRequest(
     val active: Boolean = true,
 )
 
+@Serializable
+data class SearchOriginalKnowledgeRequest(
+    val query: String,
+    val participants: List<String> = emptyList(),
+    val limit: Int = 6,
+)
+
+@Serializable
+data class UpdateOriginalKnowledgeBoundaryRequest(
+    val visibility: String,
+    val knowers: List<String> = emptyList(),
+)
+
 data class ExportedRunPackage(
     val filename: String,
     val file: Path,

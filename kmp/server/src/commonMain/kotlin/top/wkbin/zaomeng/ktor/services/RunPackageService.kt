@@ -114,6 +114,7 @@ class RunPackageService(private val storage: StorageService) {
     private fun copyRecursively(source: Path, target: Path) {
         storage.mkdirs(target)
         for (child in storage.listFiles(source)) {
+            if (isDiscardableLegacyAsset(child)) continue
             val dest = target / child.name
             if (storage.isDirectory(child)) {
                 copyRecursively(child, dest)
@@ -122,6 +123,10 @@ class RunPackageService(private val storage: StorageService) {
             }
         }
     }
+
+    /** Legacy web exports bundled a multi-megabyte Mermaid runtime inside every run. */
+    private fun isDiscardableLegacyAsset(path: Path): Boolean =
+        storage.isFile(path) && LEGACY_MERMAID_RUNTIME.matches(path.name.lowercase())
 
     private fun validatePackageManifest(file: Path) {
         require(storage.isFile(file) && storage.fileSize(file) <= 256 * 1024) { "书卷包缺少 package_manifest.json。" }
@@ -257,6 +262,7 @@ class RunPackageService(private val storage: StorageService) {
         const val MAX_PATH_DEPTH = 32
         const val MAX_COMPONENT_LENGTH = 255
         val WINDOWS_ABSOLUTE_PATH = Regex("^[A-Za-z]:/")
+        val LEGACY_MERMAID_RUNTIME = Regex("""mermaid(?:-[0-9.]+)?(?:\.min)?\.js""")
         val WINDOWS_RESERVED_NAMES = setOf(
             "CON", "PRN", "AUX", "NUL",
             "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",

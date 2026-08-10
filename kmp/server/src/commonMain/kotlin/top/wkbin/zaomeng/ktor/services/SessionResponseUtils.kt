@@ -8,6 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
@@ -25,7 +26,9 @@ fun leanSession(session: JsonObject): JsonObject = buildJsonObject {
 }
 
 fun transcriptSize(session: JsonObject): Int =
-    (session["transcript"] as? JsonArray)?.size ?: 0
+    session["transcript_count"]?.jsonPrimitive?.intOrNull
+        ?: (session["transcript"] as? JsonArray)?.size
+        ?: 0
 
 fun transcriptOf(session: JsonObject): List<JsonObject> =
     (session["transcript"] as? JsonArray)

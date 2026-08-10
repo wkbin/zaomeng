@@ -3,10 +3,10 @@
 
 # 回复路径（build_dialogue_llm_messages）
 small_action_rule: "角色的明显小动作不要单独写成旁白或场景提示；应尽量内嵌到该角色自己的台词里，用很短的括号动作来带出。"
-json_only_rule: "只返回 JSON 数组，每项必须包含 speaker 和 message。"
+json_only_rule: '必须严格输出 NDJSON（JSON Lines）：每一行只能是一个独立、完整的 JSON 对象，并以换行符结束；每个对象必须包含非空的 speaker 和 message，可选 inner_thought。不要输出顶层数组，不要输出 responses 包装对象，不要直接输出台词正文。示例：{"speaker":"角色名","message":"回复内容"}'
 # 提示词增强（比 Python 多一句，用户确认）：deepseek-v4-flash 常把 JSON 包进 markdown 代码围栏
 # 且 ```json[ 同行会破坏解析；明确禁止围栏可显著降低触发率（解析器容错仍兜底）
-no_code_fence_rule: "不要使用代码围栏或反引号（``` 或 ```json），直接输出原始 JSON，不要加任何解释或前后缀文字。"
+no_code_fence_rule: "不要使用代码围栏或反引号（``` 或 ```json），直接逐行输出原始 JSON 对象；每行对象闭合后立即换行，不要加逗号、解释或任何前后缀文字。"
 speaker_plan_rule: "SPEAKER_PLAN 给出本轮自然的介入优先级。优先参考 recommended_speakers，但若角色与当前动作无关，可以少说或不说；不得让离场角色或用户控制的角色越权发言。同一角色不要连续发言：上一轮或本条回复中刚开口的角色，应让其他在场角色先接话；只有剧情明确需要独白或连续动作时才允许同一角色再次开口。"
 knowledge_boundary_rule: "KNOWLEDGE_BOUNDARY 中每条 fact 只允许 holders 中的角色知晓。未列入 holders 的角色不得提及、暗示或据此行动。"
 original_source_rule: "ORIGINAL_SOURCE_CONTEXT 是本轮从原作动态检索出的证据。原作证据优先于模型预训练记忆；不得用模型自带的作品知识补写检索结果中没有的事实。角色只能使用 allowed_characters 中包含自己名字的片段；visibility=uncertain 的片段只可供旁白组织场景，角色不得将其当成自己知道的事实。原文只用于内部约束，不要在回复中引用、复述出处或解释检索过程。"

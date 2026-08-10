@@ -64,6 +64,15 @@ class SessionManagementService(
         if (mode !in listOf("observe", "act", "insert", "control", "free")) {
             throw IllegalArgumentException("Invalid mode: $mode")
         }
+        val normalizedControlledCharacter = if (mode == "act") {
+            controlledCharacter.trim().also { controlled ->
+                if (controlled.isBlank() || controlled !in participants) {
+                    throw IllegalArgumentException("Controlled character must be one of the participants in act mode")
+                }
+            }
+        } else {
+            ""
+        }
 
         // 生成会话 ID
         val sessionId = generateId()
@@ -79,7 +88,7 @@ class SessionManagementService(
             runId = runId,
             mode = mode,
             participants = participants,
-            controlledCharacter = controlledCharacter,
+            controlledCharacter = normalizedControlledCharacter,
             sceneCardId = sceneCardId,
             sceneProfile = sceneProfile,
             selfCardId = selfCardId,
@@ -115,11 +124,12 @@ class SessionManagementService(
         selfCardId: String = "",
         selfProfile: JsonObject = JsonObject(emptyMap())
     ): JsonObject {
+        val normalizedControlledCharacter = controlledCharacter.takeIf { mode == "act" }.orEmpty()
         val session = createDialogueSession(
             runId = runId,
             mode = mode,
             participants = participants,
-            controlledCharacter = controlledCharacter,
+            controlledCharacter = normalizedControlledCharacter,
             sceneCardId = sceneCardId,
             sceneProfile = sceneProfile,
             selfCardId = selfCardId,
@@ -130,7 +140,7 @@ class SessionManagementService(
             val openingMessage = buildOpeningMessage(
                 mode = mode,
                 participants = participants,
-                controlledCharacter = controlledCharacter,
+                controlledCharacter = normalizedControlledCharacter,
                 sceneProfile = sceneProfile,
                 selfProfile = selfProfile,
             )
@@ -147,7 +157,7 @@ class SessionManagementService(
                     session = session,
                     mode = mode,
                     participants = participants,
-                    controlledCharacter = controlledCharacter,
+                    controlledCharacter = normalizedControlledCharacter,
                     sceneProfile = sceneProfile,
                     selfProfile = selfProfile,
                 )

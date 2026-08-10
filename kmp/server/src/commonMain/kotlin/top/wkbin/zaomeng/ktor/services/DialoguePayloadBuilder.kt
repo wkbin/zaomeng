@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -13,6 +15,7 @@ import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.parseYaml
 import top.wkbin.zaomeng.platform.randomUuid
 import top.wkbin.zaomeng.platform.SimpleLock
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 /**
  * 对话 LLM payload 构建（迁移自 Python src/web/chat/service.py 的
@@ -21,15 +24,22 @@ import top.wkbin.zaomeng.platform.SimpleLock
  * 从 run manifest / session manifest / persona 档案 / 关系文件 / world_memory.json /
  * memory_ledger / transcript 组装结构化 payload，供 DialoguePromptBuilder 使用。
  *
- * 与 Python 的差异（Ktor 无对应数据源，按空值处理）：
+ * 仍待补齐的迁移差异（不影响基础对话）：
  * - scene_progress / character_snapshots / event_signals（Ktor 会话无 state 快照）
- * - original_source_context（Ktor 无 novel 检索）
- * - knowledge_context / knowledge_ledger（Ktor 无一致性知识账本）
- * - 长期记忆 embedding 检索（retrieved_memories 为空）
+ * - 长期记忆目前使用本地 lexical 检索，尚未接入 embedding 服务
  */
 class DialoguePayloadBuilder(
     private val storage: StorageService,
 ) {
+    private val originalKnowledge = OriginalKnowledgeService(storage)
+    private val longTermMemory = LongTermMemoryService(storage)
+    private data class TurnContextSources(
+        val personaContexts: List<Map<String, Any?>>,
+        val relationExcerpt: String,
+        val worldFacts: List<Map<String, Any?>>,
+        val originalSourceContext: Map<String, Any?>,
+        val retrievedMemories: List<Map<String, Any?>>,
+    )
     /**
      * 进程级文件缓存（key=绝对路径；value=Pair<mtime, 解析结果>）。
      * persona/关系/world_memory 等只在导入/编辑时变化，文件未变则复用解析结果，避免每回复重复读+解析。
@@ -440,13 +450,16 @@ class DialoguePayloadBuilder(
     }
 
     /** 读取 world_memory.json 的 facts → world_facts（对齐 Python _compact_memory_context：≤18 条、字段截断）。 */
-    private fun loadWorldFacts(runId: String): List<Map<String, Any?>> {
+    private fun loadWorldFacts(runId: String, session: JsonObject? = null): List<Map<String, Any?>> {
         val file = storage.getRunDirectory(runId) / "world_memory.json"
         if (!storage.isFile(file)) return emptyList()
         // 按 mtime 缓存解析+排序结果（world_memory 只在写入时变化）
-        return cachedFileResult(file.toString(), storage.lastModifiedMillis(file)) {
+        val facts = cachedFileResult(file.toString(), storage.lastModifiedMillis(file)) {
             loadWorldFactsUncached(file)
         }
+        return filterWorldFactsForSession(runId, facts, session)
+            .sortedBy { it["locked"] != true }
+            .take(18)
     }
 
     private fun loadWorldFactsUncached(file: Path): List<Map<String, Any?>> {
@@ -455,6 +468,7 @@ class DialoguePayloadBuilder(
         }.getOrNull() ?: return emptyList()
         val parsed = facts.mapNotNull { item ->
             val obj = item.jsonObject
+            if (obj["active"]?.jsonPrimitive?.contentOrNull == "false") return@mapNotNull null
             val summary = trimText(obj["summary"]?.jsonPrimitive?.contentOrNull, 240)
             if (summary.isEmpty()) return@mapNotNull null
             mapOf<String, Any?>(
@@ -468,10 +482,125 @@ class DialoguePayloadBuilder(
                 "location" to trimText(obj["location"]?.jsonPrimitive?.contentOrNull, 100),
                 "time_hint" to trimText(obj["time_hint"]?.jsonPrimitive?.contentOrNull, 80),
                 "locked" to (obj["locked"]?.jsonPrimitive?.contentOrNull == "true" || obj["locked"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == true),
+                "source_session_id" to obj["source_session_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                "source_turn_id" to obj["source_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             )
         }
-        // Python：locked 优先排序，取前 18 条
-        return parsed.sortedBy { it["locked"] != true }.take(18)
+        // Python：locked 优先排序；分支过滤后再截断，避免未来事实占满前 18 条。
+        return parsed.sortedBy { it["locked"] != true }
+    }
+
+    /** Branches must not see run-level facts created after their fork point. */
+    private fun filterWorldFactsForSession(
+        runId: String,
+        facts: List<Map<String, Any?>>,
+        session: JsonObject?,
+    ): List<Map<String, Any?>> {
+        val origin = session?.get("branch_origin")?.jsonObject ?: return facts
+        val currentSessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val sourceSessionId = origin["source_session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val sourceTurnId = origin["source_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (sourceSessionId.isBlank() || sourceTurnId.isBlank()) return facts
+        val file = storage.getRunDirectory(runId) / "world_memory.json"
+        val timeline = runCatching {
+            Json.parseToJsonElement(storage.readText(file)).jsonObject["timeline"]?.jsonArray.orEmpty()
+        }.getOrElse { return facts }
+        val cutoffIndex = timeline.indexOfLast { item ->
+            val entry = runCatching { item.jsonObject }.getOrNull() ?: return@indexOfLast false
+            entry["source_session_id"]?.jsonPrimitive?.contentOrNull == sourceSessionId &&
+                entry["source_turn_id"]?.jsonPrimitive?.contentOrNull == sourceTurnId
+        }
+        if (cutoffIndex < 0) return facts
+        val allowedPairs = timeline.take(cutoffIndex + 1).mapNotNull { item ->
+            val entry = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val source = entry["source_session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val turn = entry["source_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (source.isBlank() || turn.isBlank()) null else source to turn
+        }.toSet()
+        return facts.filter { fact ->
+            val factSessionId = fact["source_session_id"]?.toString().orEmpty()
+            val factTurnId = fact["source_turn_id"]?.toString().orEmpty()
+            factSessionId.isBlank() ||
+                factSessionId == currentSessionId ||
+                (factSessionId to factTurnId) in allowedPairs
+        }
+    }
+
+    private fun loadKnowledgeContext(
+        session: JsonObject,
+        worldFacts: List<Map<String, Any?>>,
+        query: String,
+        participants: List<String>,
+    ): List<Map<String, Any?>> {
+        val ledger = session["consistency_monitor"]?.jsonObject
+            ?.get("knowledge_ledger")?.jsonArray.orEmpty()
+            .mapNotNull { raw ->
+                val item = runCatching { raw.jsonObject }.getOrNull() ?: return@mapNotNull null
+                val fact = (item["fact"] ?: item["summary"] ?: item["secret"])
+                    ?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (fact.isBlank()) return@mapNotNull null
+                mapOf<String, Any?>(
+                    "fact" to trimText(fact, 240),
+                    "holders" to (item["holders"] ?: item["knowers"] ?: JsonArray(emptyList()))
+                        .let { jsonValueToAny(it) },
+                    "visibility" to (item["visibility"]?.jsonPrimitive?.contentOrNull ?: "scene"),
+                    "source" to "consistency",
+                    "locked" to true,
+                )
+            }
+        val facts = worldFacts.mapNotNull { item ->
+            val fact = item["summary"]?.toString()?.trim().orEmpty()
+            if (fact.isBlank()) return@mapNotNull null
+            mapOf<String, Any?>(
+                "fact" to trimText(fact, 240),
+                "holders" to (item["characters"] ?: emptyList<String>()),
+                "visibility" to "public",
+                "source" to "world_memory",
+                "category" to (item["category"] ?: "event"),
+                "locked" to (item["locked"] == true),
+            )
+        }
+        val queryTokens = query.lowercase().split(Regex("\\s+"))
+            .flatMap { token -> if (token.length > 1) listOf(token) else emptyList() }
+        val candidates = (ledger + facts).distinctBy { it["fact"]?.toString()?.lowercase() }
+        return candidates.map { item ->
+            val fact = item["fact"]?.toString().orEmpty()
+            val holders = (item["holders"] as? List<*>)?.mapNotNull { it?.toString()?.trim() }
+                ?: emptyList()
+            val score = queryTokens.count { fact.lowercase().contains(it) } * 2 +
+                holders.count { it in participants }
+            score to item
+        }.sortedWith(compareByDescending<Pair<Int, Map<String, Any?>>> { it.first }
+            .thenByDescending { it.second["locked"] == true })
+            .take(12)
+            .map { it.second }
+    }
+
+    private fun buildOriginalSourceContext(
+        runManifest: JsonObject,
+        message: String,
+        participants: List<String>,
+        activeParticipants: List<String>,
+        sceneTerms: List<String> = emptyList(),
+        rebuildIfMissing: Boolean = false,
+    ): Map<String, Any?> {
+        val entries = originalKnowledge.search(
+            runManifest = runManifest,
+            query = message,
+            participants = participants,
+            activeParticipants = activeParticipants,
+            sceneTerms = sceneTerms,
+            rebuildIfMissing = rebuildIfMissing,
+            limit = 3,
+        )
+        return mapOf(
+            "entries" to entries,
+            "policy" to mapOf(
+                "grounding" to "Prefer explicit source evidence over model prior knowledge.",
+                "character_boundary" to "A character may assert a passage only when listed in allowed_characters. Uncertain passages are narration-only.",
+                "citation" to "Use retrieved source evidence internally; do not expose source paths or indexes in replies.",
+            ),
+        )
     }
 
     /** 读取 session manifest 的 memory_ledger → controlled_memories（对齐 Python：≤20 条、text ≤500）。 */
@@ -479,6 +608,7 @@ class DialoguePayloadBuilder(
         val ledger = session["memory_ledger"]?.jsonArray ?: return emptyList()
         return ledger.mapNotNull { item ->
             val obj = item.jsonObject
+            if (obj["enabled"]?.jsonPrimitive?.contentOrNull == "false") return@mapNotNull null
             val rawText = obj["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (rawText.isEmpty()) return@mapNotNull null
             val text = if (rawText.length <= 500) rawText else rawText.take(499).trimEnd() + "…"
@@ -588,7 +718,7 @@ class DialoguePayloadBuilder(
     // _build_turn_payload 迁移
     // ------------------------------------------------------------------
 
-    fun buildTurnPayload(
+    suspend fun buildTurnPayload(
         runManifest: JsonObject,
         session: JsonObject,
         turnId: String,
@@ -599,10 +729,15 @@ class DialoguePayloadBuilder(
     ): Map<String, Any?> {
         val participants = stringList(jsonValueToAny(session["participants"]))
         val mode = session["mode"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "observe" }
+        val controlledCharacterName = if (mode == "act") {
+            session["controlled_character"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        } else {
+            ""
+        }
         val normalizedMessageKind = DialoguePromptRules.normalizeMessageKind(messageKind)
         val speaker = speakerOverride.trim().ifEmpty {
             if (mode == "act") {
-                session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                controlledCharacterName
             } else if (mode == "insert") {
                 (session["self_profile"]?.jsonObject?.get("display_name")?.jsonPrimitive?.contentOrNull).orEmpty()
                     .ifBlank { "你" }
@@ -645,28 +780,75 @@ class DialoguePayloadBuilder(
             val active = if (mode == "act") deduped.filter { it != speaker } else deduped
             active.ifEmpty { if (mode == "act") deduped.take(1) else deduped }
         }
-        val mentionable = activeParticipants.filter { it != session["controlled_character"]?.jsonPrimitive?.contentOrNull?.trim() }
+        val mentionable = activeParticipants.filter { it != controlledCharacterName }
         val mentionTargets = extractMentionTargets(mentionable, message)
 
         val runId = runManifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        val personaContexts = buildPersonaContexts(
-            runManifest = runManifest,
-            participants = participants,
-            activeParticipants = activeParticipants,
-            mode = mode,
-            controlledCharacter = session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            snapshots = snapshots,
-        )
-        val relationExcerpt = loadRelationExcerpt(runManifest).let { text ->
-            if (text.length <= 1200) text else text.take(1199).trimEnd() + "…"
+        // These sources are independent and may involve separate document reads. Load them
+        // concurrently so a cold cache pays the slowest read rather than the sum of all reads.
+        val contextSources = coroutineScope {
+            val persona = async(platformIoDispatcher) {
+                buildPersonaContexts(
+                    runManifest = runManifest,
+                    participants = participants,
+                    activeParticipants = activeParticipants,
+                    mode = mode,
+                    controlledCharacter = controlledCharacterName,
+                    snapshots = snapshots,
+                )
+            }
+            val relation = async(platformIoDispatcher) {
+                loadRelationExcerpt(runManifest).let { text ->
+                    if (text.length <= 1200) text else text.take(1199).trimEnd() + "…"
+                }
+            }
+            val world = async(platformIoDispatcher) { loadWorldFacts(runId, session) }
+            val original = async(platformIoDispatcher) {
+                buildOriginalSourceContext(
+                    runManifest = runManifest,
+                    message = message,
+                    participants = participants,
+                    activeParticipants = activeParticipants,
+                    sceneTerms = listOf(sceneProgress["location"], sceneProgress["progression_note"])
+                        .filterNotNull()
+                        .map { it.toString() },
+                )
+            }
+            val memories = async(platformIoDispatcher) {
+                longTermMemory.search(
+                    runId = runId,
+                    sessionId = sessionId,
+                    query = listOf(message, sceneProgress["location"], sceneProgress["progression_note"])
+                        .filterNotNull().joinToString(" "),
+                    limit = 3,
+                )
+            }
+            TurnContextSources(
+                personaContexts = persona.await(),
+                relationExcerpt = relation.await(),
+                worldFacts = world.await(),
+                originalSourceContext = original.await(),
+                retrievedMemories = memories.await(),
+            )
         }
+        val personaContexts = contextSources.personaContexts
+        val relationExcerpt = contextSources.relationExcerpt
+        val worldFacts = contextSources.worldFacts
+        val knowledgeContext = loadKnowledgeContext(
+            session = session,
+            worldFacts = worldFacts,
+            query = message,
+            participants = participants,
+        )
+        val originalSourceContext = contextSources.originalSourceContext
+        val retrievedMemories = contextSources.retrievedMemories
         val memoryContext = mapOf(
             "session_summary" to emptyMap<String, Any?>(),
             "archived_summary" to emptyMap<String, Any?>(),
             "controlled_memories" to loadControlledMemories(session),
-            "world_facts" to loadWorldFacts(runId),
-            "retrieved_memories" to emptyList<Any?>(),
+            "world_facts" to worldFacts,
+            "retrieved_memories" to retrievedMemories,
             "scene_progress" to sceneProgress,
             "relation_delta" to emptyMap<String, Any?>(),
             "character_snapshots" to snapshots,
@@ -687,7 +869,6 @@ class DialoguePayloadBuilder(
             "Return 1-$responseLimitHint in-world replies. " +
                 "Let only characters who are currently present respond; do not force every participant to speak each turn."
         }
-        val controlledCharacterName = session["controlled_character"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val instructions = mapOf(
             "mode" to mode,
             "generation_goal" to (
@@ -737,7 +918,7 @@ class DialoguePayloadBuilder(
         )
         val mergedResponderHints = applyPlanToHints(responderHints, speakerPlan)
 
-        val expectedOutput: List<Any?> = if (normalizedMessageKind == "plot") {
+        val expectedResponses: List<Any?> = if (normalizedMessageKind == "plot") {
             listOf(
                 mapOf("speaker" to "场景提示", "message" to "A concrete event or state change happening now."),
                 mapOf(
@@ -755,6 +936,7 @@ class DialoguePayloadBuilder(
                 ).filterValues { it != null },
             )
         }
+        val expectedOutput = mapOf("responses" to expectedResponses)
         val outputRule = (
             if (normalizedMessageKind == "plot") {
                 "Return the required scene-level beat first, then in-world character reactions. " +
@@ -763,7 +945,7 @@ class DialoguePayloadBuilder(
                 "Return only in-world character replies. " +
                     "Do not split obvious small actions into standalone narration; keep them inside the speaking character's line with brief parenthetical action. "
             }
-            ) + "Do not explain the workflow or mention prompts."
+            ) + "Return one JSON object whose only top-level field is responses. Do not explain the workflow or mention prompts."
 
         return mapOf(
             "kind" to "zaomeng_dialogue_turn",
@@ -779,7 +961,7 @@ class DialoguePayloadBuilder(
                 "participants" to participants,
                 "active_participants" to activeParticipants,
                 "mention_targets" to mentionTargets,
-                "controlled_character" to (session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()),
+                "controlled_character" to controlledCharacterName,
                 "scene_card" to sceneCard,
                 "scene_progress" to sceneProgress,
                 "character_snapshots" to snapshots,
@@ -788,8 +970,8 @@ class DialoguePayloadBuilder(
             "history" to latestHistory,
             "scene_card" to sceneCard,
             "memory_context" to memoryContext,
-            "original_source_context" to emptyMap<String, Any?>(),
-            "knowledge_context" to emptyList<Any?>(),
+            "original_source_context" to originalSourceContext,
+            "knowledge_context" to knowledgeContext,
             "scene_progress" to sceneProgress,
             "persona_contexts" to personaContexts,
             "relation_context" to mapOf(
@@ -815,7 +997,7 @@ class DialoguePayloadBuilder(
     // suggestion / association / director payload（service.py:2056-2187）
     // ------------------------------------------------------------------
 
-    fun buildSuggestionPayload(
+    suspend fun buildSuggestionPayload(
         runManifest: JsonObject,
         session: JsonObject,
         seedText: String = "",
@@ -859,7 +1041,7 @@ class DialoguePayloadBuilder(
         return payload
     }
 
-    fun buildAssociationPayload(
+    suspend fun buildAssociationPayload(
         runManifest: JsonObject,
         session: JsonObject,
         optionCount: Int = 3,
@@ -893,7 +1075,7 @@ class DialoguePayloadBuilder(
         return payload
     }
 
-    fun buildDirectorPayload(
+    suspend fun buildDirectorPayload(
         runManifest: JsonObject,
         session: JsonObject,
         goal: String,
@@ -966,13 +1148,34 @@ class DialoguePayloadBuilder(
         val participants = stringList(jsonValueToAny(session["participants"]))
         val history = (session["transcript"]?.jsonArray ?: JsonArray(emptyList()))
             .mapNotNull { it.jsonObject }.takeLast(8).map { jsonMap(it) }
+        val latestUserMessage = history.asReversed()
+            .firstOrNull { it["role"]?.toString() == "user" }
+            ?.get("message")?.toString().orEmpty()
+        val sceneProgress = loadCanonicalSceneProgress(session)
         return mapOf(
             "mode" to (session["mode"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()),
             "participants" to participants,
-            "scene_progress" to emptyMap<String, Any?>(),
+            "scene_progress" to sceneProgress,
             "persona_contexts" to emptyList<Any?>(),
             "relation_context" to emptyMap<String, Any?>(),
-            "knowledge_context" to emptyList<Any?>(),
+            "original_source_context" to buildOriginalSourceContext(
+                runManifest = runManifest,
+                message = latestUserMessage,
+                participants = participants,
+                activeParticipants = participants,
+                sceneTerms = listOf(sceneProgress["location"], sceneProgress["progression_note"])
+                    .filterNotNull()
+                    .map { it.toString() },
+            ),
+            "knowledge_context" to loadKnowledgeContext(
+                session = session,
+                worldFacts = loadWorldFacts(
+                    runManifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    session,
+                ),
+                query = "",
+                participants = participants,
+            ),
             "history" to history,
             "input" to emptyMap<String, Any?>(),
             "responses" to responses,

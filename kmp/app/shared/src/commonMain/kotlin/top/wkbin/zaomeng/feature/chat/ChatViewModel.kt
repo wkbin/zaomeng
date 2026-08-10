@@ -72,6 +72,7 @@ private const val INNER_THOUGHTS_ENHANCER_KEY =
     "com.zaomeng.inner-thoughts/inner-thoughts"
 private const val MODEL_REASONING_DISPLAY_LIMIT = 16_000
 private const val MODEL_REASONING_UPDATE_INTERVAL_NANOS = 100_000_000L
+private const val STREAMING_UI_UPDATE_INTERVAL_MS = 40L
 
 data class StreamingReplyPart(
     val index: Int,
@@ -750,6 +751,60 @@ class ChatViewModel(
             var reasoningTruncated = false
             var reasoningFinalized = false
             var lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
+            val pendingReplyDeltas = mutableListOf<DialogueStreamEvent.Delta>()
+            var replyDeltaFlushJob: Job? = null
+            var hasDisplayedReplyDelta = false
+
+            fun flushReplyDeltas() {
+                if (pendingReplyDeltas.isEmpty()) return
+                val batch = pendingReplyDeltas.toList()
+                pendingReplyDeltas.clear()
+                updateSendState(snapshot, operationId) { current ->
+                    val repliesByIndex = current.streamingReplies.associateBy(StreamingReplyPart::index).toMutableMap()
+                    batch.forEach { event ->
+                        val existing = repliesByIndex[event.index]
+                        repliesByIndex[event.index] = if (event.field == "inner_thought") {
+                            StreamingReplyPart(
+                                index = event.index,
+                                speaker = event.speaker.ifBlank { existing?.speaker.orEmpty() },
+                                role = event.role.ifBlank { existing?.role ?: "character" },
+                                text = existing?.text.orEmpty(),
+                                innerThought = existing?.innerThought.orEmpty() + event.text,
+                            )
+                        } else {
+                            StreamingReplyPart(
+                                index = event.index,
+                                speaker = event.speaker.ifBlank { existing?.speaker.orEmpty() },
+                                role = event.role.ifBlank { existing?.role ?: "character" },
+                                text = existing?.text.orEmpty() + event.text,
+                                innerThought = existing?.innerThought.orEmpty(),
+                            )
+                        }
+                    }
+                    current.copy(
+                        pendingUserMessage = current.pendingUserMessage?.copy(
+                            statusText = "正在生成回复",
+                        ),
+                        streamingReplies = repliesByIndex.values.sortedBy(StreamingReplyPart::index),
+                    )
+                }
+            }
+
+            fun queueReplyDelta(event: DialogueStreamEvent.Delta) {
+                pendingReplyDeltas += event
+                // The first visible dialogue delta should reach Compose immediately.
+                // Later deltas remain frame-batched to avoid excessive recomposition.
+                if (!hasDisplayedReplyDelta) {
+                    hasDisplayedReplyDelta = true
+                    flushReplyDeltas()
+                    return
+                }
+                if (replyDeltaFlushJob?.isActive == true) return
+                replyDeltaFlushJob = viewModelScope.launch {
+                    delay(STREAMING_UI_UPDATE_INTERVAL_MS)
+                    flushReplyDeltas()
+                }
+            }
 
             fun flushReasoning(force: Boolean = false) {
                 if (reasoningBuffer.isEmpty() && !reasoningTruncated) return
@@ -843,39 +898,13 @@ class ChatViewModel(
                                 flushReasoning(force = true)
                                 reasoningFinalized = true
                             }
-                            updateSendState(snapshot, operationId) { current ->
-                                val existing = current.streamingReplies
-                                    .firstOrNull { it.index == event.index }
-                                val updated = if (event.field == "inner_thought") {
-                                    StreamingReplyPart(
-                                        index = event.index,
-                                        speaker = event.speaker.ifBlank { existing?.speaker.orEmpty() },
-                                        role = event.role.ifBlank { existing?.role ?: "character" },
-                                        text = existing?.text.orEmpty(),
-                                        innerThought = existing?.innerThought.orEmpty() + event.text,
-                                    )
-                                } else {
-                                    StreamingReplyPart(
-                                        index = event.index,
-                                        speaker = event.speaker.ifBlank { existing?.speaker.orEmpty() },
-                                        role = event.role.ifBlank { existing?.role ?: "character" },
-                                        text = existing?.text.orEmpty() + event.text,
-                                        innerThought = existing?.innerThought.orEmpty(),
-                                    )
-                                }
-                                current.copy(
-                                    pendingUserMessage = current.pendingUserMessage?.copy(
-                                        statusText = "正在生成回复",
-                                    ),
-                                    streamingReplies = current.streamingReplies
-                                        .filterNot { it.index == event.index }
-                                        .plus(updated)
-                                        .sortedBy(StreamingReplyPart::index),
-                                )
-                            }
+                            queueReplyDelta(event)
                         }
                         is DialogueStreamEvent.Reset -> {
+                            replyDeltaFlushJob?.cancel()
+                            pendingReplyDeltas.clear()
                             reasoningBuffer.setLength(0)
+                            hasDisplayedReplyDelta = false
                             reasoningTruncated = false
                             reasoningFinalized = false
                             lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
@@ -887,6 +916,8 @@ class ChatViewModel(
                             }
                         }
                         is DialogueStreamEvent.Complete -> {
+                            replyDeltaFlushJob?.cancel()
+                            flushReplyDeltas()
                             if (!reasoningFinalized) flushReasoning(force = true)
                             val baseline = snapshot.session?.transcript.orEmpty()
                             val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
@@ -941,8 +972,11 @@ class ChatViewModel(
                     }
                 }
             } catch (cancelled: CancellationException) {
+                replyDeltaFlushJob?.cancel()
                 throw cancelled
             } catch (error: Throwable) {
+                replyDeltaFlushJob?.cancel()
+                pendingReplyDeltas.clear()
                 handleStreamingFailure(
                     snapshot,
                     operationId,

@@ -13,7 +13,7 @@ import top.wkbin.zaomeng.data.preferences.UI_SCALE_DEFAULT
 import top.wkbin.zaomeng.data.preferences.ThemeMode
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.navigation.ZaomengNavHost
-import top.wkbin.zaomeng.ui.theme.MyApplicationTheme
+import top.wkbin.zaomeng.ui.theme.ZaomengTheme
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 
@@ -75,7 +75,7 @@ fun App(
         )
     }
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
-        MyApplicationTheme(
+        ZaomengTheme(
             themeMode = themeMode,
             dynamicColorEnabled = dynamicColorEnabled,
             themeSeedColorArgb = themeSeedColorArgb,

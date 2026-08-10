@@ -119,6 +119,7 @@ class PersonaService(
             ),
             temperature = 0.2,
             maxTokens = 700,
+            requireJsonObject = true,
         )
         val text = response.choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (text.isBlank()) throw IllegalStateException("LLM returned empty persona field")

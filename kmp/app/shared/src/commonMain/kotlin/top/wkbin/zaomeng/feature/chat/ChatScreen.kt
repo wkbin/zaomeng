@@ -1025,12 +1025,12 @@ private fun Transcript(
             (if (sending && modelReasoning.isNotBlank()) 1 else 0) +
             if (pendingUserMessage == null) 0 else 1
     val lastContentIndex = (visibleCount - 1).coerceAtLeast(0)
-    val contentSignature = transcript.lastOrNull()?.message.orEmpty() +
-            streamingReplies.joinToString(separator = "|") { it.text } +
-            modelReasoning +
-            pendingUserMessage?.let { "${it.operationId}|${it.status}|${it.statusText}" }.orEmpty()
+    val contentRevision = (transcript.lastOrNull()?.message?.hashCode() ?: 0) * 31 +
+            streamingReplies.sumOf { it.text.length + it.innerThought.length } * 17 +
+            modelReasoning.length * 13 +
+            (pendingUserMessage?.let { 31 * it.status.hashCode() + it.statusText.hashCode() } ?: 0)
     val firstKey = transcript.firstOrNull()?.transcriptKey().orEmpty()
-    LaunchedEffect(visibleCount, contentSignature, sending, firstKey) {
+    LaunchedEffect(visibleCount, contentRevision, sending, firstKey) {
         // 向上加载历史会整体前插：首条 key 变化且数量增加视为 prepend，不纳入“新消息”计数
         val prepended = firstKey.isNotBlank() && firstKey != previousFirstKey &&
             transcript.size != previousVisibleCount

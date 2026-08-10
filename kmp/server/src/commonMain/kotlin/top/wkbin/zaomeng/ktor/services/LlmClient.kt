@@ -8,7 +8,6 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -21,7 +20,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.createHttpClientEngine
-import top.wkbin.zaomeng.platform.nowEpochMillis
+import top.wkbin.zaomeng.platform.openStreamingHttpPost
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -142,6 +141,11 @@ class LlmClient(
     )
 
     @Serializable
+    data class ResponseFormat(
+        val type: String,
+    )
+
+    @Serializable
     data class ChatCompletionRequest(
         val model: String,
         val messages: List<ChatMessage>,
@@ -153,7 +157,25 @@ class LlmClient(
         // DeepSeek reasoning_effort（low/medium/high/xhigh→max 等）：控制思考预算；null 不输出
         @SerialName("reasoning_effort")
         val reasoningEffort: String? = null,
+        @SerialName("response_format")
+        val responseFormat: ResponseFormat? = null,
     )
+
+    private fun nativeJsonResponseFormat(
+        profile: Map<String, String>,
+        model: String,
+        required: Boolean,
+    ): ResponseFormat? {
+        if (!required) return null
+        val baseUrl = profile["base_url"]?.trim()?.lowercase().orEmpty()
+        // DeepSeek V4 官方端点明确支持 Chat Completions JSON Output。
+        // 未声明能力的第三方 OpenAI-compatible 服务仍靠提示词约束，避免请求参数不兼容。
+        return if ("api.deepseek.com" in baseUrl && model.startsWith("deepseek-v4-")) {
+            ResponseFormat(type = "json_object")
+        } else {
+            null
+        }
+    }
 
     @Serializable
     data class ChatCompletionResponse(
@@ -258,6 +280,7 @@ class LlmClient(
         temperature: Double? = null,
         maxTokens: Int? = null,
         enableReasoning: Boolean = false,
+        requireJsonObject: Boolean = false,
     ): ChatCompletionResponse {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -276,6 +299,7 @@ class LlmClient(
             stream = false,
             thinking = thinking,
             reasoningEffort = reasoningEffort,
+            responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
         return retryWithBackoff(maxRetries = DEFAULT_MAX_RETRIES) {
@@ -340,7 +364,6 @@ class LlmClient(
      * @return Final accumulated response
      * @throws Exception on API errors or network failures
      */
-    @Suppress("DEPRECATION") // readUTF8Line 刻意用于逐行流式（EOF 返回 null），见下方注释
     suspend fun chatCompletionStream(
         messages: List<ChatMessage>,
         onDelta: (String) -> Unit,
@@ -349,6 +372,7 @@ class LlmClient(
         maxTokens: Int? = null,
         onReasoning: (String) -> Unit = {},
         enableReasoning: Boolean = false,
+        requireJsonObject: Boolean = false,
     ): ChatCompletionResponse {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -367,71 +391,54 @@ class LlmClient(
             stream = true,
             thinking = thinking,
             reasoningEffort = reasoningEffort,
+            responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
-        val response: HttpResponse = httpClient.post("$baseUrl/chat/completions") {
-            contentType(ContentType.Application.Json)
-            header("Authorization", "Bearer $apiKey")
-            setBody(request)
-        }
-
-        if (!response.status.isSuccess()) {
-            val errorBody = response.bodyAsText()
-            val errorMsg = try {
-                json.decodeFromString<ErrorResponse>(errorBody).error.message
-            } catch (e: Exception) {
-                errorBody
-            }
-            throw IllegalStateException("API error (${response.status}): $errorMsg")
-        }
-
-        // Parse SSE stream：逐行挂起读取（对齐 Python iter_lines(chunk_size=1)，
-        // readUTF8Line 读到 \n 即返回，避免任何整块缓冲）
-        val contentBuilder = StringBuilder()
-        var finishReason: String? = null
-        var responseModel = resolvedModel
-
-        val channel = response.bodyAsChannel()
-        while (true) {
-            val line = channel.readUTF8Line() ?: break
-            if (!line.startsWith("data: ")) {
-                continue
-            }
-            val data = line.substring(6).trim()
-            if (data == "[DONE]") {
-                continue
-            }
-
-            try {
-                val chunk = json.decodeFromString<StreamChunk>(data)
-                responseModel = chunk.model
-                val delta = chunk.choices.firstOrNull()?.delta
-                val deltaContent = delta?.content
-                if (deltaContent != null && deltaContent.isNotBlank()) {
-                    contentBuilder.append(deltaContent)
-                    onDelta(deltaContent)
-                }
-                delta?.reasoningContent?.takeIf { it.isNotBlank() }?.let { onReasoning.invoke(it) }
-                chunk.choices.firstOrNull()?.finishReason?.let {
-                    finishReason = it
-                }
-            } catch (e: Exception) {
-                PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
-            }
-        }
-
-        // Return final accumulated response
-        return ChatCompletionResponse(
-            model = responseModel,
-            choices = listOf(
-                Choice(
-                    index = 0,
-                    message = ChatMessage(role = "assistant", content = contentBuilder.toString()),
-                    finish_reason = finishReason
-                )
-            ),
-            usage = null // Usage not available in streaming mode
+        val response = openStreamingHttpPost(
+            url = "$baseUrl/chat/completions",
+            headers = mapOf("Authorization" to "Bearer $apiKey"),
+            body = json.encodeToString(ChatCompletionRequest.serializer(), request),
         )
+        try {
+            if (response.statusCode !in 200..299) {
+                throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
+            }
+
+            val contentBuilder = StringBuilder()
+            var finishReason: String? = null
+            var responseModel = resolvedModel
+            while (true) {
+                val data = sseData(response.readUtf8Line() ?: break) ?: continue
+                if (data == "[DONE]") continue
+                try {
+                    val chunk = json.decodeFromString<StreamChunk>(data)
+                    responseModel = chunk.model.ifBlank { responseModel }
+                    val delta = chunk.choices.firstOrNull()?.delta
+                    delta?.content?.takeIf { it.isNotEmpty() }?.let {
+                        contentBuilder.append(it)
+                        onDelta(it)
+                    }
+                    delta?.reasoningContent?.takeIf { it.isNotEmpty() }?.let(onReasoning)
+                    chunk.choices.firstOrNull()?.finishReason?.let { finishReason = it }
+                } catch (e: Exception) {
+                    PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
+                }
+            }
+
+            return ChatCompletionResponse(
+                model = responseModel,
+                choices = listOf(
+                    Choice(
+                        index = 0,
+                        message = ChatMessage(role = "assistant", content = contentBuilder.toString()),
+                        finish_reason = finishReason,
+                    )
+                ),
+                usage = null,
+            )
+        } finally {
+            response.close()
+        }
     }
 
     /**
@@ -444,7 +451,6 @@ class LlmClient(
      * @return Flow of content deltas
      * @throws Exception on API errors or network failures
      */
-    @Suppress("DEPRECATION") // readUTF8Line 刻意用于逐行流式（EOF 返回 null），见下方注释
     fun chatCompletionStream(
         messages: List<ChatMessage>,
         model: String? = null,
@@ -452,6 +458,7 @@ class LlmClient(
         maxTokens: Int? = null,
         onReasoning: (suspend (String) -> Unit)? = null,
         enableReasoning: Boolean = false,
+        requireJsonObject: Boolean = false,
     ): Flow<String> = flow {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -470,49 +477,49 @@ class LlmClient(
             stream = true,
             thinking = thinking,
             reasoningEffort = reasoningEffort,
+            responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
-        val response: HttpResponse = httpClient.post("$baseUrl/chat/completions") {
-            contentType(ContentType.Application.Json)
-            header("Authorization", "Bearer $apiKey")
-            setBody(request)
-        }
-
-        if (!response.status.isSuccess()) {
-            val errorBody = response.bodyAsText()
-            val errorMsg = try {
-                json.decodeFromString<ErrorResponse>(errorBody).error.message
-            } catch (e: Exception) {
-                errorBody
+        val response = openStreamingHttpPost(
+            url = "$baseUrl/chat/completions",
+            headers = mapOf("Authorization" to "Bearer $apiKey"),
+            body = json.encodeToString(ChatCompletionRequest.serializer(), request),
+        )
+        try {
+            if (response.statusCode !in 200..299) {
+                throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
             }
-            throw IllegalStateException("API error (${response.status}): $errorMsg")
-        }
-
-        // Parse SSE stream and emit deltas：逐行挂起读取（对齐 Python iter_lines(chunk_size=1)）
-        val channel = response.bodyAsChannel()
-        while (true) {
-            val line = channel.readUTF8Line() ?: break
-            if (!line.startsWith("data: ")) {
-                continue
-            }
-            val data = line.substring(6).trim()
-            if (data == "[DONE]") {
-                continue
-            }
-
-            try {
-                val chunk = json.decodeFromString<StreamChunk>(data)
-                val delta = chunk.choices.firstOrNull()?.delta
-                val deltaContent = delta?.content
-                if (deltaContent != null && deltaContent.isNotBlank()) {
-                    PlatformLog.d(TAG, "emit@${nowEpochMillis()} ${deltaContent.take(20)}")
-                    emit(deltaContent)
+            while (true) {
+                val data = sseData(response.readUtf8Line() ?: break) ?: continue
+                if (data == "[DONE]") continue
+                try {
+                    val chunk = json.decodeFromString<StreamChunk>(data)
+                    val delta = chunk.choices.firstOrNull()?.delta
+                    delta?.content?.takeIf { it.isNotEmpty() }?.let { emit(it) }
+                    delta?.reasoningContent?.takeIf { it.isNotEmpty() }?.let { onReasoning?.invoke(it) }
+                } catch (e: Exception) {
+                    PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
                 }
-                delta?.reasoningContent?.takeIf { it.isNotBlank() }?.let { onReasoning?.invoke(it) }
-            } catch (e: Exception) {
-                PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
             }
+        } finally {
+            response.close()
         }
+    }
+
+    private fun sseData(line: String): String? {
+        if (!line.startsWith("data:")) return null
+        return line.substring(5).trimStart()
+    }
+
+    private fun modelApiError(statusCode: Int, statusDescription: String, body: String): IllegalStateException {
+        val message = runCatching { json.decodeFromString<ErrorResponse>(body).error.message }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: body
+        val status = listOf(statusCode.toString(), statusDescription.trim())
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+        return IllegalStateException("API error ($status): $message")
     }
 
     /**

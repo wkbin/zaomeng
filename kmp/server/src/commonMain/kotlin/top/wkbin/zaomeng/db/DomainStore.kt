@@ -8,6 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import okio.Path
 import top.wkbin.zaomeng.platform.parseYaml
 import top.wkbin.zaomeng.platform.runBlockingPlatform
@@ -157,12 +158,17 @@ class DomainStore(
                     manifest = text,
                 ),
             )
-            syncMessages(runId, sessionId, manifest["transcript"] as? JsonArray ?: JsonArray(emptyList()))
+            syncMessages(
+                runId = runId,
+                sessionId = sessionId,
+                transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList()),
+                startSeq = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0,
+            )
         }
     }
 
-    private suspend fun syncMessages(runId: String, sessionId: String, transcript: JsonArray) {
-        dao.deleteMessagesOf(runId, sessionId)
+    private suspend fun syncMessages(runId: String, sessionId: String, transcript: JsonArray, startSeq: Int) {
+        dao.deleteMessagesFrom(runId, sessionId, startSeq)
         val messages = transcript.mapIndexedNotNull { seq, element ->
             runCatching {
                 val item = element.jsonObject
@@ -170,7 +176,7 @@ class DomainStore(
                     runId = runId,
                     sessionId = sessionId,
                     turnId = item["turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    seq = seq,
+                    seq = startSeq + seq,
                     speaker = item["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     role = item["role"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     message = item["message"]?.jsonPrimitive?.contentOrNull.orEmpty(),
