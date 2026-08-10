@@ -50,8 +50,6 @@ class MainActivity : ComponentActivity() {
         val initialPreferences = runBlocking {
             GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
         }
-        // 窗口创建前按持久化开关应用预测性返回设置（默认关闭，参考 KernelSU）。
-        PredictiveBack.setEnabled(applicationInfo, initialPreferences.predictiveBackEnabled)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         startupUpdateCheckDisabled = AppUpdatePreferences.isStartupCheckDisabled(this)
@@ -73,13 +71,11 @@ class MainActivity : ComponentActivity() {
                 initialThemeSeedColorArgb = initialPreferences.themeSeedColorArgb,
                 initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
-                initialPredictiveBackEnabled = initialPreferences.predictiveBackEnabled,
-                onPredictiveBackEnabledChange = { enabled ->
+                initialBuiltInBackHandlingEnabled = initialPreferences.builtInBackHandlingEnabled,
+                onBuiltInBackHandlingEnabledChange = { enabled ->
                     lifecycleScope.launch {
                         GlobalContext.get().get<AppPreferencesRepository>()
-                            .setPredictiveBackEnabled(enabled)
-                        PredictiveBack.setEnabled(applicationInfo, enabled)
-                        recreate()
+                            .setBuiltInBackHandlingEnabled(enabled)
                     }
                 },
             )

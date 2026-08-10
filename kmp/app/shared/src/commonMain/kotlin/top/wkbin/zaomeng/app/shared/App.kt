@@ -39,10 +39,10 @@ fun App(
     initialDynamicColorEnabled: Boolean = false,
     /** 平台入口在启动时同步读取的持久化界面缩放，避免首帧先按 100% 渲染。 */
     initialUiScale: Float = UI_SCALE_DEFAULT,
-    /** Android 预测性返回开关切换回调（参考 KernelSU）：由平台入口持久化并重建 Activity 生效。 */
-    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
-    /** 平台入口在启动时同步读取的持久化预测性返回开关（默认关闭），用于导航返回兜底。 */
-    initialPredictiveBackEnabled: Boolean = false,
+    /** Android 内置导航返回处理开关切换回调，由平台入口持久化。 */
+    onBuiltInBackHandlingEnabledChange: (Boolean) -> Unit = {},
+    /** 平台入口在启动时同步读取的内置导航返回处理开关。 */
+    initialBuiltInBackHandlingEnabled: Boolean = true,
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
@@ -57,8 +57,8 @@ fun App(
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(
         initialValue = initialUiScale,
     )
-    val predictiveBackEnabled by preferencesRepository.predictiveBackEnabled.collectAsStateWithLifecycle(
-        initialValue = initialPredictiveBackEnabled,
+    val builtInBackHandlingEnabled by preferencesRepository.builtInBackHandlingEnabled.collectAsStateWithLifecycle(
+        initialValue = initialBuiltInBackHandlingEnabled,
     )
     val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -88,8 +88,8 @@ fun App(
                 onStartupUpdateCheckDisabledChange = onStartupUpdateCheckDisabledChange,
                 launchChaptersRunId = launchChaptersRunId,
                 onChaptersLaunchConsumed = onChaptersLaunchConsumed,
-                onPredictiveBackEnabledChange = onPredictiveBackEnabledChange,
-                predictiveBackEnabled = predictiveBackEnabled,
+                onBuiltInBackHandlingEnabledChange = onBuiltInBackHandlingEnabledChange,
+                builtInBackHandlingEnabled = builtInBackHandlingEnabled,
             )
         }
     }

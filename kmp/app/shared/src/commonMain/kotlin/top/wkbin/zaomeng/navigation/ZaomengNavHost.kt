@@ -1,8 +1,16 @@
 ﻿package top.wkbin.zaomeng.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +23,8 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import androidx.window.core.layout.WindowSizeClass
 import org.koin.core.parameter.parametersOf
 import org.koin.compose.viewmodel.koinViewModel
@@ -78,12 +88,10 @@ fun ZaomengNavHost(
     onStartupUpdateCheckDisabledChange: (Boolean) -> Unit = {},
     launchChaptersRunId: String? = null,
     onChaptersLaunchConsumed: () -> Unit = {},
-    /** Android 预测性返回开关切换回调（参考 KernelSU），桌面/iOS 无此能力。 */
-    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
-    /** Android 预测性返回是否开启：关闭时 N3 的 OnBackInvoked 回调会被系统拒绝注册，
-     *  需要 AndroidX BackHandler（OnBackPressedDispatcher，走 legacy KEYCODE_BACK 路径）兜底；
-     *  开启时交给 NavDisplay 的预测返回回调，避免双触发。 */
-    predictiveBackEnabled: Boolean = false,
+    /** Android 内置导航返回处理开关切换回调，桌面/iOS 不展示此开关。 */
+    onBuiltInBackHandlingEnabledChange: (Boolean) -> Unit = {},
+    /** 是否由 Navigation3/NavDisplay 处理应用内返回；关闭时回退到 AndroidX BackHandler。 */
+    builtInBackHandlingEnabled: Boolean = true,
 ) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
 
@@ -103,19 +111,22 @@ fun ZaomengNavHost(
     // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回首页而不是退出；
     // 首页（栈深 1）时不做任何事，由系统处理退出。
     // 书卷架始终作为栈底（tab 切换只替换其上的内容），因此任何 tab 下返回都有真实的
-    // 应用内上一页可供预测返回预览，而不是直接预览"退出应用"。
+    // 应用内上一页可供内置返回动画预览，而不是直接预览"退出应用"。
     val popBack: () -> Unit = {
         if (backStack.size > 1) {
             backStack.removeLastOrNull()
         }
     }
 
-    // 预测返回关闭（默认）时，N3 注册的普通 OnBackInvokedCallback 会被系统拒绝，
-    // 系统退回 legacy KEYCODE_BACK → Activity.onBackPressed → OnBackPressedDispatcher 路径，
-    // 因此用 AndroidX BackHandler 兜底，保证返回键/手势始终可用（参考 KernelSU：栈深 >1 才拦截）。
+    // 内置处理关闭时，隔离 NavDisplay 的 NavigationEventDispatcher，
+    // 由 AndroidX BackHandler 接管应用内导航栈（栈深 >1 才拦截）。
     PlatformBackHandler(
-        enabled = !predictiveBackEnabled && backStack.size > 1,
+        enabled = !builtInBackHandlingEnabled && backStack.size > 1,
         onBack = popBack,
+    )
+
+    val navEventOwner = rememberNavigationEventDispatcherOwner(
+        enabled = builtInBackHandlingEnabled,
     )
 
     val navEntryProvider = entryProvider<NavKey> {
@@ -161,7 +172,7 @@ fun ZaomengNavHost(
             entry(AppearanceSettingsDestination) {
                 AppearanceSettingsScreen(
                     onBack = popBack,
-                    onPredictiveBackEnabledChange = onPredictiveBackEnabledChange,
+                    onBuiltInBackHandlingEnabledChange = onBuiltInBackHandlingEnabledChange,
                 )
             }
             entry(StartupRecoverySettingsDestination) {
@@ -360,30 +371,46 @@ fun ZaomengNavHost(
                     }
                 },
             )
+            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
+                NavDisplay(
+                    backStack = backStack,
+                    modifier = Modifier.fillMaxHeight().weight(1f),
+                    onBack = popBack,
+                    entryProvider = navEntryProvider,
+                    predictivePopTransitionSpec = { _ -> lightPredictivePopTransition() },
+                    entryDecorators = listOf(
+                        rememberSaveableStateHolderNavEntryDecorator(),
+                        rememberViewModelStoreNavEntryDecorator(),
+                    ),
+                )
+            }
+        }
+    } else {
+        CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
             NavDisplay(
                 backStack = backStack,
-                modifier = Modifier.fillMaxHeight().weight(1f),
+                modifier = Modifier.fillMaxSize(),
                 onBack = popBack,
                 entryProvider = navEntryProvider,
+                predictivePopTransitionSpec = { _ -> lightPredictivePopTransition() },
                 entryDecorators = listOf(
                     rememberSaveableStateHolderNavEntryDecorator(),
                     rememberViewModelStoreNavEntryDecorator(),
                 ),
             )
         }
-    } else {
-        NavDisplay(
-            backStack = backStack,
-            modifier = Modifier.fillMaxSize(),
-            onBack = popBack,
-            entryProvider = navEntryProvider,
-            entryDecorators = listOf(
-                rememberSaveableStateHolderNavEntryDecorator(),
-                rememberViewModelStoreNavEntryDecorator(),
-            ),
-        )
     }
 }
+
+/**
+ * 轻量级预测返回动画：页面只做小幅缩放，同时沿返回方向平移，避免 NavDisplay 默认的
+ * 0.7 倍缩放产生明显的“缩进”效果。
+ */
+private fun AnimatedContentTransitionScope<*>.lightPredictivePopTransition(): ContentTransform =
+    slideInHorizontally(initialOffsetX = { -it / 8 }) +
+        scaleIn(initialScale = 0.98f) togetherWith
+        slideOutHorizontally(targetOffsetX = { it / 8 }) +
+        scaleOut(targetScale = 0.96f)
 
 /** 判断栈内条目是否为顶级导航目的地（侧栏 tab）。会话列表页视为顶级，书卷专属会话页不算。 */
 private fun NavKey.isTopLevelDestination(): Boolean = when (this) {

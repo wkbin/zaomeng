@@ -62,6 +62,7 @@ kotlin {
             api(libs.compose.lifecycle.viewmodel)
             implementation(libs.compose.lifecycle.viewmodel.navigation3)
             implementation(libs.jetbrains.navigation3.ui)
+            implementation(libs.androidx.navigationevent.compose)
             api(libs.paging.common)
             implementation(libs.paging.compose)
             implementation(libs.koin.core)

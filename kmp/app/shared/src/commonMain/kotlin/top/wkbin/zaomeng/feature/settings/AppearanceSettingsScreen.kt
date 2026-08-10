@@ -55,21 +55,21 @@ import top.wkbin.zaomeng.data.preferences.ThemeSeedColor
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_DEFAULT
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MAX
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MIN
-import top.wkbin.zaomeng.platform.predictiveBackSupported
+import top.wkbin.zaomeng.platform.backHandlingToggleSupported
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AppearanceSettingsScreen(
     onBack: () -> Unit,
-    /** 预测性返回开关切换回调（仅 Android 14+ 显示开关）：由平台入口持久化并重建 Activity 生效。 */
-    onPredictiveBackEnabledChange: (Boolean) -> Unit = {},
+    /** 内置导航返回处理开关切换回调（仅 Android 显示开关），由平台入口持久化。 */
+    onBuiltInBackHandlingEnabledChange: (Boolean) -> Unit = {},
     preferencesRepository: AppPreferencesRepository = koinInject(),
 ) {
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
     val themeSeedColorArgb by preferencesRepository.themeSeedColorArgb.collectAsStateWithLifecycle(0L)
     val dynamicColorEnabled by preferencesRepository.dynamicColorEnabled.collectAsStateWithLifecycle(false)
     val uiScale by preferencesRepository.uiScale.collectAsStateWithLifecycle(UI_SCALE_DEFAULT)
-    val predictiveBackEnabled by preferencesRepository.predictiveBackEnabled.collectAsStateWithLifecycle(false)
+    val builtInBackHandlingEnabled by preferencesRepository.builtInBackHandlingEnabled.collectAsStateWithLifecycle(true)
     var uiScaleDraft by remember { mutableFloatStateOf(uiScale) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(uiScale) { uiScaleDraft = uiScale }
@@ -209,7 +209,7 @@ fun AppearanceSettingsScreen(
                     }
                 }
             }
-            if (predictiveBackSupported()) {
+            if (backHandlingToggleSupported()) {
                 item {
                     Column {
                         Text(
@@ -234,16 +234,16 @@ fun AppearanceSettingsScreen(
                                     Modifier.weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(3.dp),
                                 ) {
-                                    Text("预测性返回手势", style = MaterialTheme.typography.bodyLarge)
+                                    Text("内置返回处理", style = MaterialTheme.typography.bodyLarge)
                                     Text(
-                                        "启用对预测性返回手势的支持。",
+                                        "开启后由 Navigation3 处理应用内返回并使用内置返回动画。",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Switch(
-                                    checked = predictiveBackEnabled,
-                                    onCheckedChange = onPredictiveBackEnabledChange,
+                                    checked = builtInBackHandlingEnabled,
+                                    onCheckedChange = onBuiltInBackHandlingEnabledChange,
                                 )
                             }
                         }
