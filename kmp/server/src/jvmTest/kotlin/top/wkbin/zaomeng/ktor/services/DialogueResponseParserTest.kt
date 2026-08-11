@@ -4,10 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/** 群聊兜底：同一角色连续多条时合并，避免同一人连着发消息。 */
+/** Consecutive alternatives from the same speaker must not become one oversized response. */
 class DialogueResponseParserTest {
     @Test
-    fun `consecutive same speaker messages are merged`() {
+    fun `consecutive same speaker messages keep only the first response`() {
         val content = """
             [{"speaker":"林七夜","message":"第一句。"},
              {"speaker":"林七夜","message":"第二句。"},
@@ -19,7 +19,7 @@ class DialogueResponseParserTest {
         )
         assertEquals(2, parsed.size)
         assertEquals("林七夜", parsed[0].speaker)
-        assertEquals("第一句。\n第二句。", parsed[0].message)
+        assertEquals("第一句。", parsed[0].message)
         assertEquals("沈青竹", parsed[1].speaker)
     }
 

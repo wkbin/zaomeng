@@ -497,6 +497,7 @@ class DialoguePromptBuilder(
         stableSystemParts.add(hostAction["output_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(promptLoader.getTurnSystemRule("small_action_rule"))
         stableSystemParts.add(promptLoader.getTurnSystemRule("json_only_rule"))
+        stableSystemParts.add(promptLoader.getTurnSystemRule("one_response_per_speaker_rule"))
         // 提示词增强（比 Python 多一句，用户确认）：见 prompts/dialogue/turn_system.yaml 的 no_code_fence_rule
         stableSystemParts.add(promptLoader.getTurnSystemRule("no_code_fence_rule"))
         if (includeInnerThoughts) {

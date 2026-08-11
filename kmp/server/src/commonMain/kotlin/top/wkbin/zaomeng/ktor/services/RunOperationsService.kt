@@ -425,6 +425,9 @@ class RunOperationsService(
     }
 
     fun resumeDistill(runId: String): JsonObject {
+        if (!distillExecutor.isConfigured()) {
+            throw IllegalArgumentException("请先在设置中完成模型配置。")
+        }
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         if (manifest["status"]?.jsonPrimitive?.contentOrNull == "running") {
             throw IllegalArgumentException("这本书已经在蒸馏中。")
@@ -434,14 +437,17 @@ class RunOperationsService(
             ?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty().toSet()
         val unfinished = locked.filterNot { it in completed }
         if (unfinished.isEmpty()) throw IllegalArgumentException("所有锁定的角色都已经蒸馏完成。")
-        return redistill(
-            runId,
-            characters = unfinished,
-            novelName = "",
-            novelContentBase64 = "",
-            maxSentences = 120,
-            maxChars = 50_000,
+        val updated = buildResumedDistillManifest(
+            manifest = manifest,
+            lockedCharacters = locked,
+            completedCharacters = completed,
+            now = nowIsoString(),
         )
+        storage.writeRunManifest(runId, updated)
+        // Pass the complete plan back to the executor. It reads completed_characters and skips
+        // materialized profiles, so resuming never loses the first part of a large batch.
+        distillExecutor.start(runId, locked)
+        return updated
     }
 
     // ------------------------------------------------------------------
@@ -691,5 +697,47 @@ class RunOperationsService(
                 manifest["artifact_index"]?.jsonObject?.get("relation_graph")?.let { put("relation_graph", it) }
             })
         }
+    }
+}
+
+internal fun buildResumedDistillManifest(
+    manifest: JsonObject,
+    lockedCharacters: List<String>,
+    completedCharacters: Set<String>,
+    now: String,
+): JsonObject {
+    val completedInPlan = lockedCharacters.filter(completedCharacters::contains)
+    val unfinishedCount = lockedCharacters.size - completedInPlan.size
+    return buildJsonObject {
+        manifest.forEach { (key, value) ->
+            if (key !in setOf("status", "updated_at", "progress", "control", "summary", "locked_characters")) {
+                put(key, value)
+            }
+        }
+        put("locked_characters", buildJsonArray { lockedCharacters.forEach { add(JsonPrimitive(it)) } })
+        put("status", "running")
+        put("updated_at", now)
+        put("progress", buildJsonObject {
+            manifest["progress"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+            put("stage", "starting")
+            put("message", "已保留 ${completedInPlan.size} 名人物，继续蒸馏剩余 $unfinishedCount 名人物。")
+            put("current_character", "")
+            put("completed_characters", buildJsonArray { completedInPlan.forEach { add(JsonPrimitive(it)) } })
+            put("total_characters", lockedCharacters.size)
+            put("completed_count", completedInPlan.size)
+            put("graph_status", "pending")
+            put("updated_at", now)
+        })
+        put("control", buildJsonObject {
+            manifest["control"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+            put("stop_requested", false)
+        })
+        put("summary", buildJsonObject {
+            manifest["summary"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+            put("characters_total", lockedCharacters.size)
+            put("characters_completed", completedInPlan.size)
+            put("graph_status", "pending")
+            put("status_text", "蒸馏中")
+        })
     }
 }

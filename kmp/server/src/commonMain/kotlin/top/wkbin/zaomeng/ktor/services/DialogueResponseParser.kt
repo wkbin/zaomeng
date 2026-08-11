@@ -62,8 +62,10 @@ object DialogueResponseParser {
         if (clean.isEmpty()) {
             throw IllegalArgumentException("Model reply did not contain usable character responses.")
         }
-        // 群聊兜底：同一角色连续多条时合并成一条，避免同一人连着发消息
-        return mergeConsecutiveSpeakers(clean)
+        // Each object is already a complete response. Some models emit several alternative
+        // continuations for the same speaker; keep the first one instead of joining them into
+        // an oversized message after streaming has shown several temporary bubbles.
+        return dropConsecutiveSpeakerRepeats(clean)
     }
 
     /**
@@ -97,20 +99,13 @@ object DialogueResponseParser {
         return listOf(DialogueResponse(speaker = eligible.single(), message = text))
     }
 
-    private fun mergeConsecutiveSpeakers(responses: List<DialogueResponse>): List<DialogueResponse> {
-        val merged = mutableListOf<DialogueResponse>()
+    private fun dropConsecutiveSpeakerRepeats(responses: List<DialogueResponse>): List<DialogueResponse> {
+        val accepted = mutableListOf<DialogueResponse>()
         for (response in responses) {
-            val last = merged.lastOrNull()
-            if (last != null && last.speaker == response.speaker) {
-                merged[merged.lastIndex] = last.copy(
-                    message = last.message + "\n" + response.message,
-                    innerThought = last.innerThought ?: response.innerThought,
-                )
-            } else {
-                merged += response
-            }
+            if (accepted.lastOrNull()?.speaker == response.speaker) continue
+            accepted += response
         }
-        return merged
+        return accepted
     }
 
     private fun loadLlmJson(text: String): JsonElement {

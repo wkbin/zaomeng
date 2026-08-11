@@ -38,7 +38,11 @@ class DialogueStreamParser(
         val messages = projectMessages()
         val events = mutableListOf<StreamEvent>()
 
-        messages.forEachIndexed { index, message ->
+        val visibleMessages = messages.filterIndexed { index, message ->
+            index == 0 || messages[index - 1].speaker != message.speaker
+        }
+        visibleMessages.forEach { message ->
+            val index = message.index
             val role = if (message.speaker in setOf("旁白", "场景提示")) "scene" else "assistant"
 
             // 处理 message 字段

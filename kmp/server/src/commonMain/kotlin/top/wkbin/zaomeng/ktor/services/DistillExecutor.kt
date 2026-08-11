@@ -934,9 +934,10 @@ class DistillExecutor(
     private suspend fun callLlm(messages: List<LlmClient.ChatMessage>, maxTokens: Int, temperature: Double): String {
         val client = llm ?: throw IllegalStateException("LLM 客户端未配置")
         var tokenBudget = maxTokens
+        var requestMessages = messages
         repeat(2) { attempt ->
             val choice = client.chatCompletion(
-                messages = messages,
+                messages = requestMessages,
                 temperature = temperature,
                 maxTokens = tokenBudget,
             ).choices.firstOrNull() ?: throw IllegalStateException("LLM 未返回候选内容")
@@ -945,10 +946,26 @@ class DistillExecutor(
             if (!choice.finish_reason.equals("length", ignoreCase = true)) {
                 return stripFences(content)
             }
-            if (attempt == 0 && tokenBudget < LLM_TRUNCATION_RETRY_MAX_TOKENS) {
+            if (attempt == 0) {
                 val nextBudget = (tokenBudget * 2).coerceAtMost(LLM_TRUNCATION_RETRY_MAX_TOKENS)
-                PlatformLog.w(TAG, "LLM output truncated at $tokenBudget tokens; retrying with $nextBudget tokens")
+                PlatformLog.w(
+                    TAG,
+                    "LLM output truncated at $tokenBudget tokens; retrying compactly with $nextBudget tokens",
+                )
                 tokenBudget = nextBudget
+                // OpenAI-compatible chat completion calls are stateless. Start a fresh generation
+                // from the original request and explicitly constrain verbosity; do not feed the
+                // truncated assistant output back into the context.
+                requestMessages = messages + LlmClient.ChatMessage(
+                    role = "user",
+                    content = """
+                        上一版输出超过 token 上限。请从头重新生成完整结果，不要续写、复述或解释上一版。
+                        必须保留输出 schema 要求的字段与章节，但普通字段不超过 80 个汉字；
+                        列表字段最多 6 项，typical_lines 最多 4 项且每项不超过 40 个汉字；
+                        没有直接证据的字段只保留字段名和冒号，冒号后留空。
+                        最终输出必须显著短于 token 上限。
+                    """.trimIndent(),
+                )
             } else {
                 throw IllegalStateException("LLM 输出达到 $tokenBudget token 上限，人物档案可能不完整")
             }

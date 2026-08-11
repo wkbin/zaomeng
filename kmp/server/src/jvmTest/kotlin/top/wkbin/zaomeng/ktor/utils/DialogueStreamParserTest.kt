@@ -40,4 +40,19 @@ class DialogueStreamParserTest {
         assertEquals("好风", second.joinToString("") { it.text })
         assertEquals(listOf(0, 1), second.map { it.index }.distinct())
     }
+
+    @Test
+    fun ignoresConsecutiveObjectsFromTheSameSpeaker() {
+        val parser = DialogueStreamParser(chunkSize = 24)
+
+        val events = parser.feed(
+            """{"speaker":"A","message":"first"}
+{"speaker":"A","message":"alternative"}
+{"speaker":"B","message":"reply"}
+""",
+        )
+
+        assertEquals(listOf(0, 2), events.map { it.index }.distinct())
+        assertEquals("firstreply", events.joinToString("") { it.text })
+    }
 }

@@ -17,6 +17,7 @@
 - 严格遵循 `references/output_schema.md` 的 Markdown 人物档案
 - 优先产出 `PROFILE.generated.md`
 - 信息足够时，可同步拆分生成 `SOUL`、`GOALS`、`STYLE`、`TRAUMA`、`IDENTITY`、`BACKGROUND`、`CAPABILITY`、`BONDS`、`CONFLICTS`、`ROLE`
+- 必须完整保留 schema 字段行，但普通字段不超过 80 个汉字；列表最多 6 项，`typical_lines` 最多 4 项且每项不超过 40 个汉字，避免档案超过模型输出上限
 
 ## 覆盖要求
 

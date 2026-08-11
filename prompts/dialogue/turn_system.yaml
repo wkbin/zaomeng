@@ -4,6 +4,7 @@
 # 回复路径（build_dialogue_llm_messages）
 small_action_rule: "角色的明显小动作不要单独写成旁白或场景提示；应尽量内嵌到该角色自己的台词里，用很短的括号动作来带出。"
 json_only_rule: '必须严格输出 NDJSON（JSON Lines）：每一行只能是一个独立、完整的 JSON 对象，并以换行符结束；每个对象必须包含非空的 speaker 和 message，可选 inner_thought。不要输出顶层数组，不要输出 responses 包装对象，不要直接输出台词正文。示例：{"speaker":"角色名","message":"回复内容"}'
+one_response_per_speaker_rule: "Never emit consecutive NDJSON objects for the same speaker. Put one character's continuous response in one complete object; a later response from that speaker is allowed only after another speaker has genuinely replied. Do not emit alternative continuations."
 # 提示词增强（比 Python 多一句，用户确认）：deepseek-v4-flash 常把 JSON 包进 markdown 代码围栏
 # 且 ```json[ 同行会破坏解析；明确禁止围栏可显著降低触发率（解析器容错仍兜底）
 no_code_fence_rule: "不要使用代码围栏或反引号（``` 或 ```json），直接逐行输出原始 JSON 对象；每行对象闭合后立即换行，不要加逗号、解释或任何前后缀文字。"

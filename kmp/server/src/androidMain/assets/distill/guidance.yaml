@@ -2,6 +2,7 @@
 # 的硬编码 guidance；整篇文档类提示词保持 md，见 zaomeng-skill/prompts/）
 
 # 分块蒸馏引导（{chunk_partial_line} 仅在 chunk_mode=partial 时追加）
+profile_length_rule: "## OUTPUT_LENGTH\n- 必须完整保留 schema 要求的字段行，但普通字段不超过 80 个汉字。\n- 列表字段最多 6 项；typical_lines 最多 4 项且每项不超过 40 个汉字。\n- 无直接证据时冒号后留空，不得用解释性段落扩写字段。\n- 整份档案必须显著短于模型输出 token 上限。"
 chunk_distill: |
   ## CHUNK_MODE
   - 当前是证据块 {chunk_index}/{chunk_total}：{chunk_label}

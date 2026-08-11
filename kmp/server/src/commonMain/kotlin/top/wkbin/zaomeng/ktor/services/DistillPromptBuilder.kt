@@ -115,6 +115,7 @@ object DistillPromptBuilder {
         )
         val userParts = mutableListOf<Any?>(
             userHead.ifEmpty { "目标角色：$character\n同批角色：$peers" },
+            guidance["profile_length_rule"].orEmpty(),
             distillPriorityGuidance(guidance, character),
             excerptStageGuidance(
                 guidance,
@@ -162,6 +163,7 @@ object DistillPromptBuilder {
         }.trim()
         val userParts = mutableListOf<Any?>(
             userHead.ifEmpty { "目标角色：$character\n同批角色：$peers" },
+            guidance["profile_length_rule"].orEmpty(),
             distillPriorityGuidance(guidance, character),
             excerptStageGuidance(
                 guidance,
