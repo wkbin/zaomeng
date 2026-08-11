@@ -1,6 +1,9 @@
 # 内部数据字典
 
-更新时间：2026-05-20
+更新时间：2026-08-11
+
+> 维护范围：本文主要用于旧 Python/Web 数据与书卷包兼容。当前 KMP/Room 总体设计见
+> [`architecture.md`](architecture.md)；字段真相仍以当前序列化模型和实现为准。
 
 这份文档只描述当前主线里最值得稳定下来的几类核心结构：
 
@@ -22,9 +25,9 @@
 
 主文件来源：
 
-- [creation.py](../../src/web/run_ops/creation.py)
-- [store.py](../../src/web/manifest/store.py)
-- [views.py](../../src/web/manifest/views.py)
+- [creation.py](../src/web/run_ops/creation.py)
+- [store.py](../src/web/manifest/store.py)
+- [views.py](../src/web/manifest/views.py)
 
 磁盘位置：
 
@@ -111,7 +114,7 @@ source of truth（已落地）：
 
 主文件来源：
 
-- [packages.py](../../src/web/run_ops/packages.py)
+- [packages.py](../src/web/run_ops/packages.py)
 
 压缩包内路径：
 
@@ -172,7 +175,7 @@ source of truth（已落地）：
 
 主文件来源：
 
-- [service.py](../../src/web/chat/service.py)
+- [service.py](../src/web/chat/service.py)
 
 磁盘位置：
 
@@ -247,8 +250,8 @@ source of truth 建议：
 
 主文件来源：
 
-- [session-state-v1.md](./archive/session-state-v1.md)
-- [service.py](../../src/web/chat/service.py)
+- [SceneProgressState.kt](../kmp/server/src/commonMain/kotlin/top/wkbin/zaomeng/ktor/services/SceneProgressState.kt)
+- [service.py（旧实现）](../src/web/chat/service.py)
 
 `state` 是会话运行态唯一真相。
 
@@ -381,7 +384,7 @@ source of truth 建议：
 
 来源：
 
-- [service.py](../../src/web/chat/service.py)
+- [service.py](../src/web/chat/service.py)
 
 定位：
 
