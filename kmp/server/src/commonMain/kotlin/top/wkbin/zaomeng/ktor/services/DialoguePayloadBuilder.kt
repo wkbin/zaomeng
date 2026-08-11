@@ -153,11 +153,7 @@ class DialoguePayloadBuilder(
         val controlled = controlledCharacter.trim()
         val kind = messageKind.trim()
         val isSceneKind = kind in setOf("narration", "plot")
-        val eligible = mutableListOf<String>()
-        for (name in active) {
-            if (mode == "act" && !isSceneKind && name == speaker) continue
-            if (name !in eligible) eligible.add(name)
-        }
+        val eligible = eligibleDialogueResponders(active, mode, speaker, controlled)
         val byName = linkedMapOf<String, Map<String, Any?>>()
         for (item in activity) {
             val map = item
@@ -772,15 +768,18 @@ class DialoguePayloadBuilder(
             ?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
 
         // 在场参与人：有 scene_progress 时以在场名单为准（对齐 Python service.py 的 active_participants）
-        val activeParticipants = run {
-            val deduped = mutableListOf<String>()
-            val source = presentParticipants.ifEmpty { participants }
-            for (name in source) {
-                if (name.isNotEmpty() && name !in deduped) deduped.add(name)
-            }
-            val active = if (mode == "act") deduped.filter { it != speaker } else deduped
-            active.ifEmpty { if (mode == "act") deduped.take(1) else deduped }
-        }
+        val activeParticipants = selectDialogueActiveParticipants(
+            participants = participants,
+            presentParticipants = presentParticipants,
+            mode = mode,
+            inputSpeaker = speaker,
+            controlledCharacter = controlledCharacterName,
+        )
+        val forbiddenResponders = buildList {
+            add(speaker)
+            if (mode == "act") add(controlledCharacterName)
+        }.map(String::trim).filter(String::isNotEmpty).distinct()
+        val allowedResponders = activeParticipants.filterNot { it in forbiddenResponders }
         val mentionable = activeParticipants.filter { it != controlledCharacterName }
         val mentionTargets = extractMentionTargets(mentionable, message)
 
@@ -883,12 +882,10 @@ class DialoguePayloadBuilder(
             "mode_rule" to DialoguePromptRules.modeRule(mode, normalizedMessageKind, controlledCharacterName),
             "speaker_rule" to DialoguePromptRules.speakerRule(mode, session.toPayloadMap(), normalizedMessageKind),
             "forbidden_speaker_rule" to (
-                if (mode == "act" && controlledCharacterName.isNotEmpty()) {
-                    "Never output a response object for $controlledCharacterName: this character is controlled by the user. " +
-                        "Only other currently active participants may reply."
-                } else {
-                    "Never output a response object for the input speaker or the user."
-                }
+                "RESPONDER CONTRACT: eligible responders are ${allowedResponders.joinToString(", ").ifBlank { "none" }}. " +
+                    "Never output a response object for ${forbiddenResponders.joinToString(", ").ifBlank { "the user" }}; " +
+                    "these identities belong to the user side of the conversation. " +
+                    "The full participants/persona context is background context, not permission to speak."
                 ),
             "response_style" to DialoguePromptRules.responseStyleRule(mode, normalizedMessageKind, controlledCharacterName),
             "scene_rule" to DialoguePromptRules.sceneRule(sceneCard),
@@ -970,6 +967,8 @@ class DialoguePayloadBuilder(
                 "message_kind" to normalizedMessageKind,
                 "participants" to participants,
                 "active_participants" to activeParticipants,
+                "allowed_responders" to allowedResponders,
+                "forbidden_responders" to forbiddenResponders,
                 "mention_targets" to mentionTargets,
                 "controlled_character" to controlledCharacterName,
                 "scene_card" to sceneCard,
@@ -1194,4 +1193,40 @@ class DialoguePayloadBuilder(
     }
 
     private fun JsonObject.toPayloadMap(): Map<String, Any?> = jsonMap(this)
+}
+
+internal fun selectDialogueActiveParticipants(
+    participants: List<String>,
+    presentParticipants: List<String>,
+    mode: String,
+    inputSpeaker: String,
+    controlledCharacter: String,
+): List<String> {
+    val configured = participants.map(String::trim).filter(String::isNotEmpty).distinct()
+    val present = presentParticipants.map(String::trim).filter(String::isNotEmpty).distinct()
+    val source = present.ifEmpty { configured }
+    if (mode != "act") return source
+
+    val forbidden = setOf(inputSpeaker.trim(), controlledCharacter.trim()).filter(String::isNotEmpty).toSet()
+    val active = source.filterNot { it in forbidden }
+    // A stale presence snapshot must never re-add the user-controlled character.
+    // Fall back to other configured participants, or keep the responder list empty.
+    return active.ifEmpty { configured.filterNot { it in forbidden } }
+}
+
+internal fun eligibleDialogueResponders(
+    activeParticipants: List<String>,
+    mode: String,
+    inputSpeaker: String,
+    controlledCharacter: String,
+): List<String> {
+    val forbidden = if (mode == "act") {
+        setOf(inputSpeaker.trim(), controlledCharacter.trim()).filter(String::isNotEmpty).toSet()
+    } else {
+        emptySet()
+    }
+    return activeParticipants.map(String::trim)
+        .filter(String::isNotEmpty)
+        .filterNot { it in forbidden }
+        .distinct()
 }

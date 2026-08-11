@@ -22,7 +22,7 @@ object DialoguePromptRules {
             val controlled = controlledCharacter.trim()
             if (mode == "act" && controlled.isNotEmpty()) {
                 return "The user pushed the scene with a director beat, not by speaking as $controlled. " +
-                    "Other cast members must react in character; $controlled may also react, but must not be the only voice."
+                    "Other cast members must react in character; never generate a line or action response for $controlled."
             }
             if (mode == "insert") {
                 return "The user pushed the scene with a director beat, not as their self-insert line. " +
@@ -69,8 +69,7 @@ object DialoguePromptRules {
             val controlled = controlledCharacter.trim()
             if (mode == "act" && controlled.isNotEmpty()) {
                 return "$base When the user controls $controlled, other participants must also speak; " +
-                    "do not return only $controlled's line. " +
-                    "If $controlled replies, place that line before the other cast members' closing lines, not as the final character reply."
+                    "never generate $controlled's line or action response."
             }
             return base
         }
@@ -288,39 +287,19 @@ object DialoguePromptRules {
         val controlled = controlledCharacter.trim()
         val ordered = mutableListOf<String>()
         val seen = mutableSetOf<String>()
-        if (isSceneMessageKind(messageKind) && mode == "act" && controlled.isNotEmpty()) {
-            val others = mutableListOf<String>()
-            for (name in participants) {
-                val normalized = name.trim()
-                if (normalized.isEmpty() || normalized == controlled || normalized in seen) continue
-                seen.add(normalized)
-                others.add(normalized)
-            }
-            if (controlled in participants) {
-                when {
-                    others.size >= 2 -> ordered.addAll(listOf(others[0], controlled) + others.drop(1))
-                    others.size == 1 -> ordered.addAll(listOf(controlled, others[0]))
-                    else -> ordered.add(controlled)
-                }
-            }
-        } else {
-            for (name in participants) {
-                val normalized = name.trim()
-                if (normalized.isEmpty() || normalized in seen) continue
-                seen.add(normalized)
-                ordered.add(normalized)
-            }
+        for (name in participants) {
+            val normalized = name.trim()
+            if (
+                normalized.isEmpty() || normalized in seen ||
+                (mode == "act" && (normalized == controlled || normalized == speaker.trim()))
+            ) continue
+            seen.add(normalized)
+            ordered.add(normalized)
         }
 
         val hints = mutableListOf<Map<String, String>>()
         for (name in ordered) {
-            if (mode == "act" && !isSceneMessageKind(messageKind) && name == speaker) continue
-            var priority = "normal"
-            if (isSceneMessageKind(messageKind) && mode == "act" && controlled.isNotEmpty()) {
-                priority = if (name == controlled) "normal" else "high"
-            } else if (hints.isEmpty()) {
-                priority = "high"
-            }
+            val priority = if (hints.isEmpty()) "high" else "normal"
             hints.add(mapOf("name" to name, "should_reply" to "yes", "priority" to priority))
         }
         return hints
@@ -340,7 +319,7 @@ object DialoguePromptRules {
                 val others = clean.filter { it != controlled }
                 val otherLabel = if (others.isNotEmpty()) others.joinToString(", ") else "the other participants"
                 return "The user sent an in-world scene cue (not a line from $controlled). " +
-                    "Let $otherLabel answer in character first; $controlled may react too but other cast must not be silent."
+                    "Let $otherLabel answer in character; never generate a response for $controlled."
             }
             if (mode == "insert") {
                 return "The user sent a scene cue. Let ${clean.joinToString(", ")} react in character, " +

@@ -492,6 +492,7 @@ class DialoguePromptBuilder(
         stableSystemParts.add(instructions["generation_goal"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["mode_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["speaker_rule"]?.toString()?.trim().orEmpty())
+        stableSystemParts.add(instructions["forbidden_speaker_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["response_style"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["scene_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(hostAction["output_rule"]?.toString()?.trim().orEmpty())
@@ -564,6 +565,8 @@ class DialoguePromptBuilder(
             "message" to (inputBlock["message"]?.toString()?.trim().orEmpty()),
             "participants" to participants,
             "active_participants" to activeParticipants,
+            "allowed_responders" to (inputBlock["allowed_responders"] as? List<*> ?: emptyList<Any?>()),
+            "forbidden_responders" to (inputBlock["forbidden_responders"] as? List<*> ?: emptyList<Any?>()),
             "mention_targets" to (inputBlock["mention_targets"] as? List<*> ?: emptyList<Any?>()),
             "memory_context" to memoryContext,
             "knowledge_boundary" to knowledgeContext,
