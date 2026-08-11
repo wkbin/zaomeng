@@ -60,6 +60,8 @@ import top.wkbin.zaomeng.feature.storyrecap.StoryRecapScreen
 import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineScreen
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
+import top.wkbin.zaomeng.feature.originalknowledge.OriginalKnowledgeScreen
+import top.wkbin.zaomeng.feature.originalknowledge.OriginalKnowledgeViewModel
 import top.wkbin.zaomeng.feature.update.AppUpdateScreen
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.feature.importbook.ImportBookScreen
@@ -259,6 +261,7 @@ fun ZaomengNavHost(
                     onOpenChapters = { runId -> backStack.add(ChaptersDestination(runId)) },
                     onOpenRelations = { runId -> backStack.add(RelationsDestination(runId)) },
                     onOpenWorldTimeline = { runId -> backStack.add(WorldTimelineDestination(runId)) },
+                    onOpenOriginalKnowledge = { runId -> backStack.add(OriginalKnowledgeDestination(runId)) },
                     onOpenRedistill = { runId -> backStack.add(RedistillDestination(runId)) },
                     onDeleted = { backStack.removeLastOrNull() },
                 )
@@ -271,6 +274,11 @@ fun ZaomengNavHost(
                     onBack = popBack,
                     onStarted = { backStack.removeLastOrNull() },
                 )
+            }
+            addEntryProvider(clazz = OriginalKnowledgeDestination::class) { destination ->
+                val viewModel: OriginalKnowledgeViewModel =
+                    koinViewModel(parameters = { parametersOf(destination.runId) })
+                OriginalKnowledgeScreen(viewModel = viewModel, onBack = popBack)
             }
             addEntryProvider(clazz = ChatDestination::class) { destination ->
                 val viewModel: ChatViewModel =

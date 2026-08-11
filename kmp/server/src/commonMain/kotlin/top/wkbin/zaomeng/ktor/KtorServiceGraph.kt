@@ -26,7 +26,7 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val suggestions = SuggestionsService(storage, llm, promptLoader)
     val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader)
     val sessionManagement = SessionManagementService(storage, dialogue, worldMemory)
-    val distillExecutor = DistillExecutor(storage, llm, promptLoader)
+    val distillExecutor = DistillExecutor(storage, llm, promptLoader, originalKnowledge)
     val runManagement = RunManagementService(storage, distillExecutor)
     val runPackages = RunPackageService(storage)
     val settingsManagement = SettingsManagementService(storage, modelApiKeys)

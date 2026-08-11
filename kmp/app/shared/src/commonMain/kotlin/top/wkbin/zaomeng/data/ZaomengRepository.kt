@@ -39,6 +39,7 @@ import top.wkbin.zaomeng.data.api.EstimateSamplingRequest
 import top.wkbin.zaomeng.data.api.ModelSettingsDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
+import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import top.wkbin.zaomeng.data.api.PersonaAvatarDto
 import top.wkbin.zaomeng.data.api.PersonaReviewDto
 import top.wkbin.zaomeng.data.api.PluginDto
@@ -77,6 +78,8 @@ import top.wkbin.zaomeng.data.api.KtorDialogueClient
 import top.wkbin.zaomeng.data.api.KtorWorldMemoryClient
 import top.wkbin.zaomeng.data.api.KtorRelationsClient
 import top.wkbin.zaomeng.data.api.KtorRunOpsClient
+import top.wkbin.zaomeng.data.api.KtorOriginalKnowledgeClient
+import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.data.api.SaveChapterRequest
 import top.wkbin.zaomeng.data.api.SearchResultDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
@@ -135,6 +138,7 @@ class ZaomengRepository(
     private val ktorWorldMemory: KtorWorldMemoryClient,
     private val ktorRelations: KtorRelationsClient,
     private val ktorRunOps: KtorRunOpsClient,
+    private val ktorOriginalKnowledge: KtorOriginalKnowledgeClient,
 ) {
     private val avatarCache = mutableMapOf<String, ByteArray>()
     val backendState: StateFlow<BackendState> = backend.state
@@ -158,6 +162,10 @@ class ZaomengRepository(
 
     suspend fun testModelSettings(request: TestModelSettingsRequest) = request {
         ktorModelSettings.test(request)
+    }
+
+    suspend fun detectModelCapabilities(request: TestModelSettingsRequest) = request {
+        ktorModelSettings.detectCapabilities(request)
     }
 
     suspend fun activateModelProfile(profileId: String): ModelSettingsDto = request {
@@ -557,6 +565,36 @@ class ZaomengRepository(
 
     suspend fun getPersonaQuality(runId: String, character: String): PersonaQualityReportDto = request {
         ktorPersona.getQuality(runId, character)
+    }
+
+    suspend fun getPersonaRepairProposal(runId: String, character: String): PersonaRepairProposalDto = request {
+        ktorPersona.getRepairProposal(runId, character)
+    }
+
+    suspend fun searchOriginalKnowledge(
+        runId: String,
+        query: String,
+        participants: List<String>,
+        pinnedOnly: Boolean,
+    ): List<OriginalKnowledgeEntryDto> = request {
+        ktorOriginalKnowledge.search(runId, query, participants, pinnedOnly).items
+    }
+
+    suspend fun updateOriginalKnowledgeBoundary(
+        runId: String,
+        entryId: String,
+        visibility: String,
+        knowers: List<String>,
+    ) = request {
+        ktorOriginalKnowledge.updateBoundary(runId, entryId, visibility, knowers)
+    }
+
+    suspend fun updateOriginalKnowledgePinned(runId: String, entryId: String, pinned: Boolean) = request {
+        ktorOriginalKnowledge.updatePinned(runId, entryId, pinned)
+    }
+
+    suspend fun rebuildOriginalKnowledge(runId: String) = request {
+        ktorOriginalKnowledge.rebuild(runId)
     }
 
     suspend fun suggestPersonaField(
@@ -976,6 +1014,18 @@ class ZaomengRepository(
         memoryId: String,
     ): DialogueSessionDto = request {
         ktorDialogue.deleteMemory(runId, sessionId, memoryId)
+    }
+
+    suspend fun getDialogueMemoryQuality(runId: String, sessionId: String) = request {
+        ktorDialogue.getMemoryQuality(runId, sessionId)
+    }
+
+    suspend fun updateAutomaticMemoryStatus(runId: String, sessionId: String, memoryId: String, status: String) = request {
+        ktorDialogue.updateAutomaticMemoryStatus(runId, sessionId, memoryId, status)
+    }
+
+    suspend fun mergeDuplicateDialogueMemories(runId: String, sessionId: String) = request {
+        ktorDialogue.mergeDuplicateMemories(runId, sessionId)
     }
 
     suspend fun deleteSession(runId: String, sessionId: String) = request {

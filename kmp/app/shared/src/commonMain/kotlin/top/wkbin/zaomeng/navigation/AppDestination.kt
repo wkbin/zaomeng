@@ -55,6 +55,9 @@ data class RelationsDestination(val runId: String) : NavKey
 data class WorldTimelineDestination(val runId: String) : NavKey
 
 @Serializable
+data class OriginalKnowledgeDestination(val runId: String) : NavKey
+
+@Serializable
 data class ChaptersDestination(val runId: String) : NavKey
 
 @Serializable

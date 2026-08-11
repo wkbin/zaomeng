@@ -23,6 +23,8 @@ data class ModelSettingsDto(
     @SerialName("base_url") val baseUrl: String = "",
     @SerialName("max_tokens") val maxTokens: Int = 0,
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
+    @SerialName("token_parameter") val tokenParameter: String = "auto",
+    @SerialName("response_format_mode") val responseFormatMode: String = "auto",
     @SerialName("api_key_configured") val apiKeyConfigured: Boolean = false,
     val configured: Boolean = false,
     @SerialName("active_profile_id") val activeProfileId: String = "",
@@ -38,6 +40,8 @@ data class ModelProfileDto(
     @SerialName("base_url") val baseUrl: String = "",
     @SerialName("max_tokens") val maxTokens: Int = 0,
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
+    @SerialName("token_parameter") val tokenParameter: String = "auto",
+    @SerialName("response_format_mode") val responseFormatMode: String = "auto",
     @SerialName("api_key_configured") val apiKeyConfigured: Boolean = false,
     val configured: Boolean = false,
 )
@@ -50,6 +54,8 @@ data class SaveModelSettingsRequest(
     @SerialName("api_key") val apiKey: String = "",
     @SerialName("max_tokens") val maxTokens: Int = 0,
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
+    @SerialName("token_parameter") val tokenParameter: String = "auto",
+    @SerialName("response_format_mode") val responseFormatMode: String = "auto",
     @SerialName("profile_id") val profileId: String = "",
     @SerialName("profile_name") val profileName: String = "",
     @SerialName("create_profile") val createProfile: Boolean = false,
@@ -64,6 +70,8 @@ data class TestModelSettingsRequest(
     @SerialName("api_key") val apiKey: String = "",
     @SerialName("max_tokens") val maxTokens: Int = 0,
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
+    @SerialName("token_parameter") val tokenParameter: String = "auto",
+    @SerialName("response_format_mode") val responseFormatMode: String = "auto",
     @SerialName("profile_id") val profileId: String = "",
 )
 
@@ -74,6 +82,30 @@ data class ModelConnectionTestDto(
     val model: String = "",
     @SerialName("latency_ms") val latencyMs: Int = 0,
     val message: String = "",
+)
+
+@Serializable
+data class ModelCapabilityReportDto(
+    val ok: Boolean = false,
+    val provider: String = "",
+    val model: String = "",
+    @SerialName("ttft_ms") val ttftMs: Int = 0,
+    @SerialName("total_ms") val totalMs: Int = 0,
+    @SerialName("stream_supported") val streamSupported: Boolean = false,
+    @SerialName("true_streaming") val trueStreaming: Boolean = false,
+    @SerialName("sse_chunk_count") val sseChunkCount: Int = 0,
+    @SerialName("sse_chunk_min_bytes") val sseChunkMinBytes: Int = 0,
+    @SerialName("sse_chunk_avg_bytes") val sseChunkAvgBytes: Int = 0,
+    @SerialName("sse_chunk_max_bytes") val sseChunkMaxBytes: Int = 0,
+    @SerialName("json_ndjson_adherence") val jsonNdjsonAdherence: Int = 0,
+    @SerialName("response_format_supported") val responseFormatSupported: Boolean = false,
+    @SerialName("reasoning_off_supported") val reasoningOffSupported: Boolean = false,
+    @SerialName("reasoning_off_status") val reasoningOffStatus: String = "unknown",
+    @SerialName("recommended_max_tokens") val recommendedMaxTokens: Int = 4096,
+    @SerialName("recommended_reasoning_effort") val recommendedReasoningEffort: String = "off",
+    @SerialName("recommended_token_parameter") val recommendedTokenParameter: String = "max_tokens",
+    @SerialName("recommended_response_format_mode") val recommendedResponseFormatMode: String = "prompt_only",
+    val warnings: List<String> = emptyList(),
 )
 
 @Serializable
@@ -97,6 +129,9 @@ data class PluginDto(
     val status: String = "disabled",
     val error: String = "",
     val source: String = "third-party",
+    val executable: Boolean = false,
+    @SerialName("executionMode") val executionMode: String = "unsupported",
+    @SerialName("capabilityNotice") val capabilityNotice: String = "",
 )
 
 @Serializable
@@ -592,6 +627,9 @@ data class PersonaQualityReportDto(
     val grade: String = "",
     val verdict: String = "",
     val issues: List<PersonaIssueDto> = emptyList(),
+    @SerialName("evidence_coverage") val evidenceCoverage: Int = 0,
+    val confidence: Int = 0,
+    @SerialName("pending_repair_count") val pendingRepairCount: Int = 0,
 )
 
 @Serializable
@@ -600,6 +638,36 @@ data class PersonaIssueDto(
     val fields: List<String> = emptyList(),
     val message: String = "",
     val suggestion: String = "",
+)
+
+@Serializable
+data class PersonaRepairProposalDto(
+    val character: String = "",
+    val status: String = "not_available",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("evidence_coverage") val evidenceCoverage: Int = 0,
+    val confidence: Int = 0,
+    val issues: List<PersonaIssueDto> = emptyList(),
+    val changes: List<PersonaRepairChangeDto> = emptyList(),
+)
+
+@Serializable
+data class PersonaRepairChangeDto(
+    val field: String = "",
+    val before: String = "",
+    val after: String = "",
+    val reason: String = "",
+    val confidence: Int = 0,
+    val evidence: List<PersonaEvidenceDto> = emptyList(),
+)
+
+@Serializable
+data class PersonaEvidenceDto(
+    val id: String = "",
+    val title: String = "",
+    val excerpt: String = "",
+    @SerialName("start_char") val startChar: Int = 0,
+    @SerialName("end_char") val endChar: Int = 0,
 )
 
 @Serializable
@@ -863,6 +931,7 @@ data class TranscriptItemDto(
     val role: String = "character",
     @SerialName("turn_id") val turnId: String = "",
     val timestamp: String = "",
+    val evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
 )
 
 @Serializable
@@ -987,6 +1056,31 @@ data class DialogueMemoryDto(
     val enabled: Boolean = true,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
+    /** user = 用户维护的可控记忆；automatic = 从完成轮次自动建立的检索记忆。 */
+    val source: String = "user",
+    @SerialName("source_turn_id") val sourceTurnId: String = "",
+    /** active / stale / conflict */
+    val status: String = "active",
+    @SerialName("last_hit_turn_id") val lastHitTurnId: String = "",
+    @SerialName("last_hit_at") val lastHitAt: String = "",
+    @SerialName("hit_count") val hitCount: Int = 0,
+    @SerialName("duplicate_of") val duplicateOf: String = "",
+    @SerialName("merged_source_ids") val mergedSourceIds: List<String> = emptyList(),
+)
+
+@Serializable
+data class MemoryQualityReportDto(
+    val entries: List<DialogueMemoryDto> = emptyList(),
+    @SerialName("latest_hit_turn_id") val latestHitTurnId: String = "",
+    @SerialName("duplicate_groups") val duplicateGroups: List<List<String>> = emptyList(),
+    @SerialName("active_count") val activeCount: Int = 0,
+    @SerialName("stale_count") val staleCount: Int = 0,
+    @SerialName("conflict_count") val conflictCount: Int = 0,
+)
+
+@Serializable
+data class UpdateMemoryQualityStatusRequest(
+    val status: String,
 )
 
 @Serializable
@@ -1075,12 +1169,44 @@ data class SearchOriginalKnowledgeRequest(
     val query: String,
     val participants: List<String> = emptyList(),
     val limit: Int = 6,
+    @SerialName("pinned_only") val pinnedOnly: Boolean = false,
 )
 
 @Serializable
 data class UpdateOriginalKnowledgeBoundaryRequest(
     val visibility: String,
     val knowers: List<String> = emptyList(),
+)
+
+@Serializable
+data class UpdateOriginalKnowledgePinnedRequest(val pinned: Boolean)
+
+@Serializable
+data class OriginalKnowledgeSearchResponse(
+    val items: List<OriginalKnowledgeEntryDto> = emptyList(),
+)
+
+@Serializable
+data class OriginalKnowledgeEntryDto(
+    @SerialName("source_id") val sourceId: String = "",
+    val title: String = "",
+    val excerpt: String = "",
+    val score: Double = 0.0,
+    val visibility: String = "uncertain",
+    val knowers: List<String> = emptyList(),
+    val characters: List<String> = emptyList(),
+    @SerialName("allowed_characters") val allowedCharacters: List<String> = emptyList(),
+    @SerialName("denied_characters") val deniedCharacters: List<String> = emptyList(),
+    @SerialName("boundary_source") val boundarySource: String = "automatic",
+    @SerialName("epistemic_status") val epistemicStatus: String = "explicit_source",
+    val pinned: Boolean = false,
+    val location: OriginalKnowledgeLocationDto = OriginalKnowledgeLocationDto(),
+)
+
+@Serializable
+data class OriginalKnowledgeLocationDto(
+    @SerialName("start_char") val startChar: Int = 0,
+    @SerialName("end_char") val endChar: Int = 0,
 )
 
 data class ExportedRunPackage(

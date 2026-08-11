@@ -24,6 +24,7 @@ import top.wkbin.zaomeng.data.api.KtorRunOpsClient
 import top.wkbin.zaomeng.data.api.KtorRunsClient
 import top.wkbin.zaomeng.data.api.KtorSessionClient
 import top.wkbin.zaomeng.data.api.KtorWorldMemoryClient
+import top.wkbin.zaomeng.data.api.KtorOriginalKnowledgeClient
 import top.wkbin.zaomeng.data.library.OnlineLibraryRepository
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ContentDisclaimerPreferences
@@ -42,6 +43,7 @@ import top.wkbin.zaomeng.feature.persona.PersonaViewModel
 import top.wkbin.zaomeng.feature.relations.RelationsViewModel
 import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
+import top.wkbin.zaomeng.feature.originalknowledge.OriginalKnowledgeViewModel
 import top.wkbin.zaomeng.feature.importbook.ImportBookViewModel
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
@@ -83,10 +85,12 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     single { KtorWorldMemoryClient(get(), get()) }
     single { KtorRelationsClient(get(), get()) }
     single { KtorRunOpsClient(get(), get()) }
+    single { KtorOriginalKnowledgeClient(get(), get()) }
 
     single { OnlineLibraryRepository(platform.cacheDir) }
     single {
         ZaomengRepository(
+            get(),
             get(),
             get(),
             get(),
@@ -125,6 +129,7 @@ fun sharedAppModule(platform: AppPlatform): Module = module {
     viewModel { CrossoverViewModel(get()) }
     viewModel { parameters -> RelationsViewModel(get(), parameters.get()) }
     viewModel { parameters -> WorldTimelineViewModel(get(), parameters.get()) }
+    viewModel { parameters -> OriginalKnowledgeViewModel(get(), parameters.get()) }
     viewModel { parameters -> StoryRecapViewModel(get(), parameters.get(), parameters.get()) }
     viewModel { OnlineLibraryViewModel(get(), get()) }
     viewModel { PersonaViewModel(get()) }
