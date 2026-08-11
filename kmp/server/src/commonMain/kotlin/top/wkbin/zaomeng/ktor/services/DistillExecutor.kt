@@ -45,13 +45,13 @@ import top.wkbin.zaomeng.platform.platformIoDispatcher
  * - 进度文案与 manifest 字段对齐 Python（progress/events/capabilities/quality/summary/timing）
  * - resume 跳过已完成角色
  *
- * 已知保留差异：repair/completion 二次修复（profile_repair.py / repair_orchestration.py）、
- * 关系图 mermaid/html 导出（WebUI 用）未迁移；角色别名表未打包。
+ * 已知保留差异：关系图 mermaid/html 导出（WebUI 用）未迁移；角色别名表未打包。
  */
 class DistillExecutor(
     private val storage: StorageService,
     private val llm: LlmClient?,
     private val promptLoader: PromptLoader?,
+    originalKnowledge: OriginalKnowledgeService? = null,
 ) {
     companion object {
         private const val TAG = "DistillExecutor"
@@ -76,6 +76,9 @@ class DistillExecutor(
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val profileRepair = originalKnowledge?.let {
+        ProfileRepairService(storage, llm, promptLoader, it)
+    }
     private val scope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
     private val running = HashMap<String, Job>()
     private val runningLock = SimpleLock()
@@ -236,15 +239,39 @@ class DistillExecutor(
             distillChunkByCharacter[character] = chunkMeta
 
             applyDistillProgress(runId, "materializing_character", mapOf("character" to character))
-            runCatching { writeProfile(runDir, novelId, character, content) }
-                .onSuccess {
-                    completed.add(character)
-                    characterDirs[character] = (runDir / "artifacts/characters/${PathSafety.sanitizePathComponent(novelId, "novelId")}/${PathSafety.sanitizePathComponent(character, "character")}").toString()
+            val writeFailure = runCatching { writeProfile(runDir, novelId, character, content) }.exceptionOrNull()
+            if (writeFailure == null) {
+                completed.add(character)
+                characterDirs[character] = (runDir / "artifacts/characters/${PathSafety.sanitizePathComponent(novelId, "novelId")}/${PathSafety.sanitizePathComponent(character, "character")}").toString()
+                val repairResult = profileRepair?.let { service ->
+                    applyDistillProgress(runId, "reviewing_character", mapOf("character" to character))
+                    try {
+                        service.analyzeAndPropose(
+                            runManifest = storage.readRunManifest(runId) ?: manifest,
+                            runDir = runDir,
+                            novelId = novelId,
+                            character = character,
+                            generatedMarkdown = content,
+                            peerCharacters = characters,
+                        )
+                    } catch (error: Exception) {
+                        PlatformLog.w(TAG, "Profile quality review failed for $character: ${error.message}")
+                        null
+                    }
                 }
-                .onFailure { e ->
-                    PlatformLog.e(TAG, "Write profile failed for $character: ${e.message}", e)
-                    failed.add(character)
+                if (repairResult != null) {
+                    if (repairResult.proposal.changes.isNotEmpty()) profileRepairCharacters.add(character)
+                    qualityFocus[character] = qualityFocus[character].orEmpty() + mapOf(
+                        "quality_score" to repairResult.report.score,
+                        "evidence_coverage" to repairResult.report.evidenceCoverage,
+                        "repair_confidence" to repairResult.report.confidence,
+                        "pending_repairs" to repairResult.proposal.changes.size,
+                    )
                 }
+            } else {
+                PlatformLog.e(TAG, "Write profile failed for $character: ${writeFailure.message}", writeFailure)
+                failed.add(character)
+            }
             applyDistillProgress(runId, "character_done", mapOf("character" to character, "completed" to completed, "total" to characters.size))
 
             patchManifest(runId) { current ->
@@ -1069,6 +1096,11 @@ class DistillExecutor(
                         put("stage", "distilling")
                         put("current_character", payload["character"]?.toString().orEmpty())
                         put("message", "正在落盘 ${payload["character"]}")
+                    }
+                    "reviewing_character" -> {
+                        put("stage", "reviewing")
+                        put("current_character", payload["character"]?.toString().orEmpty())
+                        put("message", "正在检查 ${payload["character"]} 的空字段、重复与矛盾，并回查原文证据")
                     }
                     "character_done" -> {
                         put("stage", "distilling")

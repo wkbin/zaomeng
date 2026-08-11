@@ -15,6 +15,7 @@ import top.wkbin.zaomeng.data.api.PersonaAvatarDto
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaReviewDto
+import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.PlatformLog
@@ -51,6 +52,7 @@ class PersonaService(
         val existingBody = storage.readText(source).substringAfterFrontmatter()
         val frontmatter = dumpYaml(profile).trimEnd()
         storage.writeTextAtomically(editable, "---\n$frontmatter\n---\n\n$existingBody")
+        reconcileRepairArtifacts(requireNotNull(source.parent), fields)
         return getReview(runId, character)
     }
 
@@ -61,19 +63,61 @@ class PersonaService(
             runCatching { return json.decodeFromString<PersonaQualityReportDto>(storage.readText(reportFile)) }
         }
         val review = getReview(runId, character)
-        val completed = review.fields.count { it.value.isNotBlank() && it.value !in INSUFFICIENT_VALUES }
-        val score = (completed * 100 / REVIEW_FIELDS.size).coerceIn(0, 100)
-        val missing = review.fields.filterValues { it.isBlank() || it in INSUFFICIENT_VALUES }.keys
+        val issues = ProfileQualityAnalyzer.analyze(review.fields)
+        val completed = REVIEW_FIELDS.count { field ->
+            val value = review.fields[field].orEmpty().trim()
+            value.isNotBlank() && value !in INSUFFICIENT_VALUES
+        }
+        val penalty = issues.sumOf { if (it.severity == "high") 5 else 2 }.coerceAtMost(35)
+        val score = (completed * 100 / REVIEW_FIELDS.size - penalty).coerceIn(0, 100)
+        val proposal = getRepairProposal(runId, character)
         val report = PersonaQualityReportDto(
             character = review.character,
             score = score,
             maxScore = 100,
             grade = when { score >= 85 -> "A"; score >= 70 -> "B"; score >= 55 -> "C"; else -> "D" },
-            verdict = if (missing.isEmpty()) "人物档案完整。" else "仍有 ${missing.size} 项人物信息需要补充。",
-            issues = missing.map { PersonaIssueDto(severity = "warning", fields = listOf(it), message = "$it 尚未补充", suggestion = "结合原文证据补充该字段。") },
+            verdict = if (issues.isEmpty()) "人物档案核心字段完整。" else "仍有 ${issues.size} 项人物信息需要复核。",
+            issues = issues,
+            evidenceCoverage = proposal.evidenceCoverage,
+            confidence = proposal.confidence,
+            pendingRepairCount = proposal.changes.size,
         )
         storage.writeTextAtomically(reportFile, json.encodeToString(PersonaQualityReportDto.serializer(), report))
         return report
+    }
+
+    fun getRepairProposal(runId: String, character: String): PersonaRepairProposalDto {
+        val source = resolveProfile(runId, character)
+        val proposalFile = requireNotNull(source.parent) / ProfileRepairService.REPAIR_PROPOSAL_FILE
+        if (!storage.isFile(proposalFile)) {
+            return PersonaRepairProposalDto(character = character, status = "not_available")
+        }
+        return runCatching {
+            json.decodeFromString<PersonaRepairProposalDto>(storage.readText(proposalFile))
+        }.getOrElse {
+            PersonaRepairProposalDto(character = character, status = "not_available")
+        }
+    }
+
+    private fun reconcileRepairArtifacts(directory: Path, savedFields: Map<String, String>) {
+        val qualityFile = directory / ProfileRepairService.QUALITY_REPORT_FILE
+        if (storage.isFile(qualityFile)) storage.deleteFile(qualityFile)
+        val proposalFile = directory / ProfileRepairService.REPAIR_PROPOSAL_FILE
+        if (!storage.isFile(proposalFile)) return
+        val proposal = runCatching {
+            json.decodeFromString<PersonaRepairProposalDto>(storage.readText(proposalFile))
+        }.getOrNull() ?: return
+        val remaining = proposal.changes.filterNot { change ->
+            savedFields[change.field].orEmpty().trim() == change.after.trim()
+        }
+        val updated = proposal.copy(
+            status = if (remaining.isEmpty()) "applied" else "pending",
+            changes = remaining,
+        )
+        storage.writeTextAtomically(
+            proposalFile,
+            json.encodeToString(PersonaRepairProposalDto.serializer(), updated),
+        )
     }
 
     fun saveAvatar(runId: String, character: String, bytes: ByteArray): PersonaAvatarDto {

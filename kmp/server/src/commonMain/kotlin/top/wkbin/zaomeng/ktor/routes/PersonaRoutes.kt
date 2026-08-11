@@ -29,6 +29,9 @@ fun Route.personaRoutes(service: PersonaService) {
         get("/quality-report") {
             personaCall { runId, character -> call.respond(service.getQualityReport(runId, character)) }
         }
+        get("/repair-proposal") {
+            personaCall { runId, character -> call.respond(service.getRepairProposal(runId, character)) }
+        }
         post("/avatar") {
             personaCall { runId, character ->
                 var bytes: ByteArray? = null

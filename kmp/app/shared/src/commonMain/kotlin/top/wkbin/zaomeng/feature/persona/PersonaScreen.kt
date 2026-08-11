@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
+import top.wkbin.zaomeng.data.api.PersonaRepairChangeDto
+import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +90,8 @@ fun PersonaScreen(
         onFieldChange = viewModel::updateField,
         onReviewNoteChange = viewModel::updateReviewNote,
         onSuggestField = viewModel::suggestField,
+        onApplyRepair = viewModel::applyRepairChange,
+        onApplyAllRepairs = viewModel::applyAllRepairChanges,
         onSave = viewModel::save,
         snackbarHostState = snackbarHostState,
         modifier = modifier,
@@ -103,6 +107,8 @@ fun PersonaContent(
     onFieldChange: (String, String) -> Unit,
     onReviewNoteChange: (String) -> Unit,
     onSuggestField: (String) -> Unit,
+    onApplyRepair: (PersonaRepairChangeDto) -> Unit,
+    onApplyAllRepairs: () -> Unit,
     onSave: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -182,6 +188,8 @@ fun PersonaContent(
                 onFieldChange = onFieldChange,
                 onReviewNoteChange = onReviewNoteChange,
                 onSuggestField = onSuggestField,
+                onApplyRepair = onApplyRepair,
+                onApplyAllRepairs = onApplyAllRepairs,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -198,6 +206,8 @@ private fun PersonaEditor(
     onFieldChange: (String, String) -> Unit,
     onReviewNoteChange: (String) -> Unit,
     onSuggestField: (String) -> Unit,
+    onApplyRepair: (PersonaRepairChangeDto) -> Unit,
+    onApplyAllRepairs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -210,6 +220,16 @@ private fun PersonaEditor(
         }
         item(key = "quality") {
             QualityCard(report = state.quality, error = state.qualityError)
+        }
+        item(key = "repair-proposal") {
+            RepairProposalCard(
+                proposal = state.repairProposal,
+                error = state.repairError,
+                appliedFields = state.appliedRepairFields,
+                enabled = !state.isBusy,
+                onApply = onApplyRepair,
+                onApplyAll = onApplyAllRepairs,
+            )
         }
 
         PERSONA_FIELD_GROUPS.forEach { group ->
@@ -347,6 +367,14 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (report.evidenceCoverage > 0 || report.confidence > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "问题字段证据覆盖 ${report.evidenceCoverage}% · 修复建议可信度 ${report.confidence}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (report.issues.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         HorizontalDivider()
@@ -385,6 +413,108 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
         }
     }
 }
+
+@Composable
+private fun RepairProposalCard(
+    proposal: PersonaRepairProposalDto?,
+    error: String,
+    appliedFields: Set<String>,
+    enabled: Boolean,
+    onApply: (PersonaRepairChangeDto) -> Unit,
+    onApplyAll: () -> Unit,
+) {
+    if (proposal == null && error.isBlank()) return
+    if (proposal?.status in setOf("not_available", "not_needed", "applied") && error.isBlank()) return
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动修复建议", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    proposal?.let {
+                        Text(
+                            "原文证据覆盖 ${it.evidenceCoverage}% · 平均可信度 ${it.confidence}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+                if (!proposal?.changes.isNullOrEmpty()) {
+                    TextButton(
+                        onClick = onApplyAll,
+                        enabled = enabled && proposal.changes.any { it.field !in appliedFields },
+                    ) { Text("全部应用到草稿") }
+                }
+            }
+            if (error.isNotBlank()) {
+                Text(error, color = MaterialTheme.colorScheme.error)
+            } else if (proposal != null && proposal.changes.isEmpty()) {
+                Text(
+                    "检测到 ${proposal.issues.size} 项问题，但没有足够直接的原文证据可安全补全；建议手动复核。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                proposal?.changes.orEmpty().forEach { change ->
+                    val applied = change.field in appliedFields
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Text(personaFieldLabel(change.field), fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "修改前：${change.before.ifBlank { "（空）" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text("修改后：${change.after}", style = MaterialTheme.typography.bodyMedium)
+                            if (change.reason.isNotBlank()) {
+                                Text(
+                                    "原因：${change.reason} · 可信度 ${change.confidence}%",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            change.evidence.firstOrNull()?.let { evidence ->
+                                Text(
+                                    "证据：${evidence.title}（字符 ${evidence.startChar}–${evidence.endChar}）",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    evidence.excerpt,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { onApply(change) },
+                                enabled = enabled && !applied,
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text(if (applied) "已应用" else "应用到草稿") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun personaFieldLabel(field: String): String = PERSONA_FIELD_GROUPS.asSequence()
+    .flatMap { it.fields.asSequence() }
+    .firstOrNull { it.key == field }
+    ?.label
+    ?: field
 
 @Composable
 private fun QualityIssueRow(issue: PersonaIssueDto) {

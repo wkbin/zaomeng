@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
+import top.wkbin.zaomeng.data.api.PersonaRepairChangeDto
+import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +52,9 @@ data class PersonaUiState(
     val reviewNote: String = "",
     val quality: PersonaQualityReportDto? = null,
     val qualityError: String = "",
+    val repairProposal: PersonaRepairProposalDto? = null,
+    val repairError: String = "",
+    val appliedRepairFields: Set<String> = emptySet(),
     val fieldFeedback: Map<String, PersonaFieldFeedback> = emptyMap(),
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
@@ -116,6 +121,7 @@ class PersonaViewModel(
                     )
                 }
                 refreshQuality(normalizedRunId, normalizedCharacter, announceFailure = false)
+                refreshRepairProposal(normalizedRunId, normalizedCharacter)
             } catch (error: Throwable) {
                 _uiState.update { current ->
                     if (!current.matches(normalizedRunId, normalizedCharacter)) return@update current
@@ -143,6 +149,27 @@ class PersonaViewModel(
 
     fun updateReviewNote(value: String) {
         _uiState.update { it.copy(reviewNote = value, hasUnsavedChanges = true) }
+    }
+
+    fun applyRepairChange(change: PersonaRepairChangeDto) {
+        val snapshot = _uiState.value
+        val proposal = snapshot.repairProposal ?: return
+        if (change.field !in PERSONA_FIELD_KEYS || change !in proposal.changes) return
+        _uiState.update { current ->
+            current.copy(
+                fields = current.fields.toMutableMap().apply { put(change.field, change.after) },
+                appliedRepairFields = current.appliedRepairFields + change.field,
+                fieldFeedback = current.fieldFeedback + (
+                    change.field to PersonaFieldFeedback(PersonaFeedbackKind.Success, "已应用有原文依据的修复建议，保存前仍可编辑。")
+                    ),
+                hasUnsavedChanges = true,
+            )
+        }
+    }
+
+    fun applyAllRepairChanges() {
+        val proposal = _uiState.value.repairProposal ?: return
+        proposal.changes.forEach(::applyRepairChange)
     }
 
     fun save() {
@@ -282,6 +309,28 @@ class PersonaViewModel(
                     qualityError = message,
                     notice = if (announceFailure) notice("资料已保存，但$message") else current.notice,
                 )
+            }
+        }
+    }
+
+    private suspend fun refreshRepairProposal(runId: String, character: String) {
+        try {
+            val proposal = repository.getPersonaRepairProposal(runId, character)
+            _uiState.update { current ->
+                if (!current.matches(runId, character)) return@update current
+                val alreadyApplied = proposal.changes.filter { change ->
+                    current.fields[change.field].orEmpty().trim() == change.after.trim()
+                }.map(PersonaRepairChangeDto::field).toSet()
+                current.copy(
+                    repairProposal = proposal,
+                    repairError = "",
+                    appliedRepairFields = alreadyApplied,
+                )
+            }
+        } catch (error: Throwable) {
+            _uiState.update { current ->
+                if (!current.matches(runId, character)) return@update current
+                current.copy(repairError = readableError(error, "自动修复建议暂时不可用。"))
             }
         }
     }

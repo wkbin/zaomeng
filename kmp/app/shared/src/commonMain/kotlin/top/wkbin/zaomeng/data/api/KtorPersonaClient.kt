@@ -32,6 +32,10 @@ class KtorPersonaClient(
         http.client.get("${url(endpoint, runId, character)}/quality-report")
     }.body()
 
+    suspend fun getRepairProposal(runId: String, character: String): PersonaRepairProposalDto = request { endpoint ->
+        http.client.get("${url(endpoint, runId, character)}/repair-proposal")
+    }.body()
+
     suspend fun uploadAvatar(runId: String, character: String, bytes: ByteArray): PersonaAvatarDto = request { endpoint ->
         http.client.post("${url(endpoint, runId, character)}/avatar") {
             setBody(MultiPartFormDataContent(formData {
