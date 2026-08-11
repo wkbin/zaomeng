@@ -40,7 +40,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "造梦"
-            packageVersion = "2.1.1"
+            packageVersion = "2.1.2"
             vendor = "wkbin"
             // 运行期用到 sun.misc.Unsafe（jpackage 裁剪运行时默认不含 jdk.unsupported）
             modules("jdk.unsupported")
