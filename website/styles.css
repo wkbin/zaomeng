@@ -16,6 +16,13 @@
   --radius-lg: 30px;
   --radius-md: 20px;
   --shell: min(1120px, calc(100% - 48px));
+  /* |x|^3 + |y|^3 = 1, sampled from x/y = sgn(cos/sin(t))·|cos/sin(t)|^(2/3). */
+  --superellipse-n3: polygon(
+    98% 50%, 96.9% 69.5%, 93.6% 80.2%, 88.1% 88.1%, 80.2% 93.6%, 69.5% 96.9%,
+    50% 98%, 30.5% 96.9%, 19.8% 93.6%, 11.9% 88.1%, 6.4% 80.2%, 3.1% 69.5%,
+    2% 50%, 3.1% 30.5%, 6.4% 19.8%, 11.9% 11.9%, 19.8% 6.4%, 30.5% 3.1%,
+    50% 2%, 69.5% 3.1%, 80.2% 6.4%, 88.1% 11.9%, 93.6% 19.8%, 96.9% 30.5%
+  );
   color-scheme: dark;
 }
 
@@ -183,15 +190,18 @@ img {
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: rgba(229, 170, 67, 0.06);
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(145deg, var(--gold-light), rgba(229, 170, 67, 0.42));
+  clip-path: var(--superellipse-n3);
 }
 
 .brand-mark img {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  clip-path: var(--superellipse-n3);
 }
 
 .main-nav {
@@ -454,9 +464,10 @@ img {
 
 .stage-card img {
   width: 100%;
-  aspect-ratio: 1.5 / 1;
+  /* The source is 1482×993; 1.555 removes its 40px Windows title bar. */
+  aspect-ratio: 1.555 / 1;
   object-fit: cover;
-  object-position: center;
+  object-position: center bottom;
 }
 
 .window-bar {
@@ -1129,7 +1140,10 @@ img {
 
 .desktop-frame img {
   width: 100%;
+  aspect-ratio: 1.555 / 1;
   border-radius: 10px 10px 0 0;
+  object-fit: cover;
+  object-position: center bottom;
 }
 
 .phone-frame {
@@ -1589,7 +1603,7 @@ img {
   .stage-card { border-radius: 12px; }
   .window-bar { height: 32px; grid-template-columns: 1fr auto; }
   .window-bar > span:not(.window-status) { display: none; }
-  .stage-card img { aspect-ratio: 1.35 / 1; }
+  .stage-card img { aspect-ratio: 1.555 / 1; }
   .memory-note { padding: 8px 10px; }
   .memory-note b { font-size: 9px; }
   .memory-note-top { top: -26px; }
