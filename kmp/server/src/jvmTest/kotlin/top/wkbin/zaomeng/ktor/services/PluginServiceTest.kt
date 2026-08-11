@@ -9,6 +9,8 @@ import top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** 回归：首次启用任意插件时，默认开启的内置插件不能一起被关掉。 */
@@ -74,6 +76,41 @@ class PluginServiceTest {
             val items = itemsOf(service)
             assertEquals(true, enabledOf(items, "com.zaomeng.inner-thoughts"))
             assertTrue(defaultEnabledIds(items).all { enabledOf(items, it) }, "损坏状态应自动修复默认插件")
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `third party packages are stored but never executable`() {
+        val dir = createTempDirectory("zaomeng-third-party-plugin")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val pluginDir = dir.toString().toPath() / "plugins" / "sample-plugin"
+            storage.mkdirs(pluginDir)
+            storage.writeTextAtomically(
+                pluginDir / "plugin.json",
+                """{"id":"sample-plugin","name":"示例插件","version":"1.0.0","contributes":{"chatActions":[{"id":"act","title":"动作"}]}}""",
+            )
+            storage.writeTextAtomically(
+                dir.toString().toPath() / "plugins" / "enabled.json",
+                """{"enabled":["sample-plugin"]}""",
+            )
+            val service = PluginService(storage, BuiltinPlugins.all)
+
+            val item = itemsOf(service).first {
+                it.jsonObject["id"]?.jsonPrimitive?.contentOrNull == "sample-plugin"
+            }.jsonObject
+            assertFalse(item["enabled"]!!.jsonPrimitive.content.toBoolean())
+            assertFalse(item["executable"]!!.jsonPrimitive.content.toBoolean())
+            assertEquals("stored", item["status"]!!.jsonPrimitive.content)
+            assertEquals("unsupported", item["executionMode"]!!.jsonPrimitive.content)
+
+            assertFailsWith<IllegalArgumentException> {
+                service.setEnabled("sample-plugin", true)
+            }
+            val disabled = service.setEnabled("sample-plugin", false)
+            assertEquals("stored", disabled["status"]!!.jsonPrimitive.content)
         } finally {
             dir.toFile().deleteRecursively()
         }

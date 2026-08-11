@@ -79,8 +79,8 @@ fun PluginsScreen(
     if (sourceChooserOpen) {
         AlertDialog(
             onDismissRequest = { sourceChooserOpen = false },
-            title = { Text("安装插件") },
-            text = { Text("选择一个 ZIP 插件包。安装前会先检查清单并显示权限。") },
+            title = { Text("保存第三方插件包") },
+            text = { Text("选择一个 ZIP 插件包。当前版本只保存清单与资源，不会执行包内代码。") },
             confirmButton = {
                 Button(onClick = {
                     sourceChooserOpen = false
@@ -153,7 +153,7 @@ fun PluginsScreen(
                         if (state.packageBusy) {
                             CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Outlined.InstallMobile, contentDescription = "安装插件")
+                            Icon(Icons.Outlined.InstallMobile, contentDescription = "保存第三方插件包")
                         }
                     }
                     IconButton(
@@ -232,7 +232,7 @@ private fun PluginIntroductionCard() {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("扩展造梦能力", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "插件可以为聊天增加新的动作。API v1 插件会在应用进程内运行，只安装你信任的第三方插件。",
+                    "官方内置插件可为聊天增加动作，并由 Kotlin 宿主安全执行。第三方 ZIP 当前只能保存，不能运行；后续仅支持经过能力授权的声明式插件协议。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
@@ -268,7 +268,7 @@ private fun PluginCard(
                     ) {
                         Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (plugin.source == "official") "官方" else "第三方",
+                            if (plugin.source == "official") "官方 · 可执行" else "第三方 · 仅保存",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (plugin.source == "official") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                         )
@@ -285,31 +285,40 @@ private fun PluginCard(
                     Switch(
                         checked = plugin.enabled,
                         onCheckedChange = onEnabledChange,
-                        enabled = interactionsEnabled,
+                        enabled = interactionsEnabled && plugin.executable,
                     )
                 }
+            }
+            if (!plugin.executable) {
+                Text(
+                    plugin.capabilityNotice.ifBlank { "该插件当前只能保存，不能执行。" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
             }
             if (plugin.description.isNotBlank()) {
                 Text(plugin.description, style = MaterialTheme.typography.bodyMedium)
             }
             if (plugin.contributes.chatActions.isNotEmpty()) {
                 Text(
-                    "聊天动作：${plugin.contributes.chatActions.joinToString("、") { it.title }}",
+                    "${if (plugin.executable) "聊天动作" else "清单声明的聊天动作（当前不可用）"}：${plugin.contributes.chatActions.joinToString("、") { it.title }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (plugin.contributes.generationEnhancers.isNotEmpty()) {
                 Text(
-                    "聊天生成增强：${plugin.contributes.generationEnhancers.joinToString("、") { it.title }}",
+                    "${if (plugin.executable) "聊天生成增强" else "清单声明的生成增强（当前不可用）"}：${plugin.contributes.generationEnhancers.joinToString("、") { it.title }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    "具体开关在各聊天的“插件”菜单中设置。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (plugin.executable) {
+                    Text(
+                        "具体开关在各聊天的“插件”菜单中设置。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (plugin.permissions.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -333,7 +342,7 @@ private fun PluginCard(
                     onClick = onDetails,
                     enabled = interactionsEnabled && !busy,
                 ) { Text("日志与详情") }
-                if (plugin.settings.isNotEmpty()) {
+                if (plugin.settings.isNotEmpty() && plugin.executable) {
                     TextButton(
                         onClick = onConfig,
                         enabled = interactionsEnabled && !busy,
@@ -435,7 +444,7 @@ private fun PluginDetailsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${plugin.name} · 运行详情") },
+        title = { Text("${plugin.name} · ${if (plugin.executable) "运行详情" else "清单详情"}") },
         text = {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
@@ -449,7 +458,9 @@ private fun PluginDetailsDialog(
                 }
                 when {
                     loading -> item { CircularProgressIndicator() }
-                    logs.isEmpty() -> item { Text("还没有运行日志。") }
+                    logs.isEmpty() -> item {
+                        Text(if (plugin.executable) "还没有运行日志。" else "该第三方包未执行，因此没有运行日志。")
+                    }
                     else -> items(logs) { log ->
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
@@ -499,7 +510,8 @@ private fun PluginPermissionDialog(
                     Text("申请的权限：")
                     plugin.permissions.forEach { Text("• ${it.permissionLabel()}") }
                 }
-                Text("插件会在应用进程内运行，请只安装你信任的来源。")
+                Text("当前版本只保存这个第三方包，不会执行其中的 Python 或其他代码。")
+                Text("后续声明式协议只允许插件描述提示词动作、设置与经授权的宿主能力。")
                 if (inspection.blockedReason.isNotBlank()) {
                     Text(inspection.blockedReason, color = MaterialTheme.colorScheme.error)
                 }
@@ -513,7 +525,7 @@ private fun PluginPermissionDialog(
                 Button(onClick = onDismiss, enabled = !busy) { Text("知道了") }
             } else {
                 Button(onClick = onConfirm, enabled = !busy) {
-                    Text(if (busy) "处理中…" else if (inspection.operation == "update") "确认更新" else "确认安装")
+                    Text(if (busy) "处理中…" else if (inspection.operation == "update") "确认保存更新" else "确认保存")
                 }
             }
         },

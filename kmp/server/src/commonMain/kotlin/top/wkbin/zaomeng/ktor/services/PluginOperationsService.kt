@@ -27,8 +27,8 @@ import top.wkbin.zaomeng.platform.readZipEntries
  * 对应 Python src/web/service_facades/plugins.py 的：
  * inspect / install 两阶段插件包安装，以及对话中插件动作。
  *
- * 注意：插件动作（chat_action / npc_generator）在 Python 端由 Python 运行时执行，
- * Ktor 后端没有该运行时，返回明确错误而非 404。enhancer 状态仅做会话内存储。
+ * 注意：第三方包仅保存供未来声明式协议迁移，不进入启用态，也不执行其中的任意代码。
+ * 当前可执行插件全部来自编译进应用的 builtin-plugins 模块。
  */
 class PluginOperationsService(
     private val storage: StorageService,
@@ -113,19 +113,22 @@ class PluginOperationsService(
             copyRecursively(staging, target)
             storage.deleteRecursively(staging)
         }
-        // 更新 enabled.json 默认启用
-        pluginService.setEnabled(id, true)
+        // 第三方包只保存，主动清除旧版本可能留下的 enabled 状态。
+        pluginService.setEnabled(id, false)
         val dto = buildPluginDto(id, manifest)
         return buildJsonObject {
             dto.forEach { (key, value) -> put(key, value) }
             put("version", version)
-            put("enabled", true)
-            put("status", "enabled")
+            put("enabled", false)
+            put("status", "stored")
         }
     }
 
     /** 设置生成增强器状态（会话内存储）。对应 Python set_generation_enhancer_state。 */
     fun setEnhancerState(runId: String, sessionId: String, pluginId: String, enhancerId: String, enabled: Boolean): JsonObject {
+        require(pluginService.isBuiltin(pluginId)) {
+            "第三方插件包目前只能保存，不能启用生成增强器。"
+        }
         val session = loadSession(runId, sessionId)
         val existing = session["plugin_enhancer_states"]?.jsonObject ?: JsonObject(emptyMap())
         val pluginStates = existing[pluginId]?.jsonObject ?: JsonObject(emptyMap())
@@ -288,9 +291,12 @@ class PluginOperationsService(
         put("config", JsonObject(emptyMap()))
         put("contributes", manifest["contributes"]?.jsonObject ?: JsonObject(emptyMap()))
         put("defaultEnabled", manifest["defaultEnabled"]?.jsonPrimitive?.booleanOrNull ?: true)
-        put("enabled", true)
-        put("status", "enabled")
+        put("enabled", false)
+        put("status", "stored")
         put("error", "")
         put("source", "third-party")
+        put("executable", false)
+        put("executionMode", "unsupported")
+        put("capabilityNotice", "第三方插件包目前只能保存，不能执行；造梦不会运行其中的 Python 或其他任意代码。")
     }
 }

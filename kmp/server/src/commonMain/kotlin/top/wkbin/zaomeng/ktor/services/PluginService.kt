@@ -40,7 +40,13 @@ class PluginService(
         return buildJsonObject { put("items", items) }
     }
 
-    /** 构造单个插件项（内置或第三方），enabled/status 统一为 enabled/disabled。 */
+    /**
+     * 构造单个插件项。
+     *
+     * 第三方 ZIP 目前只作为待迁移资源保存；宿主没有任意代码运行时，因此绝不能把
+     * enabled.json 中的历史残留解释成“可执行”。未来声明式协议有独立执行模式后，
+     * 再由协议校验器把 executable 置为 true。
+     */
     private fun itemFor(pluginId: String, enabled: Set<String>, useDefaults: Boolean = false): JsonObject? {
         val builtin = findBuiltin(pluginId)
         if (builtin != null) return builtinItem(builtin, enabled, useDefaults)
@@ -51,9 +57,12 @@ class PluginService(
             buildJsonObject {
                 value.forEach { (key, item) -> put(key, item) }
                 put("id", value["id"]?.jsonPrimitive?.contentOrNull ?: pluginId)
-                put("enabled", pluginId in enabled)
-                put("status", if (pluginId in enabled) "enabled" else "disabled")
+                put("enabled", false)
+                put("status", "stored")
                 put("source", "third-party")
+                put("executable", false)
+                put("executionMode", "unsupported")
+                put("capabilityNotice", THIRD_PARTY_STORED_NOTICE)
             }
         } catch (_: Exception) { null }
     }
@@ -104,6 +113,9 @@ class PluginService(
             put("status", if (isEnabled) "enabled" else "disabled")
             put("error", "")
             put("source", "official")
+            put("executable", true)
+            put("executionMode", "builtin-kotlin")
+            put("capabilityNotice", "由造梦内置 Kotlin 宿主执行。")
         }
     }
 
@@ -114,6 +126,9 @@ class PluginService(
             throw IllegalArgumentException("Invalid plugin id")
         }
         if (!isKnown(normalized)) throw NoSuchElementException("Plugin not found: $normalized")
+        if (!isBuiltin(normalized) && value) {
+            throw IllegalArgumentException(THIRD_PARTY_STORED_NOTICE)
+        }
         // 首次显式变更前把默认开启的内置插件一起落盘：
         // 否则状态文件里只有当前这一个插件，其它默认插件会全部变成关闭。
         val enabled = if (storage.isFile(stateFile)) {
@@ -220,5 +235,10 @@ class PluginService(
         } else {
             parsed
         }
+    }
+
+    private companion object {
+        const val THIRD_PARTY_STORED_NOTICE =
+            "第三方插件包目前只能保存，不能执行；造梦不会运行其中的 Python 或其他任意代码。"
     }
 }

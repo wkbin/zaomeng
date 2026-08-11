@@ -79,6 +79,12 @@ class PluginsViewModel(
     }
 
     fun setEnabled(plugin: PluginDto, enabled: Boolean) {
+        if (!plugin.executable) {
+            mutableState.update {
+                it.copy(error = plugin.capabilityNotice.ifBlank { "该插件当前不可执行。" }, message = "")
+            }
+            return
+        }
         if (state.value.busyPluginId.isNotBlank() || plugin.enabled == enabled) return
         viewModelScope.launch {
             mutableState.update {
@@ -168,9 +174,9 @@ class PluginsViewModel(
                         packageInspection = null,
                         plugins = plugins.sortedPlugins(),
                         message = if (inspection.operation == "update") {
-                            "已更新「${installed.name}」到 v${installed.version}。"
+                            "已保存「${installed.name}」v${installed.version}；当前版本不会执行第三方代码。"
                         } else {
-                            "已安装「${installed.name}」。"
+                            "已保存「${installed.name}」；当前版本不会执行第三方代码。"
                         },
                     )
                 }
