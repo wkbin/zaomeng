@@ -33,6 +33,10 @@ compose.desktop {
     application {
         mainClass = "top.wkbin.zaomeng.app.desktop.MainKt"
 
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("compose-desktop.pro"))
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "造梦"
