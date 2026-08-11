@@ -118,6 +118,7 @@ fun RunDetailScreen(
     onOpenChapters: (runId: String) -> Unit,
     onOpenRelations: (runId: String) -> Unit,
     onOpenWorldTimeline: (runId: String) -> Unit,
+    onOpenOriginalKnowledge: (runId: String) -> Unit,
     onOpenRedistill: (runId: String) -> Unit,
     onDeleted: () -> Unit,
     modifier: Modifier = Modifier,
@@ -359,6 +360,7 @@ fun RunDetailScreen(
                 onOpenChapters = { onOpenChapters(viewModel.runId) },
                 onOpenRelations = { onOpenRelations(viewModel.runId) },
                 onOpenWorldTimeline = { onOpenWorldTimeline(viewModel.runId) },
+                onOpenOriginalKnowledge = { onOpenOriginalKnowledge(viewModel.runId) },
                 onOpenRedistill = { onOpenRedistill(viewModel.runId) },
                 onDelete = { confirmDelete = true },
                 modifier = Modifier.padding(innerPadding),
@@ -383,6 +385,7 @@ private fun RunDetailContent(
     onOpenChapters: () -> Unit,
     onOpenRelations: () -> Unit,
     onOpenWorldTimeline: () -> Unit,
+    onOpenOriginalKnowledge: () -> Unit,
     onOpenRedistill: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -489,6 +492,7 @@ private fun RunDetailContent(
                 onOpenChapters = onOpenChapters,
                 onOpenRelations = onOpenRelations,
                 onOpenWorldTimeline = onOpenWorldTimeline,
+                onOpenOriginalKnowledge = onOpenOriginalKnowledge,
                 onOpenRedistill = onOpenRedistill,
                 onDelete = onDelete,
             )
@@ -912,6 +916,7 @@ private fun ActionCard(
     onOpenChapters: () -> Unit,
     onOpenRelations: () -> Unit,
     onOpenWorldTimeline: () -> Unit,
+    onOpenOriginalKnowledge: () -> Unit,
     onOpenRedistill: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -949,6 +954,9 @@ private fun ActionCard(
                         }
                         OutlinedButton(onClick = onOpenWorldTimeline, modifier = Modifier.fillMaxWidth()) {
                             Text("查看故事时间线与剧情事实")
+                        }
+                        OutlinedButton(onClick = onOpenOriginalKnowledge, modifier = Modifier.fillMaxWidth()) {
+                            Text("搜索与校对原文证据")
                         }
                     }
                     Column(
@@ -999,6 +1007,9 @@ private fun ActionCard(
                 }
                 OutlinedButton(onClick = onOpenWorldTimeline, modifier = Modifier.fillMaxWidth()) {
                     Text("查看故事时间线与剧情事实")
+                }
+                OutlinedButton(onClick = onOpenOriginalKnowledge, modifier = Modifier.fillMaxWidth()) {
+                    Text("搜索与校对原文证据")
                 }
                 HorizontalDivider()
                 Text(

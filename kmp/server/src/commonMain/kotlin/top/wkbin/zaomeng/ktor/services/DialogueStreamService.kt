@@ -215,6 +215,7 @@ class DialogueStreamService(
                 responses = responses,
                 suppressTranscriptMessage = suppressTranscriptMessage,
                 existingSession = sessionManifestJson,
+                evidence = dialogue.extractOriginalEvidence(payload),
             )
             val committedAt = nowEpochMillis()
             PlatformLog.d(

@@ -10,7 +10,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 import top.wkbin.zaomeng.data.api.MessagesResponse
+import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
 
 /** 会话响应统一带上 transcript_count（轻量/全量响应均携带）。 */
@@ -76,7 +79,14 @@ fun toTranscriptItemDto(item: JsonObject): TranscriptItemDto = TranscriptItemDto
     role = item.stringValue("role"),
     turnId = item.stringValue("turn_id"),
     timestamp = item.stringValue("timestamp"),
+    evidence = item["evidence"]?.jsonArray.orEmpty().mapNotNull { evidence ->
+        runCatching {
+            sessionResponseJson.decodeFromJsonElement<OriginalKnowledgeEntryDto>(evidence)
+        }.getOrNull()
+    },
 )
+
+private val sessionResponseJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 private fun JsonObject.stringValue(key: String): String =
     this[key]?.jsonPrimitive?.contentOrNull.orEmpty()

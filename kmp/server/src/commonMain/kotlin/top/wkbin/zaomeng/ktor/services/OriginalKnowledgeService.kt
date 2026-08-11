@@ -66,17 +66,19 @@ class OriginalKnowledgeService(private val storage: StorageService) {
                 return@withLock current
             }
 
-            val oldOverrides = current["entries"]?.jsonArray.orEmpty()
+            val oldEntries = current["entries"]?.jsonArray.orEmpty()
                 .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-                .filter { it["boundary_source"]?.jsonPrimitive?.contentOrNull == "manual" }
                 .associateBy { it["text"]?.jsonPrimitive?.contentOrNull.orEmpty().trim() }
             val entries = buildEntries(storage.readText(source), source.name, names).map { entry ->
-                val old = oldOverrides[entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()]
+                val old = oldEntries[entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()]
                 if (old == null) entry else buildJsonObject {
                     entry.forEach { (key, value) -> put(key, value) }
-                    old["visibility"]?.let { put("visibility", it) }
-                    old["knowers"]?.let { put("knowers", it) }
-                    put("boundary_source", "manual")
+                    if (old["boundary_source"]?.jsonPrimitive?.contentOrNull == "manual") {
+                        old["visibility"]?.let { put("visibility", it) }
+                        old["knowers"]?.let { put("knowers", it) }
+                        put("boundary_source", "manual")
+                    }
+                    old["pinned"]?.let { put("pinned", it) }
                 }
             }
             val updated = buildJsonObject {
@@ -129,6 +131,27 @@ class OriginalKnowledgeService(private val storage: StorageService) {
         entries[index]
     }
 
+    fun updatePinned(runId: String, entryId: String, pinned: Boolean): JsonObject = lockFor(runId).withLock {
+        val payload = read(runId)
+        val entries = payload["entries"]?.jsonArray?.map { it.jsonObject }?.toMutableList()
+            ?: mutableListOf()
+        val index = entries.indexOfFirst { it["entry_id"]?.jsonPrimitive?.contentOrNull == entryId }
+        require(index >= 0) { "Original knowledge entry not found" }
+        entries[index] = buildJsonObject {
+            entries[index].forEach { (key, value) -> put(key, value) }
+            put("pinned", pinned)
+            put("updated_at", nowIsoString())
+        }
+        val updated = buildJsonObject {
+            payload.forEach { (key, value) -> if (key != "entries") put(key, value) }
+            put("entries", buildJsonArray { entries.forEach(::add) })
+            put("entry_count", entries.size)
+            put("updated_at", nowIsoString())
+        }
+        write(runId, updated)
+        entries[index]
+    }
+
     fun search(
         runManifest: JsonObject,
         query: String,
@@ -137,6 +160,7 @@ class OriginalKnowledgeService(private val storage: StorageService) {
         sceneTerms: List<String> = emptyList(),
         limit: Int = 6,
         rebuildIfMissing: Boolean = true,
+        pinnedOnly: Boolean = false,
     ): List<Map<String, Any?>> {
         val names = participants.map(String::trim).filter(String::isNotBlank).distinct()
         val active = activeParticipants.map(String::trim).filter(String::isNotBlank).distinct()
@@ -158,9 +182,13 @@ class OriginalKnowledgeService(private val storage: StorageService) {
             .joinToString(" ")
         val exactQuery = query.trim()
         val tokens = tokens(queryText)
-        val entries = payload["entries"]?.jsonArray.orEmpty()
+        val entries = payload["entries"]?.jsonArray.orEmpty().filter { raw ->
+            !pinnedOnly || raw.jsonObject["pinned"]?.jsonPrimitive?.contentOrNull == "true"
+        }
         if (queryText.isBlank()) {
-            return entries.take(limit.coerceIn(1, 10)).mapNotNull { raw ->
+            return entries.sortedByDescending { raw ->
+                raw.jsonObject["pinned"]?.jsonPrimitive?.contentOrNull == "true"
+            }.take(limit.coerceIn(1, MAX_SEARCH_RESULTS)).mapNotNull { raw ->
                 val entry = runCatching { raw.jsonObject }.getOrNull() ?: return@mapNotNull null
                 retrievalPayload(entry, 0.0, names)
             }
@@ -178,7 +206,7 @@ class OriginalKnowledgeService(private val storage: StorageService) {
             if (score <= 0.0) return@mapNotNull null
             score to entry
         }.sortedWith(compareByDescending<Pair<Double, JsonObject>> { it.first })
-            .take(limit.coerceIn(1, 10))
+            .take(limit.coerceIn(1, MAX_SEARCH_RESULTS))
         return scored.map { (score, entry) -> retrievalPayload(entry, score, names) }
     }
 
@@ -273,6 +301,7 @@ class OriginalKnowledgeService(private val storage: StorageService) {
                 put("knowers", buildJsonArray { boundary.second.forEach { add(JsonPrimitive(it)) } })
                 put("boundary_source", "automatic")
                 put("epistemic_status", "explicit_source")
+                put("pinned", false)
             }
             buffer.clear()
         }
@@ -332,6 +361,10 @@ class OriginalKnowledgeService(private val storage: StorageService) {
             ),
             "score" to (score * 1000.0).toInt() / 1000.0,
             "visibility" to visibility,
+            "knowers" to knowers,
+            "characters" to entry["characters"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            "boundary_source" to (entry["boundary_source"]?.jsonPrimitive?.contentOrNull ?: "automatic"),
+            "pinned" to (entry["pinned"]?.jsonPrimitive?.contentOrNull == "true"),
             "allowed_characters" to allowed,
             "denied_characters" to participants.filter { it !in allowed },
             "epistemic_status" to (entry["epistemic_status"]?.jsonPrimitive?.contentOrNull ?: "explicit_source"),
@@ -367,6 +400,7 @@ class OriginalKnowledgeService(private val storage: StorageService) {
         private const val MAX_CACHED_INDEXES = 3
         private const val CHUNK_CHAR_LIMIT = 900
         private const val MAX_ENTRIES = 12_000
+        private const val MAX_SEARCH_RESULTS = 50
         private val VISIBILITIES = setOf("public", "scene", "private", "uncertain")
         private val SECRET_MARKERS = listOf("秘密", "瞒着", "隐瞒", "只有", "不得告诉", "不能让", "不知情")
         private val PUBLIC_MARKERS = listOf("世界", "规则", "所有人", "任何人", "人们", "法律", "制度", "历史", "城市", "国家", "组织")

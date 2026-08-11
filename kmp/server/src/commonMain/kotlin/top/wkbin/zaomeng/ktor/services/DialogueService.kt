@@ -22,6 +22,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.ktor.models.DialogueResponse
 import top.wkbin.zaomeng.ktor.models.DialogueTurnResponse
+import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
+import top.wkbin.zaomeng.data.api.OriginalKnowledgeLocationDto
 import okio.Path
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.SimpleLock
@@ -134,7 +136,8 @@ class DialogueService(
         @SerialName("message_kind")
         val messageKind: String,
         val responses: List<DialogueResponse>,
-        val timestamp: Long
+        val timestamp: Long,
+        val evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
     )
 
     /**
@@ -255,6 +258,7 @@ class DialogueService(
             responses = finalResponses,
             suppressTranscriptMessage = suppressTranscriptMessage,
             existingSession = sessionManifestJson,
+            evidence = extractOriginalEvidence(payload),
         )
 
         return DialogueTurnResponse(
@@ -306,6 +310,7 @@ class DialogueService(
         messageKind: String,
         responses: List<DialogueResponse>,
         suppressTranscriptMessage: Boolean = false,
+        evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
         // Kept for call-site compatibility. Commit still reloads under the mutation lock so
         // background enrichment cannot be overwritten; StorageService reuses the parsed
         // manifest when the document has not changed.
@@ -315,7 +320,7 @@ class DialogueService(
         // enrichment runs in the background. Reload and persist under one session lock.
         val updated = sessionMutationLock(runId, sessionId).withLock {
             val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
-            saveTurn(runId, sessionId, turnId, message, messageKind, responses)
+            saveTurn(runId, sessionId, turnId, message, messageKind, responses, evidence)
             updateSessionManifest(
                 runId = runId,
                 sessionId = sessionId,
@@ -324,6 +329,7 @@ class DialogueService(
                 userMessage = message,
                 suppressUserMessage = suppressTranscriptMessage,
                 responses = responses,
+                evidence = evidence,
                 mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
                 manifest = sessionManifest,
                 deriveState = false,
@@ -505,7 +511,8 @@ class DialogueService(
         turnId: String,
         message: String,
         messageKind: String,
-        responses: List<DialogueResponse>
+        responses: List<DialogueResponse>,
+        evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
     ) {
         val turnDir = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turns/$turnId"
         storageService.mkdirs(turnDir)
@@ -515,12 +522,70 @@ class DialogueService(
             message = message,
             messageKind = messageKind,
             responses = responses,
-            timestamp = nowEpochMillis()
+            timestamp = nowEpochMillis(),
+            evidence = evidence,
         )
 
         val turnFile = turnDir / "turn.json"
         storageService.writeTextAtomically(turnFile, Json.encodeToString(TurnRecord.serializer(), turnRecord))
     }
+
+    internal fun extractOriginalEvidence(payload: Map<String, Any?>): List<OriginalKnowledgeEntryDto> {
+        val context = (payload["original_source_context"] as? Map<*, *>)
+            ?.mapKeys { it.key.toString() }
+            ?: return emptyList()
+        return ((context["entries"] as? List<*>) ?: emptyList<Any?>()).mapNotNull { raw ->
+            val item = (raw as? Map<*, *>)?.mapKeys { it.key.toString() } ?: return@mapNotNull null
+            val sourceId = item["source_id"]?.toString()?.trim().orEmpty()
+            val excerpt = item["excerpt"]?.toString()?.trim().orEmpty()
+            if (sourceId.isBlank() || excerpt.isBlank()) return@mapNotNull null
+            val location = (item["location"] as? Map<*, *>)?.mapKeys { it.key.toString() }.orEmpty()
+            OriginalKnowledgeEntryDto(
+                sourceId = sourceId,
+                title = item["title"]?.toString()?.trim().orEmpty(),
+                excerpt = excerpt,
+                score = (item["score"] as? Number)?.toDouble() ?: 0.0,
+                visibility = item["visibility"]?.toString().orEmpty().ifBlank { "uncertain" },
+                knowers = stringList(item["knowers"]),
+                characters = stringList(item["characters"]),
+                allowedCharacters = stringList(item["allowed_characters"]),
+                deniedCharacters = stringList(item["denied_characters"]),
+                boundarySource = item["boundary_source"]?.toString().orEmpty().ifBlank { "automatic" },
+                epistemicStatus = item["epistemic_status"]?.toString().orEmpty().ifBlank { "explicit_source" },
+                pinned = item["pinned"] as? Boolean ?: false,
+                location = OriginalKnowledgeLocationDto(
+                    startChar = (location["start_char"] as? Number)?.toInt() ?: 0,
+                    endChar = (location["end_char"] as? Number)?.toInt() ?: 0,
+                ),
+            )
+        }.distinctBy(OriginalKnowledgeEntryDto::sourceId).take(3)
+    }
+
+    private fun evidenceToJson(evidence: List<OriginalKnowledgeEntryDto>): JsonArray = buildJsonArray {
+        evidence.forEach { item ->
+            add(buildJsonObject {
+                put("source_id", item.sourceId)
+                put("title", item.title)
+                put("excerpt", item.excerpt)
+                put("score", item.score)
+                put("visibility", item.visibility)
+                put("knowers", buildJsonArray { item.knowers.forEach { add(JsonPrimitive(it)) } })
+                put("characters", buildJsonArray { item.characters.forEach { add(JsonPrimitive(it)) } })
+                put("allowed_characters", buildJsonArray { item.allowedCharacters.forEach { add(JsonPrimitive(it)) } })
+                put("denied_characters", buildJsonArray { item.deniedCharacters.forEach { add(JsonPrimitive(it)) } })
+                put("boundary_source", item.boundarySource)
+                put("epistemic_status", item.epistemicStatus)
+                put("pinned", item.pinned)
+                put("location", buildJsonObject {
+                    put("start_char", item.location.startChar)
+                    put("end_char", item.location.endChar)
+                })
+            })
+        }
+    }
+
+    private fun stringList(value: Any?): List<String> =
+        (value as? List<*>)?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) }?.distinct().orEmpty()
 
     /**
      * Update session manifest with new turn count.
@@ -533,6 +598,7 @@ class DialogueService(
         userMessage: String,
         suppressUserMessage: Boolean,
         responses: List<DialogueResponse>,
+        evidence: List<OriginalKnowledgeEntryDto>,
         mode: String = "observe",
         manifest: JsonObject,
         deriveState: Boolean = true,
@@ -550,7 +616,7 @@ class DialogueService(
                 put("turn_id", turnId)
                 put("timestamp", timestamp)
             })
-            responses.forEach { response -> add(buildJsonObject {
+            responses.forEachIndexed { index, response -> add(buildJsonObject {
                 put("speaker", response.speaker)
                 put("message", response.message)
                 response.innerThought?.let { put("inner_thought", it) }
@@ -561,6 +627,7 @@ class DialogueService(
                 })
                 put("turn_id", turnId)
                 put("timestamp", timestamp)
+                if (index == 0 && evidence.isNotEmpty()) put("evidence", evidenceToJson(evidence))
             }) }
         }
         val compacted = storageService.compactSessionTranscript(
