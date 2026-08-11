@@ -16,13 +16,8 @@
   --radius-lg: 30px;
   --radius-md: 20px;
   --shell: min(1120px, calc(100% - 48px));
-  /* |x|^3 + |y|^3 = 1, sampled from x/y = sgn(cos/sin(t))·|cos/sin(t)|^(2/3). */
-  --superellipse-n3: polygon(
-    98% 50%, 96.9% 69.5%, 93.6% 80.2%, 88.1% 88.1%, 80.2% 93.6%, 69.5% 96.9%,
-    50% 98%, 30.5% 96.9%, 19.8% 93.6%, 11.9% 88.1%, 6.4% 80.2%, 3.1% 69.5%,
-    2% 50%, 3.1% 30.5%, 6.4% 19.8%, 11.9% 11.9%, 19.8% 6.4%, 30.5% 3.1%,
-    50% 2%, 69.5% 3.1%, 80.2% 6.4%, 88.1% 11.9%, 93.6% 19.8%, 96.9% 30.5%
-  );
+  /* Smooth cubic approximation of |x|^3 + |y|^3 = 1 for the fixed 38px brand mark. */
+  --superellipse-n3: path("M 37.24 19 C 37.24 33.29 33.29 37.24 19 37.24 C 4.71 37.24 0.76 33.29 0.76 19 C 0.76 4.71 4.71 0.76 19 0.76 C 33.29 0.76 37.24 4.71 37.24 19 Z");
   color-scheme: dark;
 }
 
@@ -192,16 +187,15 @@ img {
   place-items: center;
   overflow: hidden;
   border: 0;
-  border-radius: 0;
-  background: linear-gradient(145deg, var(--gold-light), rgba(229, 170, 67, 0.42));
+  border-radius: 34%;
+  background: var(--paper);
   clip-path: var(--superellipse-n3);
 }
 
 .brand-mark img {
-  width: 36px;
-  height: 36px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  clip-path: var(--superellipse-n3);
 }
 
 .main-nav {
