@@ -11,7 +11,7 @@ class ProfileQualityAnalyzerTest {
         val fields = ProfileQualityAnalyzer.parseMarkdown(
             """
             # PROFILE
-            - core_identity: 证据不足
+            - core_identity: 留空
             - soul_goal: 守护家族并查明真相
             - hidden_desire: 守护家族并查明真相
             - speech_style:

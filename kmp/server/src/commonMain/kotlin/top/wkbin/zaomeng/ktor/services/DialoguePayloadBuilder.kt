@@ -304,7 +304,7 @@ class DialoguePayloadBuilder(
             val colon = body.indexOf(':')
             if (colon <= 0) continue
             val key = body.substring(0, colon).trim()
-            val value = body.substring(colon + 1).trim()
+            val value = PersonaProfileNormalizer.normalizeFieldValue(body.substring(colon + 1))
             val previous = parsed[key]
             parsed[key] = if (previous == null) value else "$previous；$value"
         }
@@ -314,6 +314,7 @@ class DialoguePayloadBuilder(
     private fun normalizeYamlValue(value: Any?): Any? = when (value) {
         is Map<*, *> -> value.mapKeys { it.key.toString() }.mapValues { normalizeYamlValue(it.value) }
         is List<*> -> value.map { normalizeYamlValue(it) }
+        is String -> PersonaProfileNormalizer.normalizeFieldValue(value)
         else -> value
     }
 

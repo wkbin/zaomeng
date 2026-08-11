@@ -22,6 +22,8 @@
 
 输出时优先覆盖以下字段组；证据不足时必须留空，禁止写 `证据不足`、`未知` 等占位词或省略号，也禁止脑补：
 
+这里的“留空”是格式指令：必须输出 `- 字段名:`，冒号后不要写任何字符。严禁把“留空”“空白”“无证据”“N/A”等字样当作字段值。
+
 1. 基础身份定位：`core_identity`、`faction_position`、`world_belong`、`story_role`、`stance_stability`、`identity_anchor`
 2. 世界观绑定：`world_rule_fit`、`rule_view`、`plot_restriction`
 3. 根源底层：`background_imprint`、`life_experience`、`trauma_scar`、`taboo_topics`、`forbidden_behaviors`
@@ -56,7 +58,7 @@
 14. 对反派、灰色人物、失败者一律客观记录，不洗白、不丑化、不做审判式总结。
 15. 如果输入中包含用户纠错或长期修正记录，应视为高优先级约束，但不得覆盖原文中明确相反的硬证据。
 16. 若 `rules/character_hints/<novel_id>.md` 存在，可用于收紧表达边界、避免同质化，但不能覆盖与正文相反的证据。
-17. 正文句子以 `[S000001]` 形式携带证据 ID。`evidence_source` 只能填写本次 excerpt 中真实出现的 ID，最多 12 个，用 `；` 分隔；禁止虚构章节、段落或连续罗列全部片段。
+17. 正文句子以 `[S000001]` 形式携带证据 ID。`evidence_source` 只能填写本次 excerpt 中真实出现的 ID，去重后最多 12 个，用 `；` 分隔；达到 12 个必须立即停止，禁止虚构章节、段落或连续罗列全部片段。
 
 ## 增量蒸馏规则
 

@@ -469,16 +469,28 @@ class DistillExecutor(
     }
 
     private fun validateFinalProfile(character: String, payload: DistillPayload, content: String): String {
-        val fields = parseGeneratedMarkdown(content)
+        val allowedEvidenceIds = EVIDENCE_ID.findAll(payload.request["excerpt"]?.toString().orEmpty())
+            .map { it.value }
+            .toSet()
+        val normalization = PersonaProfileNormalizer.normalize(
+            markdown = stripFences(content),
+            allowedEvidenceIds = allowedEvidenceIds,
+            maxEvidenceIds = MAX_PROFILE_EVIDENCE_IDS,
+        )
+        if (normalization.clearedFields.isNotEmpty() || normalization.removedEvidenceCount > 0) {
+            PlatformLog.w(
+                TAG,
+                "Normalized profile for $character: cleared=${normalization.clearedFields.size}, " +
+                    "removedEvidence=${normalization.removedEvidenceCount}",
+            )
+        }
+        val fields = parseGeneratedMarkdown(normalization.markdown)
         val schemaFields = ProfileQualityAnalyzer.REPAIRABLE_FIELDS.count(fields::containsKey)
         if (schemaFields < PROFILE_MIN_SCHEMA_FIELDS) {
             throw IllegalStateException(
                 "$character 的人物档案结构不完整：仅返回 $schemaFields/${ProfileQualityAnalyzer.REPAIRABLE_FIELDS.size} 个核心字段",
             )
         }
-        val allowedEvidenceIds = EVIDENCE_ID.findAll(payload.request["excerpt"]?.toString().orEmpty())
-            .map { it.value }
-            .toSet()
         val evidenceSource = fields["evidence_source"]?.toString().orEmpty().trim()
         if (evidenceSource.isNotEmpty()) {
             val referencedIds = EVIDENCE_ID.findAll(evidenceSource).map { it.value }.toList()
@@ -489,7 +501,7 @@ class DistillExecutor(
                 throw IllegalStateException("$character 的 evidence_source 超过 $MAX_PROFILE_EVIDENCE_IDS 条关键证据")
             }
         }
-        return content
+        return normalization.markdown
     }
 
     // ------------------------------------------------------------------

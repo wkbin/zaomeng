@@ -116,12 +116,13 @@
 ```
 
 规则：
+- “留空”表示保留 `- key:` 且冒号后零字符；不得输出“留空”“空白”“无证据”“N/A”等字面占位值
 - `core_traits` max 10 unique items
 - `typical_lines` max 8 unique items
 - `decision_rules` max 8 unique items
 - list-like fields use `；` as the separator in markdown scalar lines
 - `values` all integers in `[0,10]`
-- `evidence_source` 只存输入 excerpt 中真实出现的证据 ID，最多 12 个，不复制原文，不虚构章节或段落
+- `evidence_source` 只存输入 excerpt 中真实出现的证据 ID，去重后最多 12 个；达到上限立即停止，不复制原文，不虚构章节或段落
 - `sentence_openers` / `connective_tokens` / `sentence_endings` / `forbidden_fillers` 为可选字段，无稳定证据时留空
 - 任意高风险深层字段若没有稳定证据，必须留空，禁止写占位词
 - `arc_start` / `arc_mid` / `arc_end` 只有在识别到稳定阶段变化时才量化；证据不足时可保留空值或只写 `trigger_event` / `final_state` 类说明

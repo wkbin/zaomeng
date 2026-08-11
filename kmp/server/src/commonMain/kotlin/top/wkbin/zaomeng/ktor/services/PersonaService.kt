@@ -284,7 +284,7 @@ class PersonaService(
             field in EMOTION_FIELDS -> (profile["emotion_profile"] as? Map<*, *>)?.get(field)
             else -> null
         }
-        return formatField(nested ?: profile[field])
+        return PersonaProfileNormalizer.normalizeFieldValue(formatField(nested ?: profile[field]))
     }
 
     private fun formatField(value: Any?): String = when (value) {
@@ -346,7 +346,7 @@ class PersonaService(
         private const val TAG = "PersonaService"
         private const val MAX_AVATAR_BYTES = 5 * 1024 * 1024
         private val PROFILE_FILENAMES = setOf("PROFILE.md", "PROFILE.generated.md")
-        private val INSUFFICIENT_VALUES = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充")
+        private val INSUFFICIENT_VALUES = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "留空")
         private val REVIEW_FIELDS = listOf("core_identity", "story_role", "identity_anchor", "temperament_type", "gender", "age_stage", "appearance_feature", "habit_action", "soul_goal", "hidden_desire", "inner_conflict", "self_cognition", "private_self", "speech_style", "cadence", "typical_lines", "signature_phrases", "sentence_openers", "sentence_endings", "social_mode", "thinking_style", "decision_rules", "reward_logic", "worldview", "belief_anchor", "moral_bottom_line", "restraint_threshold", "core_traits", "key_bonds", "preference_like", "dislike_hate", "forbidden_behaviors", "stress_response", "emotion_model", "anger_style", "joy_style", "grievance_style", "others_impression")
         private val LIST_FIELDS = setOf("typical_lines", "signature_phrases", "sentence_openers", "sentence_endings", "decision_rules", "core_traits", "key_bonds", "preference_like", "dislike_hate", "forbidden_behaviors")
         private val SPEECH_LIST_FIELDS = setOf("signature_phrases", "sentence_openers", "sentence_endings")

@@ -307,7 +307,7 @@ class ProfileRepairService(
         private const val MAX_FIELD_CHARS = 800
         private const val MAX_REASON_CHARS = 240
         private val NON_WORD = Regex("[\\s，。；：、,.!！?？'\"“”‘’（）()《》<>_-]+")
-        private val INSUFFICIENT_VALUES = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "insufficient")
+        private val INSUFFICIENT_VALUES = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "留空", "insufficient")
     }
 }
 
@@ -473,7 +473,7 @@ object ProfileQualityAnalyzer {
     private val CONTRADICTION_PAIRS = listOf(
         "忠诚" to "背叛", "冷静" to "冲动", "克制" to "失控", "善良" to "残忍", "守序" to "反抗",
     )
-    private val PLACEHOLDERS = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "insufficient")
+    private val PLACEHOLDERS = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "留空", "insufficient")
     private val NON_WORD = Regex("[\\s，。；：、,.!！?？'\"“”‘’（）()《》<>_-]+")
     private const val MIN_TEMPLATE_LENGTH = 6
 }
