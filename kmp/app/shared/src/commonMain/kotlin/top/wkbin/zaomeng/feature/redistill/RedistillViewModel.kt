@@ -15,6 +15,8 @@ import top.wkbin.zaomeng.feature.importbook.textStatistics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,10 +36,10 @@ data class RedistillUiState(
     val sourceCharCount: Int = 0,
     val sourceSentenceCount: Int = 0,
     val readingFile: Boolean = false,
-    val recommendationCharacter: String = "",
+    val recommendationCharacters: Set<String> = emptySet(),
     val recommending: Boolean = false,
-    val suggestions: RedistillSuggestionsDto? = null,
-    val selectedSegmentId: String = "",
+    val suggestions: List<RedistillCharacterSuggestions> = emptyList(),
+    val selectedSegmentKeys: Set<String> = emptySet(),
     val estimatingSampling: Boolean = false,
     val samplingPlan: SamplingPlanDto? = null,
     val samplingEstimateError: String = "",
@@ -45,9 +47,39 @@ data class RedistillUiState(
     val completed: Boolean = false,
     val error: String = "",
 ) {
-    val selectedSegment: RedistillSegmentDto?
-        get() = suggestions?.segments?.firstOrNull { it.segmentId == selectedSegmentId }
+    val selectedSegments: List<RedistillSelectedSegment>
+        get() = suggestions.flatMap { group ->
+            group.suggestions.segments.mapNotNull { segment ->
+                RedistillSelectedSegment(group.character, segment)
+                    .takeIf { redistillSegmentKey(group.character, segment.segmentId) in selectedSegmentKeys }
+            }
+        }
 }
+
+data class RedistillCharacterSuggestions(
+    val character: String,
+    val suggestions: RedistillSuggestionsDto,
+)
+
+data class RedistillSelectedSegment(
+    val character: String,
+    val segment: RedistillSegmentDto,
+)
+
+internal fun parseRedistillCharacters(value: String): List<String> = value
+    .split(',', '，', '、', ';', '；', '\n')
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
+
+internal fun redistillSegmentKey(character: String, segmentId: String): String = "$character::$segmentId"
+
+internal fun combineRedistillSegments(segments: List<RedistillSelectedSegment>): String = segments
+    .distinctBy { it.segment.fullText.trim() }
+    .joinToString("\n\n") { selected ->
+        "【${selected.character}·原文推进片段】\n${selected.segment.fullText.trim()}"
+    }
+    .trim()
 
 class RedistillViewModel(
     private val repository: ZaomengRepository,
@@ -82,7 +114,7 @@ class RedistillViewModel(
                         loading = false,
                         run = run,
                         characters = characters.joinToString("、"),
-                        recommendationCharacter = characters.firstOrNull().orEmpty(),
+                        recommendationCharacters = characters.toSet(),
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -161,7 +193,7 @@ class RedistillViewModel(
                 sourceCharCount = document.charCount,
                 sourceSentenceCount = document.sentenceCount,
                 readingFile = false,
-                selectedSegmentId = "",
+                selectedSegmentKeys = emptySet(),
                 samplingPlan = null,
                 samplingEstimateError = "",
                 error = "",
@@ -187,7 +219,20 @@ class RedistillViewModel(
     }
 
     fun updateCharacters(value: String) {
-        mutableState.update { it.copy(characters = value, samplingPlan = null, error = "") }
+        val available = parseRedistillCharacters(value).toSet()
+        mutableState.update {
+            val retained = it.recommendationCharacters.intersect(available)
+            it.copy(
+                characters = value,
+                recommendationCharacters = if (retained.isEmpty()) available else retained,
+                suggestions = it.suggestions.filter { group -> group.character in available },
+                selectedSegmentKeys = it.selectedSegmentKeys.filterTo(mutableSetOf()) { key ->
+                    available.any { character -> key.startsWith("$character::") }
+                },
+                samplingPlan = null,
+                error = "",
+            )
+        }
         scheduleSamplingEstimate()
     }
     fun updateMaxSentences(value: String) {
@@ -198,13 +243,16 @@ class RedistillViewModel(
         mutableState.update { it.copy(maxChars = value.filter(Char::isDigit), samplingPlan = null, error = "") }
         scheduleSamplingEstimate()
     }
-    fun selectRecommendationCharacter(value: String) {
+    fun toggleRecommendationCharacter(value: String) {
         val fileSelected = selectedBytes != null
         mutableState.update {
+            val selected = it.recommendationCharacters.toMutableSet().apply {
+                if (!add(value)) remove(value)
+            }
             it.copy(
-                recommendationCharacter = value,
-                suggestions = null,
-                selectedSegmentId = "",
+                recommendationCharacters = selected,
+                suggestions = emptyList(),
+                selectedSegmentKeys = emptySet(),
                 sourceCharCount = if (fileSelected) it.sourceCharCount else 0,
                 sourceSentenceCount = if (fileSelected) it.sourceSentenceCount else 0,
                 samplingPlan = null,
@@ -215,15 +263,15 @@ class RedistillViewModel(
     }
 
     fun recommendSegments() {
-        val character = state.value.recommendationCharacter.trim()
-        if (character.isBlank() || state.value.recommending) return
+        val characters = state.value.recommendationCharacters.toList()
+        if (characters.isEmpty() || state.value.recommending) return
         viewModelScope.launch {
             val fileSelected = selectedBytes != null
             mutableState.update {
                 it.copy(
                     recommending = true,
                     error = "",
-                    selectedSegmentId = "",
+                    selectedSegmentKeys = emptySet(),
                     sourceCharCount = if (fileSelected) it.sourceCharCount else 0,
                     sourceSentenceCount = if (fileSelected) it.sourceSentenceCount else 0,
                     samplingPlan = null,
@@ -231,7 +279,14 @@ class RedistillViewModel(
             }
             scheduleSamplingEstimate()
             try {
-                val suggestions = repository.suggestRedistillSegments(runId, character)
+                val suggestions = characters.map { character ->
+                    async {
+                        RedistillCharacterSuggestions(
+                            character = character,
+                            suggestions = repository.suggestRedistillSegments(runId, character),
+                        )
+                    }
+                }.awaitAll()
                 mutableState.update {
                     it.copy(recommending = false, suggestions = suggestions)
                 }
@@ -245,17 +300,26 @@ class RedistillViewModel(
         }
     }
 
-    fun selectSegment(segmentId: String) {
+    fun selectSegment(character: String, segmentId: String) {
         selectedBytes = null
         mutableState.update {
-            val nextSegmentId = if (it.selectedSegmentId == segmentId) "" else segmentId
-            val statistics = it.suggestions?.segments
-                ?.firstOrNull { segment -> segment.segmentId == nextSegmentId }
-                ?.let { segment -> textStatistics(segment.fullText) }
+            val key = redistillSegmentKey(character, segmentId)
+            val selectedKeys = it.selectedSegmentKeys.toMutableSet().apply {
+                if (!add(key)) remove(key)
+            }
+            val selectedSegments = it.suggestions.flatMap { group ->
+                group.suggestions.segments.mapNotNull { segment ->
+                    segment.takeIf { redistillSegmentKey(group.character, segment.segmentId) in selectedKeys }
+                        ?.let { RedistillSelectedSegment(group.character, segment) }
+                }
+            }
+            val statistics = combineRedistillSegments(selectedSegments)
+                .takeIf(String::isNotBlank)
+                ?.let(::textStatistics)
             it.copy(
                 fileName = "",
                 fileSize = 0,
-                selectedSegmentId = nextSegmentId,
+                selectedSegmentKeys = selectedKeys,
                 sourceCharCount = statistics?.charCount ?: 0,
                 sourceSentenceCount = statistics?.sentenceCount ?: 0,
                 samplingPlan = null,
@@ -288,10 +352,8 @@ class RedistillViewModel(
             val current = state.value
             val maxSentences = current.maxSentences.toIntOrNull()?.coerceIn(20, 300) ?: 120
             val maxChars = current.maxChars.toIntOrNull()?.coerceIn(2_000, 200_000) ?: 50_000
-            val characterCount = current.characters
-                .split(',', '，', '、', ';', '；', '\n')
-                .map(String::trim)
-                .count(String::isNotBlank)
+            val characterCount = parseRedistillCharacters(current.characters)
+                .size
                 .coerceAtLeast(1)
             mutableState.update {
                 if (requestId == samplingEstimateRequestId) {
@@ -341,11 +403,7 @@ class RedistillViewModel(
     fun submit() {
         val snapshot = state.value
         if (snapshot.submitting) return
-        val characters = snapshot.characters
-            .split(',', '，', '、', ';', '；', '\n')
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .distinct()
+        val characters = parseRedistillCharacters(snapshot.characters)
         if (characters.isEmpty()) {
             mutableState.update { it.copy(error = "至少保留一位要蒸馏的人物。") }
             return
@@ -356,10 +414,22 @@ class RedistillViewModel(
             mutableState.update { it.copy(error = "取样句数需为 20–300，字符数需为 2000–200000。") }
             return
         }
-        val segment = snapshot.selectedSegment
-        val bytes = selectedBytes ?: segment?.fullText?.toByteArray(Charsets.UTF_8)
+        val selectedSegments = snapshot.selectedSegments
+        if (selectedBytes == null && selectedSegments.isNotEmpty()) {
+            val coveredCharacters = selectedSegments.map(RedistillSelectedSegment::character).toSet()
+            val missingCharacters = characters.filterNot { it in coveredCharacters }
+            if (missingCharacters.isNotEmpty()) {
+                mutableState.update {
+                    it.copy(error = "使用推荐片段时，请为本轮每位人物至少选择一段；尚未选择：${missingCharacters.joinToString("、")}。")
+                }
+                return
+            }
+        }
+        val combinedSegments = combineRedistillSegments(selectedSegments)
+        val bytes = selectedBytes ?: combinedSegments.takeIf(String::isNotBlank)?.encodeToByteArray()
         val name = snapshot.fileName.ifBlank {
-            segment?.let { "${snapshot.recommendationCharacter}-推荐片段.txt" }.orEmpty()
+            if (selectedSegments.isEmpty()) ""
+            else "${selectedSegments.map(RedistillSelectedSegment::character).distinct().size}人-推荐片段.txt"
         }
 
         viewModelScope.launch {

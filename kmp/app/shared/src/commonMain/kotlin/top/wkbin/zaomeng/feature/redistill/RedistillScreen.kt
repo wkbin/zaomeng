@@ -22,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,7 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -199,21 +199,37 @@ fun RedistillScreen(
             item {
                 RecommendationHeader(state = state, viewModel = viewModel)
             }
-            state.suggestions?.let { suggestions ->
-                if (suggestions.weakFieldLabels.isNotEmpty()) {
-                    item {
-                        Text(
-                            "建议优先补充：${suggestions.weakFieldLabels.joinToString("、")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            state.suggestions.forEach { group ->
+                item(key = "recommendation-${group.character}") {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(group.character, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (group.suggestions.weakFieldLabels.isNotEmpty()) {
+                            Text(
+                                "建议优先补充：${group.suggestions.weakFieldLabels.joinToString("、")}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-                items(suggestions.segments, key = RedistillSegmentDto::segmentId) { segment ->
+                items(
+                    group.suggestions.segments,
+                    key = { segment -> redistillSegmentKey(group.character, segment.segmentId) },
+                ) { segment ->
+                    val key = redistillSegmentKey(group.character, segment.segmentId)
                     SegmentCard(
                         segment = segment,
-                        selected = state.selectedSegmentId == segment.segmentId,
-                        onSelect = { viewModel.selectSegment(segment.segmentId) },
+                        selected = key in state.selectedSegmentKeys,
+                        onSelect = { viewModel.selectSegment(group.character, segment.segmentId) },
+                    )
+                }
+            }
+            if (state.suggestions.isNotEmpty()) {
+                item {
+                    Text(
+                        "已选择 ${state.selectedSegments.size} 段；使用推荐片段时，本轮每位人物至少需要一段。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -314,26 +330,31 @@ private fun RedistillSamplingPlanCard(
 @Composable
 private fun RecommendationHeader(state: RedistillUiState, viewModel: RedistillViewModel) {
     var expanded by remember { mutableStateOf(false) }
-    val characters = state.characters
-        .split(',', '，', '、', ';', '；', '\n')
-        .map(String::trim)
-        .filter(String::isNotBlank)
-        .distinct()
+    val characters = parseRedistillCharacters(state.characters)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("从原文推荐片段", style = MaterialTheme.typography.titleMedium)
             Box(Modifier.fillMaxWidth()) {
                 OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(state.recommendationCharacter.ifBlank { "选择人物" }, Modifier.weight(1f))
+                    Text(
+                        if (state.recommendationCharacters.isEmpty()) "选择人物"
+                        else "已选 ${state.recommendationCharacters.size}/${characters.size} 人",
+                        Modifier.weight(1f),
+                    )
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     characters.forEach { character ->
                         DropdownMenuItem(
-                            text = { Text(character) },
-                            onClick = {
-                                expanded = false
-                                viewModel.selectRecommendationCharacter(character)
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = character in state.recommendationCharacters,
+                                        onCheckedChange = null,
+                                    )
+                                    Text(character)
+                                }
                             },
+                            onClick = { viewModel.toggleRecommendationCharacter(character) },
                         )
                     }
                 }
@@ -341,12 +362,12 @@ private fun RecommendationHeader(state: RedistillUiState, viewModel: RedistillVi
             OutlinedButton(
                 onClick = viewModel::recommendSegments,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state.recommendationCharacter.isNotBlank() && !state.recommending,
+                enabled = state.recommendationCharacters.isNotEmpty() && !state.recommending,
             ) {
                 if (state.recommending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
-                Text(if (state.recommending) "正在挑选…" else "推荐三段正文")
+                Text(if (state.recommending) "正在挑选…" else "为选中人物分别推荐三段")
             }
         }
     }
@@ -363,7 +384,7 @@ private fun SegmentCard(segment: RedistillSegmentDto, selected: Boolean, onSelec
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = selected, onClick = null)
+                Checkbox(checked = selected, onCheckedChange = null)
                 Text(
                     "第 ${segment.startSentence}–${segment.endSentence} 句",
                     fontWeight = FontWeight.SemiBold,
