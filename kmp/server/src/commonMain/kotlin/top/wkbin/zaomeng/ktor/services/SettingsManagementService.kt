@@ -10,6 +10,7 @@ import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.randomUuid
 import top.wkbin.zaomeng.ktor.models.*
+import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
 import kotlin.time.TimeSource
 
 /**
@@ -62,6 +63,8 @@ class SettingsManagementService(
         apiKey: String = "",
         maxTokens: Int = 0,
         reasoningEffort: String = "off",
+        tokenParameter: String = "auto",
+        responseFormatMode: String = "auto",
         profileId: String = "",
         profileName: String = "",
         createProfile: Boolean = false,
@@ -79,6 +82,12 @@ class SettingsManagementService(
         }
         if (profileName.length > 80) {
             throw IllegalArgumentException("Profile name too long (max 80 chars)")
+        }
+        if (tokenParameter !in setOf("auto", "max_tokens", "max_completion_tokens")) {
+            throw IllegalArgumentException("Unsupported token parameter")
+        }
+        if (responseFormatMode !in setOf("auto", "json_object", "prompt_only")) {
+            throw IllegalArgumentException("Unsupported response format mode")
         }
 
         // 读取现有设置
@@ -101,7 +110,9 @@ class SettingsManagementService(
             model = model,
             baseUrl = baseUrl,
             maxTokens = maxTokens,
-            reasoningEffort = reasoningEffort
+            reasoningEffort = reasoningEffort,
+            tokenParameter = tokenParameter,
+            responseFormatMode = responseFormatMode,
         )
 
         // 更新 profiles 列表
@@ -174,6 +185,7 @@ class SettingsManagementService(
         apiKey: String = "",
         maxTokens: Int = 0,
         reasoningEffort: String = "off",
+        tokenParameter: String = "auto",
         profileId: String = ""
     ): JsonObject {
         // 验证参数
@@ -194,7 +206,11 @@ class SettingsManagementService(
         val resolvedBaseUrl = baseUrl.ifBlank { "https://api.openai.com/v1" }
         val client = LlmClient(modelApiKeyService, storageService)
         val startedAt = TimeSource.Monotonic.markNow()
-        val result = client.testConnection(resolvedBaseUrl, effectiveApiKey, model)
+        val result = try {
+            client.testConnection(resolvedBaseUrl, effectiveApiKey, model, tokenParameter)
+        } finally {
+            client.close()
+        }
         val latencyMs = startedAt.elapsedNow().inWholeMilliseconds
             .coerceAtLeast(1L)
             .coerceAtMost(Int.MAX_VALUE.toLong())
@@ -203,6 +219,38 @@ class SettingsManagementService(
             onSuccess = { testResult(true, provider, model, latencyMs, "Connection successful") },
             onFailure = { error -> testResult(false, provider, model, latencyMs, error.message ?: "Model connection failed") }
         )
+    }
+
+    suspend fun detectModelCapabilities(
+        provider: String,
+        model: String,
+        baseUrl: String = "",
+        apiKey: String = "",
+        maxTokens: Int = 0,
+        reasoningEffort: String = "auto",
+        tokenParameter: String = "auto",
+        profileId: String = "",
+    ): ModelCapabilityReportDto {
+        require(provider.isNotBlank() && model.isNotBlank()) { "Provider and model cannot be blank" }
+        val effectiveProfileId = profileId.ifBlank {
+            storageService.readModelSettings()?.activeProfileId.orEmpty()
+        }
+        val effectiveApiKey = apiKey.ifBlank { modelApiKeyService.getApiKey(effectiveProfileId).orEmpty() }
+        require(effectiveApiKey.isNotBlank()) { "API key not found for profile: $effectiveProfileId" }
+        val client = LlmClient(modelApiKeyService, storageService)
+        return try {
+            client.detectCapabilities(
+                provider = provider,
+                baseUrl = baseUrl.ifBlank { "https://api.openai.com/v1" },
+                apiKey = effectiveApiKey,
+                model = model,
+                reasoningEffort = reasoningEffort,
+                tokenParameter = tokenParameter,
+                configuredMaxTokens = maxTokens,
+            )
+        } finally {
+            client.close()
+        }
     }
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putProfileFields(profile: ModelProfile?) {
@@ -214,6 +262,8 @@ class SettingsManagementService(
         put("base_url", profile?.baseUrl.orEmpty())
         put("max_tokens", profile?.maxTokens ?: 0)
         put("reasoning_effort", profile?.reasoningEffort ?: "off")
+        put("token_parameter", profile?.tokenParameter ?: "auto")
+        put("response_format_mode", profile?.responseFormatMode ?: "auto")
         put("api_key_configured", keyConfigured)
         put("configured", configured)
     }

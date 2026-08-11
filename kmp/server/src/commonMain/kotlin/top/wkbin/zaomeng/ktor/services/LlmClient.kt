@@ -16,12 +16,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.createHttpClientEngine
 import top.wkbin.zaomeng.platform.openStreamingHttpPost
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /**
  * LLM HTTP client with retry logic and streaming support.
@@ -65,8 +68,11 @@ class LlmClient(
                 model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")
             if (effort.isEmpty() || effort == "auto") return null to null
             if (effort == "off") {
-                // off：仅 DeepSeek 直连发 thinking disabled；其他模型什么都不发
-                return if (isDeepSeekV4Direct) DISABLED_THINKING to null else null to null
+                return when {
+                    isDeepSeekV4Direct -> DISABLED_THINKING to null
+                    isOpenAiReasoning -> null to "none"
+                    else -> null to null
+                }
             }
             // low/medium/high/xhigh
             if (isOpenAiReasoning) return null to effort // OpenAI 推理模型用原值
@@ -79,6 +85,16 @@ class LlmClient(
                 return null to deepseekEffort
             }
             return null to null
+        }
+
+        fun resolveTokenParameter(profile: Map<String, String>, model: String): String {
+            val configured = profile["token_parameter"]?.trim()?.lowercase().orEmpty()
+            if (configured in setOf("max_tokens", "max_completion_tokens")) return configured
+            val normalizedModel = model.trim().lowercase()
+            return if (
+                normalizedModel.startsWith("gpt-5") || normalizedModel.startsWith("o1") ||
+                normalizedModel.startsWith("o3") || normalizedModel.startsWith("o4")
+            ) "max_completion_tokens" else "max_tokens"
         }
     }
 
@@ -149,8 +165,10 @@ class LlmClient(
     data class ChatCompletionRequest(
         val model: String,
         val messages: List<ChatMessage>,
-        val temperature: Double = DEFAULT_TEMPERATURE,
+        val temperature: Double? = DEFAULT_TEMPERATURE,
         val max_tokens: Int? = null,
+        @SerialName("max_completion_tokens")
+        val maxCompletionTokens: Int? = null,
         val stream: Boolean = false,
         // DeepSeek 推理控制：{"type":"disabled"} 关闭推理（缩短 TTFT）；null 不输出（保留默认推理）
         val thinking: JsonObject? = null,
@@ -167,6 +185,10 @@ class LlmClient(
         required: Boolean,
     ): ResponseFormat? {
         if (!required) return null
+        when (profile["response_format_mode"]?.trim()?.lowercase()) {
+            "json_object" -> return ResponseFormat(type = "json_object")
+            "prompt_only" -> return null
+        }
         val baseUrl = profile["base_url"]?.trim()?.lowercase().orEmpty()
         // DeepSeek V4 官方端点明确支持 Chat Completions JSON Output。
         // 未声明能力的第三方 OpenAI-compatible 服务仍靠提示词约束，避免请求参数不兼容。
@@ -248,7 +270,9 @@ class LlmClient(
                 "model" to model,
                 "base_url" to baseUrl,
                 "profile_id" to profileId,
-                "reasoning_effort" to (profile.reasoningEffort ?: "off")
+                "reasoning_effort" to (profile.reasoningEffort ?: "off"),
+                "token_parameter" to (profile.tokenParameter ?: "auto"),
+                "response_format_mode" to (profile.responseFormatMode ?: "auto")
             )
         } catch (e: Exception) {
             PlatformLog.e(TAG, "Failed to parse model settings", e)
@@ -291,11 +315,13 @@ class LlmClient(
             ?: throw IllegalStateException("No API key configured for profile: $profileId")
 
         val (thinking, reasoningEffort) = resolveReasoningParams(profile)
+        val tokenParameter = resolveTokenParameter(profile, resolvedModel)
         val request = ChatCompletionRequest(
             model = resolvedModel,
             messages = messages,
             temperature = temperature ?: DEFAULT_TEMPERATURE,
-            max_tokens = maxTokens,
+            max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
+            maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
             stream = false,
             thinking = thinking,
             reasoningEffort = reasoningEffort,
@@ -331,19 +357,26 @@ class LlmClient(
         }
     }
 
-    suspend fun testConnection(baseUrl: String, apiKey: String, model: String): Result<Unit> {
+    suspend fun testConnection(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        tokenParameter: String = "auto",
+    ): Result<Unit> {
         if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) {
             return Result.failure(IllegalArgumentException("baseUrl, apiKey and model are required"))
         }
         return runCatching {
+            val resolvedTokenParameter = resolveTokenParameter(mapOf("token_parameter" to tokenParameter), model)
             val response = httpClient.post("${baseUrl.trimEnd('/')}/chat/completions") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $apiKey")
                 setBody(ChatCompletionRequest(
                     model = model,
                     messages = listOf(ChatMessage("user", "Reply with OK.")),
-                    temperature = 0.0,
-                    max_tokens = 8,
+                    temperature = null,
+                    max_tokens = 8.takeIf { resolvedTokenParameter == "max_tokens" },
+                    maxCompletionTokens = 8.takeIf { resolvedTokenParameter == "max_completion_tokens" },
                     stream = false
                 ))
             }
@@ -352,6 +385,253 @@ class LlmClient(
             }
         }
     }
+
+    /**
+     * Probe an OpenAI-compatible endpoint instead of inferring capabilities from its provider label.
+     * The streaming probe consumes SSE line-by-line so TTFT and chunk distribution describe what the
+     * application will actually observe on this device.
+     */
+    suspend fun detectCapabilities(
+        provider: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        reasoningEffort: String = "auto",
+        tokenParameter: String = "auto",
+        configuredMaxTokens: Int = 0,
+    ): ModelCapabilityReportDto {
+        require(baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()) {
+            "baseUrl, apiKey and model are required"
+        }
+        val endpoint = "${baseUrl.trimEnd('/')}/chat/completions"
+        val warnings = mutableListOf<String>()
+        val preferredTokenParameter = resolveTokenParameter(mapOf("token_parameter" to tokenParameter), model)
+        val alternateTokenParameter = if (preferredTokenParameter == "max_tokens") {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        }
+        val workingTokenParameter = when {
+            probeTokenParameter(endpoint, apiKey, model, preferredTokenParameter) -> preferredTokenParameter
+            probeTokenParameter(endpoint, apiKey, model, alternateTokenParameter) -> {
+                warnings += "当前 token 参数不兼容，建议改用 $alternateTokenParameter。"
+                alternateTokenParameter
+            }
+            else -> {
+                warnings += "max_tokens 与 max_completion_tokens 均未通过基础探测。"
+                preferredTokenParameter
+            }
+        }
+
+        val started = TimeSource.Monotonic.markNow()
+        var ttftMs = 0
+        var streamSupported = false
+        var contentChunkCount = 0
+        var lastContentAtMs = 0
+        val chunkSizes = mutableListOf<Int>()
+        val streamedContent = StringBuilder()
+        val streamRequest = capabilityRequest(
+            model = model,
+            prompt = "Output exactly two JSON Lines. Each line must be one JSON object followed by a newline. No array, markdown, or extra text. Lines: {\"name\":\"apple\",\"score\":90} and {\"name\":\"banana\",\"score\":85}.",
+            tokenParameter = workingTokenParameter,
+            maxTokens = 160,
+            stream = true,
+        )
+        runCatching {
+            val response = openStreamingHttpPost(
+                url = endpoint,
+                headers = mapOf("Authorization" to "Bearer $apiKey"),
+                body = json.encodeToString(ChatCompletionRequest.serializer(), streamRequest),
+            )
+            try {
+                if (response.statusCode !in 200..299) {
+                    throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
+                }
+                streamSupported = true
+                while (true) {
+                    val data = sseData(response.readUtf8Line() ?: break) ?: continue
+                    if (data == "[DONE]") continue
+                    chunkSizes += data.encodeToByteArray().size
+                    val chunk = runCatching { json.decodeFromString<StreamChunk>(data) }.getOrNull() ?: continue
+                    chunk.choices.firstOrNull()?.delta?.content?.takeIf(String::isNotEmpty)?.let { delta ->
+                        if (contentChunkCount == 0) {
+                            ttftMs = started.elapsedNow().inWholeMilliseconds.coerceToInt()
+                        }
+                        lastContentAtMs = started.elapsedNow().inWholeMilliseconds.coerceToInt()
+                        contentChunkCount += 1
+                        streamedContent.append(delta)
+                    }
+                }
+            } finally {
+                response.close()
+            }
+        }.onFailure { warnings += "SSE 流式探测失败：${it.message.orEmpty().take(120)}" }
+        val totalMs = started.elapsedNow().inWholeMilliseconds.coerceToInt()
+        val ndjsonOk = validateNdjson(streamedContent.toString())
+        val trueStreaming = streamSupported && contentChunkCount > 1 && lastContentAtMs - ttftMs >= 15
+        if (streamSupported && !trueStreaming) {
+            warnings += "接口接受 stream=true，但正文未呈现可观测的分时增量，可能在网关缓冲后集中返回。"
+        }
+        if (streamSupported && !ndjsonOk) warnings += "模型未严格遵循 NDJSON 输出约束。"
+
+        val responseFormatSupported = probeResponseFormat(
+            endpoint = endpoint,
+            apiKey = apiKey,
+            model = model,
+            tokenParameter = workingTokenParameter,
+        )
+        if (!responseFormatSupported) warnings += "response_format=json_object 不可用，将继续依赖提示词约束和校验重试。"
+
+        val normalizedModel = model.lowercase()
+        val isReasoningModel = normalizedModel.startsWith("gpt-5") ||
+            listOf("o1", "o3", "o4", "deepseek-v4-").any(normalizedModel::startsWith)
+        val offProfile = mapOf(
+            "model" to model,
+            "base_url" to baseUrl,
+            "reasoning_effort" to "off",
+        )
+        val (offThinking, offEffort) = resolveReasoningParams(offProfile)
+        val reasoningOffSupported = if (!isReasoningModel) {
+            true
+        } else {
+            probeReasoningOff(endpoint, apiKey, model, workingTokenParameter, offThinking, offEffort)
+        }
+        val reasoningOffStatus = when {
+            !isReasoningModel -> "not_required"
+            reasoningOffSupported -> "supported"
+            else -> "unsupported"
+        }
+        if (isReasoningModel && !reasoningOffSupported) warnings += "接口未确认支持关闭推理，建议保持 auto。"
+
+        val adherence = (if (ndjsonOk) 50 else 0) + (if (responseFormatSupported) 50 else 0)
+        val recommendedMaxTokens = when {
+            configuredMaxTokens in 256..16000 -> configuredMaxTokens
+            isReasoningModel -> 8192
+            else -> 4096
+        }
+        val averageChunkSize = chunkSizes.takeIf { it.isNotEmpty() }?.average()?.toInt() ?: 0
+        return ModelCapabilityReportDto(
+            ok = streamSupported || responseFormatSupported,
+            provider = provider,
+            model = model,
+            ttftMs = ttftMs,
+            totalMs = totalMs,
+            streamSupported = streamSupported,
+            trueStreaming = trueStreaming,
+            sseChunkCount = chunkSizes.size,
+            sseChunkMinBytes = chunkSizes.minOrNull() ?: 0,
+            sseChunkAvgBytes = averageChunkSize,
+            sseChunkMaxBytes = chunkSizes.maxOrNull() ?: 0,
+            jsonNdjsonAdherence = adherence,
+            responseFormatSupported = responseFormatSupported,
+            reasoningOffSupported = reasoningOffSupported,
+            reasoningOffStatus = reasoningOffStatus,
+            recommendedMaxTokens = recommendedMaxTokens,
+            recommendedReasoningEffort = if (reasoningOffSupported) "off" else reasoningEffort.ifBlank { "auto" },
+            recommendedTokenParameter = workingTokenParameter,
+            recommendedResponseFormatMode = if (responseFormatSupported) "json_object" else "prompt_only",
+            warnings = warnings.distinct(),
+        )
+    }
+
+    private suspend fun probeTokenParameter(
+        endpoint: String,
+        apiKey: String,
+        model: String,
+        tokenParameter: String,
+    ): Boolean = postCapabilityRequest(
+        endpoint,
+        apiKey,
+        capabilityRequest(model, "Reply only OK.", tokenParameter, 16),
+    ).first
+
+    private suspend fun probeResponseFormat(
+        endpoint: String,
+        apiKey: String,
+        model: String,
+        tokenParameter: String,
+    ): Boolean {
+        val (ok, body) = postCapabilityRequest(
+            endpoint,
+            apiKey,
+            capabilityRequest(
+                model,
+                "Return one JSON object with the boolean field ok. No markdown.",
+                tokenParameter,
+                64,
+                responseFormat = ResponseFormat("json_object"),
+            ),
+        )
+        if (!ok) return false
+        val content = runCatching {
+            json.decodeFromString<ChatCompletionResponse>(body).choices.firstOrNull()?.message?.content.orEmpty()
+        }.getOrDefault("")
+        return runCatching { json.parseToJsonElement(content).jsonObject }.isSuccess
+    }
+
+    private suspend fun probeReasoningOff(
+        endpoint: String,
+        apiKey: String,
+        model: String,
+        tokenParameter: String,
+        thinking: JsonObject?,
+        reasoningEffort: String?,
+    ): Boolean = postCapabilityRequest(
+        endpoint,
+        apiKey,
+        capabilityRequest(
+            model = model,
+            prompt = "Reply only OK.",
+            tokenParameter = tokenParameter,
+            maxTokens = 32,
+            thinking = thinking,
+            reasoningEffort = reasoningEffort,
+        ),
+    ).first
+
+    private suspend fun postCapabilityRequest(
+        endpoint: String,
+        apiKey: String,
+        request: ChatCompletionRequest,
+    ): Pair<Boolean, String> = runCatching {
+        val response = httpClient.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            header("Authorization", "Bearer $apiKey")
+            setBody(request)
+        }
+        val body = response.bodyAsText()
+        response.status.isSuccess() to body
+    }.getOrElse { false to it.message.orEmpty() }
+
+    private fun capabilityRequest(
+        model: String,
+        prompt: String,
+        tokenParameter: String,
+        maxTokens: Int,
+        stream: Boolean = false,
+        responseFormat: ResponseFormat? = null,
+        thinking: JsonObject? = null,
+        reasoningEffort: String? = null,
+    ) = ChatCompletionRequest(
+        model = model,
+        messages = listOf(ChatMessage("user", prompt)),
+        temperature = null,
+        max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
+        maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
+        stream = stream,
+        thinking = thinking,
+        reasoningEffort = reasoningEffort,
+        responseFormat = responseFormat,
+    )
+
+    private fun validateNdjson(value: String): Boolean {
+        val lines = value.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+        return lines.size == 2 && lines.all { line ->
+            runCatching { json.parseToJsonElement(line).jsonObject }.isSuccess
+        }
+    }
+
+    private fun Long.coerceToInt(): Int = coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
     /**
      * Make a chat completion request with streaming (callback-based).
@@ -383,11 +663,13 @@ class LlmClient(
             ?: throw IllegalStateException("No API key configured for profile: $profileId")
 
         val (thinking, reasoningEffort) = resolveReasoningParams(profile)
+        val tokenParameter = resolveTokenParameter(profile, resolvedModel)
         val request = ChatCompletionRequest(
             model = resolvedModel,
             messages = messages,
             temperature = temperature ?: DEFAULT_TEMPERATURE,
-            max_tokens = maxTokens,
+            max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
+            maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
             stream = true,
             thinking = thinking,
             reasoningEffort = reasoningEffort,
@@ -469,11 +751,13 @@ class LlmClient(
             ?: throw IllegalStateException("No API key configured for profile: $profileId")
 
         val (thinking, reasoningEffort) = resolveReasoningParams(profile)
+        val tokenParameter = resolveTokenParameter(profile, resolvedModel)
         val request = ChatCompletionRequest(
             model = resolvedModel,
             messages = messages,
             temperature = temperature ?: DEFAULT_TEMPERATURE,
-            max_tokens = maxTokens,
+            max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
+            maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
             stream = true,
             thinking = thinking,
             reasoningEffort = reasoningEffort,

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.ModelProfileDto
+import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
 import top.wkbin.zaomeng.data.api.TestModelSettingsRequest
 
@@ -17,6 +18,7 @@ data class ModelProfileEditorUiState(
     val loading: Boolean = true,
     val saving: Boolean = false,
     val testing: Boolean = false,
+    val detecting: Boolean = false,
     val deleting: Boolean = false,
     val isNew: Boolean = true,
     val profileId: String = "",
@@ -31,6 +33,9 @@ data class ModelProfileEditorUiState(
     val apiKeyConfigured: Boolean = false,
     val maxTokens: String = "0",
     val reasoningEffort: String = "off",
+    val tokenParameter: String = "auto",
+    val responseFormatMode: String = "auto",
+    val capabilityReport: ModelCapabilityReportDto? = null,
     val message: String = "",
     val error: String = "",
     val completed: Boolean = false,
@@ -40,7 +45,8 @@ data class ModelProfileEditorUiState(
         get() = original?.let {
             profileName != it.profileName || selectedCatalogId != it.selectedCatalogId || provider != it.provider ||
                 model != it.model || baseUrl != it.baseUrl || maxTokens != it.maxTokens ||
-                reasoningEffort != it.reasoningEffort || apiKey.isNotBlank()
+                reasoningEffort != it.reasoningEffort || tokenParameter != it.tokenParameter ||
+                responseFormatMode != it.responseFormatMode || apiKey.isNotBlank()
         } ?: false
 }
 
@@ -52,6 +58,8 @@ data class EditorSnapshot(
     val baseUrl: String,
     val maxTokens: String,
     val reasoningEffort: String,
+    val tokenParameter: String,
+    val responseFormatMode: String,
 )
 
 class ModelProfileEditorViewModel(
@@ -105,6 +113,7 @@ class ModelProfileEditorViewModel(
     fun updateApiKey(value: String) = update { copy(apiKey = value) }
     fun updateMaxTokens(value: String) = update { copy(maxTokens = value.filter(Char::isDigit).take(5)) }
     fun updateReasoningEffort(value: String) = update { copy(reasoningEffort = value) }
+    fun updateTokenParameter(value: String) = update { copy(tokenParameter = value) }
 
     fun testConnection() {
         val request = validatedRequest() ?: return
@@ -119,6 +128,8 @@ class ModelProfileEditorViewModel(
                         apiKey = request.apiKey,
                         maxTokens = request.maxTokens,
                         reasoningEffort = request.reasoningEffort,
+                        tokenParameter = request.tokenParameter,
+                        responseFormatMode = request.responseFormatMode,
                         profileId = request.profileId,
                     ),
                 )
@@ -130,6 +141,71 @@ class ModelProfileEditorViewModel(
             } catch (error: Throwable) {
                 mutableState.update { it.copy(testing = false, error = error.message ?: "模型连接失败。") }
             }
+        }
+    }
+
+    fun detectCapabilities() {
+        val request = validatedRequest() ?: return
+        viewModelScope.launch {
+            mutableState.update { it.copy(detecting = true, capabilityReport = null, error = "", message = "") }
+            try {
+                val report = repository.detectModelCapabilities(
+                    TestModelSettingsRequest(
+                        provider = request.provider,
+                        model = request.model,
+                        baseUrl = request.baseUrl,
+                        apiKey = request.apiKey,
+                        maxTokens = request.maxTokens,
+                        reasoningEffort = request.reasoningEffort,
+                        tokenParameter = request.tokenParameter,
+                        responseFormatMode = request.responseFormatMode,
+                        profileId = request.profileId,
+                    ),
+                )
+                mutableState.update {
+                    it.copy(
+                        detecting = false,
+                        capabilityReport = report,
+                        maxTokens = report.recommendedMaxTokens.toString(),
+                        reasoningEffort = normalizedReasoningEffort(
+                            it.provider,
+                            it.baseUrl,
+                            it.model,
+                            report.recommendedReasoningEffort,
+                        ),
+                        tokenParameter = report.recommendedTokenParameter,
+                        responseFormatMode = report.recommendedResponseFormatMode,
+                        message = if (report.ok) {
+                            "模型能力检测完成，推荐配置已填入，保存后生效。"
+                        } else {
+                            "检测完成，但接口未通过核心能力探测，请先检查警告。"
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update { it.copy(detecting = false, error = error.message ?: "模型能力检测失败。") }
+            }
+        }
+    }
+
+    fun applyCapabilityRecommendation() {
+        mutableState.update { current ->
+            val report = current.capabilityReport ?: return@update current
+            current.copy(
+                maxTokens = report.recommendedMaxTokens.toString(),
+                reasoningEffort = normalizedReasoningEffort(
+                    current.provider,
+                    current.baseUrl,
+                    current.model,
+                    report.recommendedReasoningEffort,
+                ),
+                tokenParameter = report.recommendedTokenParameter,
+                responseFormatMode = report.recommendedResponseFormatMode,
+                error = "",
+                message = "已应用检测建议，保存后生效。",
+            )
         }
     }
 
@@ -214,6 +290,8 @@ class ModelProfileEditorViewModel(
                 current.model,
                 current.reasoningEffort,
             ),
+            tokenParameter = current.tokenParameter,
+            responseFormatMode = current.responseFormatMode,
             profileId = current.profileId,
             profileName = current.profileName.trim(),
             createProfile = current.isNew,
@@ -240,6 +318,8 @@ private fun ModelProfileDto.toEditorState(activeProfileId: String, profileCount:
         apiKeyConfigured = apiKeyConfigured,
         maxTokens = maxTokens.toString(),
         reasoningEffort = normalizedReasoningEffort(provider, baseUrl, model, reasoningEffort),
+        tokenParameter = tokenParameter,
+        responseFormatMode = responseFormatMode,
     )
 
 private fun ModelProfileEditorUiState.snapshot() = EditorSnapshot(
@@ -250,6 +330,8 @@ private fun ModelProfileEditorUiState.snapshot() = EditorSnapshot(
     baseUrl,
     maxTokens,
     reasoningEffort,
+    tokenParameter,
+    responseFormatMode,
 )
 
 private fun editorCatalogFor(provider: String, baseUrl: String, model: String): ModelCatalog? =

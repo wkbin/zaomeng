@@ -6,6 +6,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
+import top.wkbin.zaomeng.data.api.TestModelSettingsRequest
 import top.wkbin.zaomeng.ktor.services.*
 
 /**
@@ -53,6 +54,8 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                 apiKey = request.apiKey,
                 maxTokens = request.maxTokens,
                 reasoningEffort = request.reasoningEffort,
+                tokenParameter = request.tokenParameter,
+                responseFormatMode = request.responseFormatMode,
                 profileId = request.profileId,
                 profileName = request.profileName,
                 createProfile = request.createProfile,
@@ -69,7 +72,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
     // 测试模型设置
     post("/api/web/settings/model/test") {
         try {
-            val request = call.receive<SaveModelSettingsRequest>()
+            val request = call.receive<TestModelSettingsRequest>()
             val result = settingsService.testModelSettings(
                 provider = request.provider,
                 model = request.model,
@@ -77,6 +80,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                 apiKey = request.apiKey,
                 maxTokens = request.maxTokens,
                 reasoningEffort = request.reasoningEffort,
+                tokenParameter = request.tokenParameter,
                 profileId = request.profileId
             )
             call.respond(HttpStatusCode.OK, result)
@@ -84,6 +88,29 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
             call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
         } catch (e: Exception) {
             call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to test settings"))
+        }
+    }
+
+    post("/api/web/settings/model/detect-capabilities") {
+        try {
+            val request = call.receive<TestModelSettingsRequest>()
+            call.respond(
+                HttpStatusCode.OK,
+                settingsService.detectModelCapabilities(
+                    provider = request.provider,
+                    model = request.model,
+                    baseUrl = request.baseUrl,
+                    apiKey = request.apiKey,
+                    maxTokens = request.maxTokens,
+                    reasoningEffort = request.reasoningEffort,
+                    tokenParameter = request.tokenParameter,
+                    profileId = request.profileId,
+                ),
+            )
+        } catch (e: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+        } catch (e: Exception) {
+            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Capability detection failed")))
         }
     }
 }

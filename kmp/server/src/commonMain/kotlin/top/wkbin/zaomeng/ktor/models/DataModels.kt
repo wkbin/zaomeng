@@ -60,6 +60,10 @@ data class ModelProfile(
     val maxTokens: Int? = null,
     @SerialName("reasoning_effort")
     val reasoningEffort: String? = null,
+    @SerialName("token_parameter")
+    val tokenParameter: String? = null,
+    @SerialName("response_format_mode")
+    val responseFormatMode: String? = null,
     @SerialName("api_key_configured")
     val apiKeyConfigured: Boolean? = null,
     val configured: Boolean? = null

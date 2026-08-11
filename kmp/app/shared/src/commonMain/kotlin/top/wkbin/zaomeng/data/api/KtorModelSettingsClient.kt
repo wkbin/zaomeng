@@ -37,6 +37,12 @@ class KtorModelSettingsClient(
         return result
     }
 
+    suspend fun detectCapabilities(payload: TestModelSettingsRequest): ModelCapabilityReportDto = request { endpoint ->
+        http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/settings/model/detect-capabilities") {
+            setBody(payload)
+        }
+    }.body()
+
     suspend fun activate(profileId: String): ModelSettingsDto = request { endpoint ->
         http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/settings/model/profiles/$profileId/activate") {
         }

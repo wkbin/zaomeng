@@ -256,7 +256,7 @@ fun ModelProfileEditorScreen(
                 OutlinedButton(
                     onClick = viewModel::testConnection,
                     modifier = Modifier.weight(1f),
-                    enabled = !state.loading && !state.saving && !state.testing && !state.deleting,
+                    enabled = !state.loading && !state.saving && !state.testing && !state.detecting && !state.deleting,
                 ) {
                     if (state.testing) ProgressIcon()
                     Text(if (state.testing) "测试中…" else "测试连接")
@@ -264,7 +264,7 @@ fun ModelProfileEditorScreen(
                 Button(
                     onClick = viewModel::save,
                     modifier = Modifier.weight(1f),
-                    enabled = !state.loading && !state.saving && !state.testing && !state.deleting,
+                    enabled = !state.loading && !state.saving && !state.testing && !state.detecting && !state.deleting,
                 ) {
                     if (state.saving) ProgressIcon()
                     Text(if (state.saving) "保存中…" else if (state.isNew) "创建并启用" else "保存")
@@ -371,6 +371,61 @@ fun ModelProfileEditorScreen(
                             showMaxTokensSheet = true
                         },
                     )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("模型兼容检测", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "实际请求接口，检测首字时间、SSE 分块、JSON/NDJSON、response_format、关闭推理和 token 参数。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            onClick = viewModel::detectCapabilities,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.detecting && !state.testing && !state.saving,
+                        ) {
+                            if (state.detecting) ProgressIcon()
+                            Text(if (state.detecting) "检测中，可能需要数十秒…" else "一键检测模型能力")
+                        }
+                    }
+                }
+            }
+            state.capabilityReport?.let { report ->
+                item {
+                    EditorSection("能力检测结果") {
+                        Text(
+                            "首字符 ${report.ttftMs} ms · 完整 ${report.totalMs} ms",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            "流式：${if (report.streamSupported) "支持" else "不支持"} · 真流式：${if (report.trueStreaming) "是" else "否"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "SSE ${report.sseChunkCount} 块 · ${report.sseChunkMinBytes}/${report.sseChunkAvgBytes}/${report.sseChunkMaxBytes} B（最小/平均/最大）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "结构化遵循率 ${report.jsonNdjsonAdherence}% · response_format ${if (report.responseFormatSupported) "支持" else "不支持"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "关闭推理：${reasoningOffStatusLabel(report.reasoningOffStatus)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            "建议：${report.recommendedMaxTokens} Token · ${reasoningEffortLabel(report.recommendedReasoningEffort)} · ${report.recommendedTokenParameter} · ${responseFormatModeLabel(report.recommendedResponseFormatMode)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        report.warnings.forEach { warning ->
+                            Text("• $warning", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        Button(onClick = viewModel::applyCapabilityRecommendation, modifier = Modifier.fillMaxWidth()) {
+                            Text("应用推荐配置")
+                        }
+                    }
                 }
             }
             if (!state.isNew) {
@@ -583,6 +638,19 @@ private fun reasoningEffortLabel(value: String): String = when (value) {
     else -> "自动"
 }
 
+private fun reasoningOffStatusLabel(value: String): String = when (value) {
+    "supported" -> "支持"
+    "not_required" -> "非推理模型，无需关闭"
+    "unsupported" -> "不支持"
+    else -> "未知"
+}
+
+private fun responseFormatModeLabel(value: String): String = when (value) {
+    "json_object" -> "原生 JSON 约束"
+    "prompt_only" -> "提示词 JSON 约束"
+    else -> "自动 JSON 约束"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReasoningEffortSheet(
@@ -711,4 +779,3 @@ internal fun SettingsRow(
         if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
