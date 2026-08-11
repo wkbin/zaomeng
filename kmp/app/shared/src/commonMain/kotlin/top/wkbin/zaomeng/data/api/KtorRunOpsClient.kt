@@ -14,7 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 /** 运行操作（对应 server RunOperationsRoute）。 */
 class KtorRunOpsClient(
@@ -32,7 +32,7 @@ class KtorRunOpsClient(
             },
         )
         return runCatching { json.decodeFromJsonElement<SamplingPlanDto>(body) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode sampling plan: $body", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode sampling plan: $body", error); throw error }
     }
 
     suspend fun createCrossoverSpace(request: CreateCrossoverSpaceRequest): RunManifestDto = decodeRun(
@@ -79,19 +79,19 @@ class KtorRunOpsClient(
     private suspend fun decodeObject(response: HttpResponse): JsonObject {
         val text = response.bodyAsText()
         return runCatching { json.parseToJsonElement(text).jsonObject }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
     }
 
     private suspend fun decodeRun(response: HttpResponse): RunManifestDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<RunManifestDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode RunManifestDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode RunManifestDto. Body: $text", error); throw error }
     }
 
     private suspend fun decodeRedistill(response: HttpResponse): RedistillSuggestionsDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<RedistillSuggestionsDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode RedistillSuggestionsDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode RedistillSuggestionsDto. Body: $text", error); throw error }
     }
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {

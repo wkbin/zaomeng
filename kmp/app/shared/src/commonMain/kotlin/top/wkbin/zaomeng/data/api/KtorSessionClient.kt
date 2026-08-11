@@ -13,7 +13,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 class KtorSessionClient(
     private val http: KtorHttpClientProvider,
@@ -25,7 +25,7 @@ class KtorSessionClient(
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<DialogueSessionDto>(text) }
             .getOrElse { error ->
-                PlatformLog.e(TAG, "Failed to decode DialogueSessionDto. Response body: $text", error)
+                ClientLog.e(TAG, "Failed to decode DialogueSessionDto. Response body: $text", error)
                 throw error
             }
     }

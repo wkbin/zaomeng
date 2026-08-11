@@ -97,26 +97,6 @@ interface ServerPlatform {
     fun databaseBuilder(): RoomDatabase.Builder<ZaomengDatabase>
 }
 
-/** 安全键值存储（Android Keystore 加密；JVM 本地实现）。 */
-interface SecureKeyValueStore {
-    fun get(key: String): String?
-    fun put(key: String, value: String)
-    fun remove(key: String)
-    fun entries(): Map<String, String>
-}
-
-/** 提示词/蒸馏资源读取：assets 优先 + 文件系统回退（由平台实现）。 */
-interface PromptSource {
-    /** 返回原文与 mtime（打包 assets 固定 0）；缺失返回 null。 */
-    fun read(relativePath: String): Pair<String, Long>?
-
-    /**
-     * 只探测资源的 mtime（不读内容），用于缓存命中判定。
-     * 与 [read] 使用同一解析顺序；缺失返回 null。
-     */
-    fun lastModified(relativePath: String): Long?
-}
-
 /** 当前 UTC 时间的 ISO-8601 字符串（等价 Instant.now().toString()）。 */
 @OptIn(ExperimentalTime::class)
 fun nowIsoString(): String = Clock.System.now().toString()

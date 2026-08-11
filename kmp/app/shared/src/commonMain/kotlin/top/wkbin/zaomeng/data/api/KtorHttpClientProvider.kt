@@ -15,13 +15,13 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
-import top.wkbin.zaomeng.platform.PlatformLog
-import top.wkbin.zaomeng.platform.createHttpClientEngine
+import top.wkbin.zaomeng.client.platform.ClientLog
+import top.wkbin.zaomeng.client.platform.createClientHttpEngine
 
 /** Shared Ktor Client configuration（跨平台版，引擎由 server 的 expect/actual 提供）。 */
 class KtorHttpClientProvider(
     private val endpointProvider: BackendEndpointProvider,
-    engine: HttpClientEngine = createHttpClientEngine(),
+    engine: HttpClientEngine = createClientHttpEngine(),
 ) {
     val json = Json {
         ignoreUnknownKeys = true
@@ -36,7 +36,7 @@ class KtorHttpClientProvider(
             level = LogLevel.HEADERS
             logger = object : Logger {
                 override fun log(message: String) {
-                    PlatformLog.d("KtorClient", message)
+                    ClientLog.d("KtorClient", message)
                 }
             }
         }

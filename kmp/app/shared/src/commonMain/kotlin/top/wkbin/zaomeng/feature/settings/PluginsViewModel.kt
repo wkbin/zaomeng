@@ -2,7 +2,7 @@ package top.wkbin.zaomeng.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import top.wkbin.zaomeng.platform.base64Encode
+import top.wkbin.zaomeng.client.platform.clientBase64Encode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -127,7 +127,7 @@ class PluginsViewModel(
             try {
                 val inspection = repository.inspectPluginPackage(
                     filename = filename,
-                    contentBase64 = base64Encode(bytes),
+                    contentBase64 = clientBase64Encode(bytes),
                 )
                 mutableState.update {
                     it.copy(packageBusy = false, packageInspection = inspection)

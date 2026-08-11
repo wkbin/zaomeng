@@ -20,5 +20,5 @@ actual fun openStreamingResponse(url: String, jsonBody: String, token: String): 
         .build()
     val response = streamingClient.newCall(request).execute()
     check(response.isSuccessful) { "Streaming request failed: ${response.code} ${response.message}" }
-    return response.body!!.source()
+    return response.body.source()
 }

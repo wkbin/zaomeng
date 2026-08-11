@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 class KtorPluginClient(
     private val http: KtorHttpClientProvider,
@@ -111,7 +111,7 @@ class KtorPluginClient(
     private suspend inline fun <reified T> decode(response: HttpResponse): T {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<T>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode response. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode response. Body: $text", error); throw error }
     }
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {

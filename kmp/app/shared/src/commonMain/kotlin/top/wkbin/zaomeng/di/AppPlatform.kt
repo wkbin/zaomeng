@@ -3,13 +3,19 @@ package top.wkbin.zaomeng.di
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import okio.Path
+import top.wkbin.zaomeng.backend.BackendController
+import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.platform.NovelConversionForeground
-import top.wkbin.zaomeng.platform.ServerPlatform
+import top.wkbin.zaomeng.platform.SecureKeyValueStore
 
 /** 平台应用依赖：各端入口提供，Koin 模块据此组装。 */
 interface AppPlatform {
-    val serverPlatform: ServerPlatform
+    val backendController: BackendController
+
+    val backendEndpointProvider: BackendEndpointProvider
+
+    val secureStore: SecureKeyValueStore
 
     val dataStore: DataStore<Preferences>
 
@@ -17,10 +23,6 @@ interface AppPlatform {
     val filesDir: Path
 
     val cacheDir: Path
-
-    val backendPort: Int
-
-    val backendToken: String
 
     val distillationForeground: DistillationForeground
 

@@ -22,7 +22,7 @@ import kotlinx.serialization.json.contentOrNull
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
 import io.ktor.http.encodeURLParameter
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 class KtorDialogueClient(
     private val http: KtorHttpClientProvider,
@@ -53,7 +53,7 @@ class KtorDialogueClient(
         )
         val items = body["items"] ?: error("search response missing items")
         return runCatching { json.decodeFromJsonElement<List<ChatSearchResultDto>>(items) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode search items: $body", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode search items: $body", error); throw error }
     }
 
     suspend fun recoverSession(runId: String, sessionId: String, force: Boolean): DialogueSessionDto = decodeSession(
@@ -202,13 +202,13 @@ class KtorDialogueClient(
     private suspend fun decodeObject(response: HttpResponse): JsonObject {
         val text = response.bodyAsText()
         return runCatching { json.parseToJsonElement(text).jsonObject }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
     }
 
     private suspend fun decodeSession(response: HttpResponse): DialogueSessionDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<DialogueSessionDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode DialogueSessionDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode DialogueSessionDto. Body: $text", error); throw error }
     }
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {

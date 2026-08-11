@@ -9,7 +9,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 /** 人物关系（对应 server RelationsRoute）。 */
 class KtorRelationsClient(
@@ -35,7 +35,7 @@ class KtorRelationsClient(
     private suspend fun decodeRelation(response: HttpResponse): RelationDetailsDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<RelationDetailsDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode RelationDetailsDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode RelationDetailsDto. Body: $text", error); throw error }
     }
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {

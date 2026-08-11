@@ -31,7 +31,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.TimeSource
-import top.wkbin.zaomeng.platform.randomUuid
+import top.wkbin.zaomeng.client.platform.clientRandomUuid
 
 data class ChatToolOption(
     val label: String,
@@ -590,7 +590,7 @@ class ChatViewModel(
             snapshot = snapshot,
             message = message,
             messageKind = snapshot.messageKind,
-            operationId = randomUuid(),
+            operationId = clientRandomUuid(),
         )
     }
 
@@ -638,7 +638,7 @@ class ChatViewModel(
             snapshot = snapshot,
             message = buildContinuousObservePrompt(requireNotNull(session)),
             messageKind = "narration",
-            operationId = randomUuid(),
+            operationId = clientRandomUuid(),
             suppressTranscriptMessage = true,
             showPendingUserMessage = false,
             onComplete = {

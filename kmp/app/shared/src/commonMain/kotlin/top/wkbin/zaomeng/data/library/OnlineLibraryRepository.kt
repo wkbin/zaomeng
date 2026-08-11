@@ -25,7 +25,7 @@ import okio.FileSystem
 import okio.Path
 import okio.buffer
 import okio.use
-import top.wkbin.zaomeng.platform.createHttpClientEngine
+import top.wkbin.zaomeng.client.platform.createClientHttpEngine
 
 @Serializable
 private data class OnlineLibraryIndex(
@@ -52,7 +52,7 @@ data class OnlineLibraryBook(
  */
 class OnlineLibraryRepository(
     private val cacheDir: Path,
-    private val engine: HttpClientEngine = createHttpClientEngine(),
+    private val engine: HttpClientEngine = createClientHttpEngine(),
 ) {
     private val httpClient = HttpClient(engine) { expectSuccess = false }
     private val fs = FileSystem.SYSTEM

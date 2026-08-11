@@ -5,9 +5,9 @@ import okio.Path
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.backend.BackendController
 import top.wkbin.zaomeng.backend.SecureStoreNames
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 import top.wkbin.zaomeng.platform.SecureKeyValueStore
-import top.wkbin.zaomeng.platform.base64Encode
+import top.wkbin.zaomeng.client.platform.clientBase64Encode
 import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.CreateRunRequest
@@ -305,7 +305,7 @@ class ZaomengRepository(
         val payload = withContext(Dispatchers.Default) {
             CreateRunRequest(
                 novelName = filename,
-                novelContentBase64 = base64Encode(bytes),
+                novelContentBase64 = clientBase64Encode(bytes),
                 characters = characters,
                 maxSentences = maxSentences,
                 maxChars = maxChars,
@@ -346,7 +346,7 @@ class ZaomengRepository(
         val payload = withContext(Dispatchers.Default) {
             ImportRunPackageRequest(
                 filename = filename,
-                contentBase64 = base64Encode(bytes),
+                contentBase64 = clientBase64Encode(bytes),
                 libraryPackage = libraryPackage,
             )
         }
@@ -422,7 +422,7 @@ class ZaomengRepository(
                 characters = characters,
                 novelName = novelName.takeIf { novelBytes != null }.orEmpty(),
                 novelContentBase64 = novelBytes
-                    ?.let { base64Encode(it) }
+                    ?.let { clientBase64Encode(it) }
                     .orEmpty(),
                 maxSentences = maxSentences,
                 maxChars = maxChars,
@@ -889,7 +889,7 @@ class ZaomengRepository(
             "complete" -> payload["session"]?.let { session ->
                 val decodedSession = runCatching { json.decodeFromJsonElement<DialogueSessionDto>(session) }
                     .getOrElse { error ->
-                        PlatformLog.e(TAG, "Failed to decode stream complete session. Session JSON: $session", error)
+                        ClientLog.e(TAG, "Failed to decode stream complete session. Session JSON: $session", error)
                         throw error
                     }
                 DialogueStreamEvent.Complete(
@@ -900,7 +900,7 @@ class ZaomengRepository(
                             runCatching {
                                 json.decodeFromJsonElement<List<TranscriptItemDto>>(element)
                             }.getOrElse { error ->
-                                PlatformLog.e(TAG, "Failed to decode appended transcript", error)
+                                ClientLog.e(TAG, "Failed to decode appended transcript", error)
                                 emptyList()
                             }
                         }
@@ -1063,7 +1063,7 @@ class ZaomengRepository(
         } catch (error: ApiRequestException) {
             throw error
         } catch (error: Throwable) {
-            PlatformLog.e(TAG, "Repository request failed", error)
+            ClientLog.e(TAG, "Repository request failed", error)
             val readable = generateSequence(error) { it.cause }
                 .mapNotNull { it.message?.trim() }
                 .firstOrNull { it.isNotBlank() }

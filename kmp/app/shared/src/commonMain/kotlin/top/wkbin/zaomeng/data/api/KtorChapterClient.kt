@@ -20,7 +20,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import top.wkbin.zaomeng.backend.BackendEndpointProvider
 import top.wkbin.zaomeng.backend.BackendEndpoint
-import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.client.platform.ClientLog
 
 class KtorChapterClient(
     private val http: KtorHttpClientProvider,
@@ -95,7 +95,7 @@ class KtorChapterClient(
         )
         val items = body["items"]?.jsonArray ?: return emptyList()
         return runCatching { json.decodeFromJsonElement<List<ChapterDto>>(items) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode reordered chapters: $body", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode reordered chapters: $body", error); throw error }
     }
 
     /** 导出章节手稿：返回原始响应（文本/文件字节流）。 */
@@ -112,7 +112,7 @@ class KtorChapterClient(
         )
         val items = body["items"]?.jsonArray ?: return emptyList()
         return runCatching { json.decodeFromJsonElement<List<SearchResultDto>>(items) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode search results: $body", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode search results: $body", error); throw error }
     }
 
     /** 向书卷提问（对应 server ChapterManagementRoute POST /ask）。 */
@@ -127,25 +127,25 @@ class KtorChapterClient(
     private suspend fun decodeObject(response: HttpResponse): JsonObject {
         val text = response.bodyAsText()
         return runCatching { json.parseToJsonElement(text).jsonObject }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode JsonObject. Body: $text", error); throw error }
     }
 
     private suspend fun decodeChapter(response: HttpResponse): ChapterDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<ChapterDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode ChapterDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode ChapterDto. Body: $text", error); throw error }
     }
 
     private suspend fun decodeSession(response: HttpResponse): DialogueSessionDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<DialogueSessionDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode DialogueSessionDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode DialogueSessionDto. Body: $text", error); throw error }
     }
 
     private suspend fun decodeAsk(response: HttpResponse): AskBookResponseDto {
         val text = response.bodyAsText()
         return runCatching { json.decodeFromString<AskBookResponseDto>(text) }
-            .getOrElse { error -> PlatformLog.e(TAG, "Failed to decode AskBookResponseDto. Body: $text", error); throw error }
+            .getOrElse { error -> ClientLog.e(TAG, "Failed to decode AskBookResponseDto. Body: $text", error); throw error }
     }
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {
