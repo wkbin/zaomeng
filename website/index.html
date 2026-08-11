@@ -69,6 +69,7 @@
 
         <nav class="main-nav" id="main-nav" aria-label="主导航">
           <a href="#journey">如何工作</a>
+          <a href="#guide">使用指南</a>
           <a href="#features">功能</a>
           <a href="#showcase">界面</a>
           <a href="#download">下载</a>
@@ -102,6 +103,9 @@
                 查看源代码 <span aria-hidden="true">↗</span>
               </a>
             </div>
+            <a class="hero-guide-link reveal reveal-delay-3" href="#guide">
+              第一次使用？跟着 4 步完成首次对话 <span aria-hidden="true">→</span>
+            </a>
             <div class="hero-meta reveal reveal-delay-4" aria-label="项目特点">
               <div><strong>3</strong><span>平台共享体验</span></div>
               <div><strong>100%</strong><span>数据保存在本机</span></div>
@@ -177,6 +181,116 @@
               <p>选择角色与场景，进入流式多角色对话。每个人都带着自己的记忆和关系开口。</p>
               <div class="dialogue-mini" aria-hidden="true"><i></i><i></i><i></i></div>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide section-pad" id="guide">
+        <div class="shell">
+          <div class="section-heading heading-row reveal">
+            <div>
+              <p class="section-kicker">第一次使用造梦</p>
+              <h2>从安装到第一句话，<br />跟着这四步就够了。</h2>
+            </div>
+            <p>不需要会编程。先准备一个兼容的 AI 模型服务，再导入小说、等待人物蒸馏完成，就可以创建多角色会话。</p>
+          </div>
+
+          <div class="guide-layout">
+            <ol class="guide-steps">
+              <li class="guide-step reveal">
+                <div class="guide-number"><span>01</span><i aria-hidden="true"></i></div>
+                <div class="guide-step-body">
+                  <span class="guide-label">下载与安装</span>
+                  <h3>先把造梦装到设备上</h3>
+                  <p>Android 用户下载 APK；Windows、macOS 和 Linux 用户下载对应的桌面版本。安装完成后直接打开应用。</p>
+                  <div class="guide-route" aria-label="操作路径">
+                    <span>GitHub Releases</span><b>→</b><span>选择你的平台</span><b>→</b><span>安装并打开</span>
+                  </div>
+                  <a class="guide-action" href="https://github.com/wkbin/zaomeng/releases/latest">前往下载 <span aria-hidden="true">↗</span></a>
+                </div>
+              </li>
+
+              <li class="guide-step reveal reveal-delay-1">
+                <div class="guide-number"><span>02</span><i aria-hidden="true"></i></div>
+                <div class="guide-step-body">
+                  <span class="guide-label">首次必做</span>
+                  <h3>连接一个 AI 模型</h3>
+                  <p>蒸馏人物和聊天都需要模型。进入模型设置，选择服务商预设和模型，填写服务商提供的 API Key；本地 Ollama 通常不需要 Key。</p>
+                  <div class="guide-route" aria-label="操作路径">
+                    <span>书卷架</span><b>→</b><span>模型设置</span><b>→</b><span>新增模型档案</span>
+                  </div>
+                  <div class="guide-tip">
+                    填好后先点 <strong>测试连接</strong>；成功后点 <strong>创建并启用</strong>。API Key 保存在设备的安全存储中。
+                  </div>
+                </div>
+              </li>
+
+              <li class="guide-step reveal">
+                <div class="guide-number"><span>03</span><i aria-hidden="true"></i></div>
+                <div class="guide-step-body">
+                  <span class="guide-label">建立书卷</span>
+                  <h3>导入小说并开始蒸馏</h3>
+                  <p>选择 TXT 或 EPUB 小说，填写想提取的人物名，保留“建立后立即蒸馏”。应用会先显示预计调用次数、Token 和耗时。</p>
+                  <div class="guide-route" aria-label="操作路径">
+                    <span>书卷架</span><b>→</b><span>导入小说</span><b>→</b><span>TXT / EPUB 小说</span><b>→</b><span>确认开始</span>
+                  </div>
+                  <div class="guide-tip">
+                    人物名可用逗号、分号或换行分隔。第一次建议只选 <strong>2–4 位主要人物</strong>，速度更快，也更容易检查结果。
+                  </div>
+                </div>
+              </li>
+
+              <li class="guide-step reveal reveal-delay-1">
+                <div class="guide-number"><span>04</span></div>
+                <div class="guide-step-body">
+                  <span class="guide-label">开始对话</span>
+                  <h3>选择人物，进入场景</h3>
+                  <p>等书卷出现“人物资料和关系已经整理完成”，新建会话，选择书卷、你的身份和出场人物；场景卡可以暂时不选。</p>
+                  <div class="guide-route" aria-label="操作路径">
+                    <span>本卷会话</span><b>→</b><span>开始一段新会话</span><b>→</b><span>出场人物</span><b>→</b><span>进入场景</span>
+                  </div>
+                  <div class="mode-pills" aria-label="对话模式说明">
+                    <span><strong>旁观</strong> 人物自行推进</span>
+                    <span><strong>扮演</strong> 代入书中人物</span>
+                    <span><strong>入场</strong> 以自己的身份加入</span>
+                  </div>
+                </div>
+              </li>
+            </ol>
+
+            <aside class="guide-sidebar reveal reveal-delay-2" aria-label="新手帮助">
+              <div class="starter-card">
+                <span class="feature-label">最省事的体验方式</span>
+                <h3>先从在线书卷包开始</h3>
+                <p>不想第一次就等待蒸馏？在“导入小说”里打开“在线书卷包”，下载一份已经处理好的书卷，再直接创建会话。</p>
+                <p class="starter-note">聊天仍需要先配置模型。</p>
+              </div>
+
+              <div class="glossary-card">
+                <h3>先认识三个词</h3>
+                <dl>
+                  <div><dt>书卷</dt><dd>一部小说的正文、人物、关系和记忆集合。</dd></div>
+                  <div><dt>蒸馏</dt><dd>让模型从小说中整理人物资料和关系。</dd></div>
+                  <div><dt>模型档案</dt><dd>你所使用的 AI 服务、模型和连接信息。</dd></div>
+                </dl>
+              </div>
+
+              <div class="faq-card">
+                <h3>遇到问题？</h3>
+                <details>
+                  <summary>导入后为什么不能聊天？</summary>
+                  <p>至少要有一位人物完成蒸馏。打开书卷查看进度，看到人物资料后再新建会话。</p>
+                </details>
+                <details>
+                  <summary>模型连接失败怎么办？</summary>
+                  <p>检查服务商、模型名称、接口地址和 API Key，然后重新点“测试连接”。</p>
+                </details>
+                <details>
+                  <summary>蒸馏可以退出页面吗？</summary>
+                  <p>可以。启用立即蒸馏后任务会在后台继续，进度会保存在本机。</p>
+                </details>
+              </div>
+            </aside>
           </div>
         </div>
       </section>

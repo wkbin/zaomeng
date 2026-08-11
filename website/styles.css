@@ -359,6 +359,23 @@ img {
   margin-top: 34px;
 }
 
+.hero-guide-link {
+  display: inline-flex;
+  margin-top: 18px;
+  align-items: center;
+  gap: 9px;
+  color: var(--gold-light);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 0.2s ease, gap 0.2s ease;
+}
+
+.hero-guide-link:hover,
+.hero-guide-link:focus-visible {
+  gap: 13px;
+  color: var(--paper);
+}
+
 .button {
   display: inline-flex;
   min-height: 50px;
@@ -788,6 +805,238 @@ img {
 
 .dialogue-mini i:nth-child(2) { margin-left: -13px; }
 .dialogue-mini i:nth-child(3) { margin-left: -13px; }
+
+.guide {
+  position: relative;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 82% 18%, rgba(105, 66, 133, 0.17), transparent 28%),
+    rgba(255, 255, 255, 0.012);
+}
+
+.guide-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.guide-steps {
+  display: grid;
+  padding: 0;
+  margin: 0;
+  gap: 12px;
+  list-style: none;
+}
+
+.guide-step {
+  display: grid;
+  padding: 28px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.014));
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+
+.guide-step:hover {
+  border-color: var(--line-strong);
+  background: linear-gradient(145deg, rgba(229, 170, 67, 0.055), rgba(87, 54, 109, 0.025));
+}
+
+.guide-number {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+}
+
+.guide-number span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--gold-light);
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: rgba(229, 170, 67, 0.06);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.guide-number i {
+  width: 1px;
+  min-height: 88px;
+  margin-top: 10px;
+  flex: 1;
+  background: linear-gradient(var(--line-strong), transparent);
+}
+
+.guide-label {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.guide-step h3,
+.starter-card h3,
+.glossary-card h3,
+.faq-card h3 {
+  margin: 6px 0 0;
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.guide-step-body > p,
+.starter-card > p {
+  margin: 10px 0 0;
+  color: var(--paper-muted);
+  font-size: 13px;
+}
+
+.guide-route {
+  display: flex;
+  margin-top: 17px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.guide-route span {
+  padding: 5px 9px;
+  color: #cfc3d5;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 10px;
+}
+
+.guide-route b {
+  color: #756b7d;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.guide-tip {
+  padding: 11px 13px;
+  margin-top: 15px;
+  color: #a99eaf;
+  border-left: 2px solid var(--gold);
+  background: rgba(229, 170, 67, 0.035);
+  font-size: 11px;
+}
+
+.guide-tip strong {
+  color: var(--paper);
+}
+
+.guide-action {
+  display: inline-flex;
+  margin-top: 15px;
+  align-items: center;
+  gap: 7px;
+  color: var(--gold-light);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mode-pills {
+  display: flex;
+  margin-top: 15px;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.mode-pills span {
+  padding: 7px 10px;
+  color: #928797;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9px;
+}
+
+.mode-pills strong {
+  margin-right: 3px;
+  color: var(--paper);
+}
+
+.guide-sidebar {
+  position: sticky;
+  top: 96px;
+  display: grid;
+  gap: 12px;
+}
+
+.starter-card,
+.glossary-card,
+.faq-card {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--ink-soft);
+}
+
+.starter-card {
+  border-color: var(--line-strong);
+  background: linear-gradient(145deg, rgba(229, 170, 67, 0.075), var(--ink-soft) 56%);
+}
+
+.starter-card .starter-note {
+  margin-top: 14px;
+  color: var(--gold-light);
+  font-size: 10px;
+}
+
+.glossary-card dl {
+  margin: 18px 0 0;
+}
+
+.glossary-card dl > div {
+  display: grid;
+  padding: 11px 0;
+  grid-template-columns: 68px 1fr;
+  gap: 8px;
+  border-top: 1px solid rgba(244, 233, 214, 0.07);
+}
+
+.glossary-card dt {
+  color: var(--gold-light);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.glossary-card dd {
+  margin: 0;
+  color: #9a8fa1;
+  font-size: 10px;
+}
+
+.faq-card details {
+  border-top: 1px solid rgba(244, 233, 214, 0.07);
+}
+
+.faq-card details:first-of-type {
+  margin-top: 15px;
+}
+
+.faq-card summary {
+  padding: 12px 0;
+  color: #cfc4d4;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.faq-card details p {
+  padding: 0 0 13px;
+  margin: -2px 0 0;
+  color: #8f8496;
+  font-size: 10px;
+}
 
 .features {
   border-top: 1px solid var(--line);
@@ -1560,6 +1809,10 @@ img {
   .journey-arrow { justify-self: center; transform: rotate(90deg); }
   .journey-card { min-height: 330px; }
 
+  .guide-layout { grid-template-columns: 1fr; }
+  .guide-sidebar { position: static; grid-template-columns: repeat(2, 1fr); }
+  .faq-card { grid-column: 1 / -1; }
+
   .feature-card-wide,
   .feature-card-chat,
   .feature-card-memory,
@@ -1589,6 +1842,7 @@ img {
   .hero-lead { font-size: 16px; }
   .hero-actions { flex-direction: column; }
   .hero-actions .button { width: 100%; }
+  .hero-guide-link { justify-content: center; }
   .hero-meta { gap: 8px; }
   .hero-meta > div { padding-left: 10px; flex: 1; }
   .hero-meta strong { font-size: 15px; }
@@ -1611,6 +1865,18 @@ img {
 
   .journey-card { min-height: 310px; padding: 24px; }
   .step-glyph { width: 74px; height: 74px; margin: 28px 0 22px; font-size: 31px; }
+
+  .guide-step { padding: 22px 18px; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; }
+  .guide-number span { width: 38px; height: 38px; }
+  .guide-number i { min-height: 72px; }
+  .guide-step h3,
+  .starter-card h3,
+  .glossary-card h3,
+  .faq-card h3 { font-size: 20px; }
+  .guide-sidebar { grid-template-columns: 1fr; }
+  .faq-card { grid-column: auto; }
+  .guide-route { align-items: flex-start; flex-direction: column; }
+  .guide-route b { margin-left: 13px; transform: rotate(90deg); }
 
   .feature-card { min-height: 0; padding: 26px; }
   .feature-card h3 { font-size: 23px; }
