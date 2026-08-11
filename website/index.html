@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#100d16" />
+    <meta
+      name="description"
+      content="造梦：把中文小说人物蒸馏成可复用的人物包，抽取关系图谱，让角色带着性格、立场、关系和记忆重新开口说话。"
+    />
+    <meta name="keywords" content="造梦, 中文小说, AI 角色, 多角色对话, 人物蒸馏, Compose Multiplatform" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="造梦" />
+    <meta property="og:title" content="造梦｜让故事里的人，再开口说话" />
+    <meta
+      property="og:description"
+      content="从小说中蒸馏人物、关系与记忆，进入真正连贯的多角色对话。开源、本地优先、跨平台。"
+    />
+    <meta property="og:url" content="https://wkbin.github.io/zaomeng/" />
+    <meta property="og:image" content="https://wkbin.github.io/zaomeng/assets/og.png" />
+    <meta property="og:image:width" content="1728" />
+    <meta property="og:image:height" content="904" />
+    <meta property="og:image:alt" content="造梦——让故事里的人，再开口说话。" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="造梦｜让故事里的人，再开口说话" />
+    <meta
+      name="twitter:description"
+      content="从小说中蒸馏人物、关系与记忆，进入真正连贯的多角色对话。"
+    />
+    <meta name="twitter:image" content="https://wkbin.github.io/zaomeng/assets/og.png" />
+    <link rel="icon" href="assets/logo.webp" type="image/webp" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>造梦｜让故事里的人，再开口说话</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "造梦",
+        "applicationCategory": "EntertainmentApplication",
+        "operatingSystem": "Android, Windows, macOS, Linux, iOS",
+        "description": "把中文小说人物蒸馏成可复用的人物包，抽取关系图谱，并提供多角色对话体验。",
+        "url": "https://wkbin.github.io/zaomeng/",
+        "downloadUrl": "https://github.com/wkbin/zaomeng/releases/latest",
+        "softwareVersion": "2.0.0",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "codeRepository": "https://github.com/wkbin/zaomeng"
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <div class="page-noise" aria-hidden="true"></div>
+    <div class="dream-orb dream-orb-one" aria-hidden="true"></div>
+    <div class="dream-orb dream-orb-two" aria-hidden="true"></div>
+
+    <header class="site-header" data-header>
+      <div class="shell nav-shell">
+        <a class="brand" href="#top" aria-label="造梦首页">
+          <span class="brand-mark"><img src="assets/logo.webp" alt="" /></span>
+          <span>造梦</span>
+        </a>
+
+        <button class="menu-button" type="button" aria-expanded="false" aria-controls="main-nav">
+          <span></span><span></span><span></span>
+          <span class="sr-only">打开导航</span>
+        </button>
+
+        <nav class="main-nav" id="main-nav" aria-label="主导航">
+          <a href="#journey">如何工作</a>
+          <a href="#features">功能</a>
+          <a href="#showcase">界面</a>
+          <a href="#download">下载</a>
+          <a class="nav-github" href="https://github.com/wkbin/zaomeng" target="_blank" rel="noreferrer">
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow reveal">
+              <span class="eyebrow-dot"></span>
+              开源 · 本地优先 · 多角色叙事
+            </div>
+            <h1 class="reveal reveal-delay-1">
+              让故事里的人，<br />
+              <em>再开口说话。</em>
+            </h1>
+            <p class="hero-lead reveal reveal-delay-2">
+              把中文小说中的人物、关系与记忆蒸馏出来。让每个角色带着自己的性格、立场和经历，在新的故事里相遇。
+            </p>
+            <div class="hero-actions reveal reveal-delay-3">
+              <a class="button button-primary" href="https://github.com/wkbin/zaomeng/releases/latest">
+                下载最新版本 <span aria-hidden="true">↓</span>
+              </a>
+              <a class="button button-secondary" href="https://github.com/wkbin/zaomeng">
+                查看源代码 <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+            <div class="hero-meta reveal reveal-delay-4" aria-label="项目特点">
+              <div><strong>3</strong><span>平台共享体验</span></div>
+              <div><strong>100%</strong><span>数据保存在本机</span></div>
+              <div><strong>AGPL</strong><span>自由开源</span></div>
+            </div>
+          </div>
+
+          <div class="hero-stage reveal reveal-delay-2" aria-label="造梦桌面端界面预览">
+            <div class="stage-halo"></div>
+            <div class="stage-card">
+              <div class="window-bar">
+                <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+                <span>一场尚未写完的相遇</span>
+                <span class="window-status"><i></i> 本地运行</span>
+              </div>
+              <img src="assets/desktop.png" alt="造梦桌面端的多角色对话界面" />
+            </div>
+            <div class="memory-note memory-note-top" aria-hidden="true">
+              <span>关系已唤醒</span>
+              <b>林七夜 ↔ 安卿鱼</b>
+            </div>
+            <div class="memory-note memory-note-bottom" aria-hidden="true">
+              <span>角色记得</span>
+              <b>上一场雨夜里的承诺</b>
+            </div>
+          </div>
+        </div>
+        <div class="hero-scroll" aria-hidden="true"><span></span>向下探索</div>
+      </section>
+
+      <section class="manifesto section-pad">
+        <div class="shell manifesto-grid">
+          <p class="section-kicker reveal">不只是聊天机器人</p>
+          <blockquote class="reveal reveal-delay-1">
+            “有些角色不是被写完了，<br />只是还没被真正叫醒。”
+          </blockquote>
+          <p class="manifesto-copy reveal reveal-delay-2">
+            造梦关心的不只是角色会说什么，更关心他们为什么这样说。文本中的经历、关系、矛盾和未竟之事，共同构成一个角色。
+          </p>
+        </div>
+      </section>
+
+      <section class="journey section-pad" id="journey">
+        <div class="shell">
+          <div class="section-heading reveal">
+            <p class="section-kicker">从一本书开始</p>
+            <h2>三步，走进一个<br />仍在生长的世界。</h2>
+          </div>
+
+          <div class="journey-track">
+            <article class="journey-card reveal">
+              <span class="step-index">01</span>
+              <div class="step-glyph" aria-hidden="true">文</div>
+              <h3>放入你的小说</h3>
+              <p>导入 TXT、EPUB 或已有书卷包。长篇原文在本地解析，不必上传到中心服务器。</p>
+              <div class="step-tags"><span>TXT</span><span>EPUB</span><span>书卷包</span></div>
+            </article>
+            <span class="journey-arrow" aria-hidden="true">→</span>
+            <article class="journey-card reveal reveal-delay-1">
+              <span class="step-index">02</span>
+              <div class="step-glyph" aria-hidden="true">系</div>
+              <h3>蒸馏人物与关系</h3>
+              <p>提炼人物资料、性格与立场，梳理关系图谱和世界时间线，并支持持续校对。</p>
+              <div class="relation-mini" aria-hidden="true">
+                <i></i><i></i><i></i><span></span><b></b>
+              </div>
+            </article>
+            <span class="journey-arrow" aria-hidden="true">→</span>
+            <article class="journey-card reveal reveal-delay-2">
+              <span class="step-index">03</span>
+              <div class="step-glyph" aria-hidden="true">梦</div>
+              <h3>让故事重新发生</h3>
+              <p>选择角色与场景，进入流式多角色对话。每个人都带着自己的记忆和关系开口。</p>
+              <div class="dialogue-mini" aria-hidden="true"><i></i><i></i><i></i></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="features section-pad" id="features">
+        <div class="shell">
+          <div class="section-heading heading-row reveal">
+            <div>
+              <p class="section-kicker">细节让角色成立</p>
+              <h2>不是模仿一句台词，<br />而是延续一个人。</h2>
+            </div>
+            <p>
+              从人物资料到群聊现场，从长期记忆到世界时间线，造梦把角色需要的上下文组织成一个可继续生长的世界。
+            </p>
+          </div>
+
+          <div class="feature-bento">
+            <article class="feature-card feature-card-wide reveal">
+              <div class="feature-copy">
+                <span class="feature-label">人物与关系</span>
+                <h3>每个角色，都有自己的来处。</h3>
+                <p>人物资料、性格、立场、关系图谱和时间线互相连接。支持 AI 补全与人工校对，让人物包越用越准确。</p>
+              </div>
+              <div class="constellation" aria-hidden="true">
+                <span class="node node-main">主角</span>
+                <span class="node node-a">旧友</span>
+                <span class="node node-b">宿敌</span>
+                <span class="node node-c">盟友</span>
+                <i class="line line-a"></i><i class="line line-b"></i><i class="line line-c"></i>
+              </div>
+            </article>
+
+            <article class="feature-card feature-card-chat reveal reveal-delay-1">
+              <span class="feature-label">多角色对话</span>
+              <h3>不是轮流回答，<br />是一起在场。</h3>
+              <div class="chat-stack" aria-hidden="true">
+                <div><i>林</i><span>我记得那场雨。</span></div>
+                <div><i>安</i><span>你记得的，不是全部。</span></div>
+                <div><i>沈</i><span>那么，从头说起吧。</span></div>
+              </div>
+            </article>
+
+            <article class="feature-card feature-card-memory reveal">
+              <span class="feature-label">记忆与分支</span>
+              <h3>故事走过的路，角色不会轻易忘记。</h3>
+              <ul class="check-list">
+                <li>会话断线恢复</li>
+                <li>对话分支与归档</li>
+                <li>场景推荐与自动标题</li>
+              </ul>
+            </article>
+
+            <article class="feature-card feature-card-local reveal reveal-delay-1">
+              <div class="local-ring" aria-hidden="true"><span>本机</span></div>
+              <div>
+                <span class="feature-label">本地优先</span>
+                <h3>你的书，你的角色，留在你的设备上。</h3>
+                <p>应用内嵌服务与数据库。模型密钥通过平台安全存储管理，书卷和会话由你掌控。</p>
+              </div>
+            </article>
+
+            <article class="feature-card feature-card-small reveal">
+              <span class="feature-icon" aria-hidden="true">✦</span>
+              <span class="feature-label">可扩展</span>
+              <h3>插件系统</h3>
+              <p>内置插件与插件管理，让新的能力自然进入对话。</p>
+            </article>
+
+            <article class="feature-card feature-card-small reveal reveal-delay-1">
+              <span class="feature-icon" aria-hidden="true">⌁</span>
+              <span class="feature-label">可流通</span>
+              <h3>书卷包</h3>
+              <p>导入、导出和分享人物世界，也能从在线书库发现作品。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="showcase section-pad" id="showcase">
+        <div class="shell">
+          <div class="section-heading heading-row reveal">
+            <div>
+              <p class="section-kicker">一套体验，多种设备</p>
+              <h2>在桌前编织世界，<br />也在掌心继续故事。</h2>
+            </div>
+            <div class="showcase-tabs" role="tablist" aria-label="设备预览">
+              <button id="desktop-tab" type="button" role="tab" aria-selected="true" aria-controls="desktop-panel" data-tab="desktop">
+                桌面端
+              </button>
+              <button id="mobile-tab" type="button" role="tab" aria-selected="false" aria-controls="mobile-panel" data-tab="mobile">
+                手机端
+              </button>
+            </div>
+          </div>
+
+          <div class="showcase-canvas reveal reveal-delay-1">
+            <div class="showcase-glow" aria-hidden="true"></div>
+            <div id="desktop-panel" class="showcase-panel is-active" role="tabpanel" aria-labelledby="desktop-tab" data-panel="desktop">
+              <div class="desktop-frame">
+                <div class="frame-top"><span></span><span></span><span></span></div>
+                <img src="assets/desktop.png" alt="造梦桌面端对话界面" loading="lazy" />
+              </div>
+              <div class="screen-caption"><span>Desktop</span> 宽阔视野，适合整理书卷与沉浸对话</div>
+            </div>
+            <div id="mobile-panel" class="showcase-panel" role="tabpanel" aria-labelledby="mobile-tab" data-panel="mobile" hidden>
+              <div class="phone-frame">
+                <div class="phone-speaker"></div>
+                <img src="assets/mobile.jpg" alt="造梦手机端多角色群聊界面" loading="lazy" />
+              </div>
+              <div class="screen-caption"><span>Mobile</span> 随时回到尚未结束的故事</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="download section-pad" id="download">
+        <div class="shell download-shell">
+          <div class="download-intro reveal">
+            <p class="section-kicker">开始造梦</p>
+            <h2>故事已经在那里。<br />现在，叫醒他们。</h2>
+            <p>造梦 2.0 基于 Compose Multiplatform 构建，覆盖 Android、桌面与 iOS。应用数据默认保存在本机。</p>
+            <a class="button button-primary" href="https://github.com/wkbin/zaomeng/releases/latest">
+              前往 GitHub Releases <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <div class="platform-list reveal reveal-delay-1">
+            <a href="https://github.com/wkbin/zaomeng/releases/latest" class="platform-card">
+              <span class="platform-monogram">A</span>
+              <span><strong>Android</strong><small>APK · 当前支持 arm64-v8a</small></span>
+              <i aria-hidden="true">↗</i>
+            </a>
+            <a href="https://github.com/wkbin/zaomeng/releases/latest" class="platform-card">
+              <span class="platform-monogram">D</span>
+              <span><strong>Desktop</strong><small>Windows · macOS · Linux</small></span>
+              <i aria-hidden="true">↗</i>
+            </a>
+            <a href="https://github.com/wkbin/zaomeng/blob/main/kmp/README.md" class="platform-card">
+              <span class="platform-monogram">i</span>
+              <span><strong>iOS</strong><small>使用 Xcode 构建运行</small></span>
+              <i aria-hidden="true">↗</i>
+            </a>
+          </div>
+        </div>
+
+        <div class="shell upgrade-note reveal">
+          <span aria-hidden="true">!</span>
+          <p><strong>从 1.5.0 及更早版本升级？</strong> 2.0.0 是阻断性升级。请先在旧版中导出 <code>.zaomeng-run.zip</code> 书卷包，再安装新版本。</p>
+        </div>
+
+        <div class="shell skill-strip reveal">
+          <div>
+            <span class="feature-label">也可以交给你的 Agent</span>
+            <h3>安装造梦 Skill</h3>
+          </div>
+          <div class="command-box">
+            <code>openclaw skills install wkbin/zaomeng-skill</code>
+            <button type="button" data-copy="openclaw skills install wkbin/zaomeng-skill" aria-label="复制安装命令">复制</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="community section-pad">
+        <div class="shell community-card reveal">
+          <div class="community-stars" aria-hidden="true">✦ <span>✦</span> ✦</div>
+          <p class="section-kicker">一起把梦做得更长</p>
+          <h2>开源不是结尾，<br />是故事的另一种开始。</h2>
+          <p>提交建议、参与开发，或者分享你制作的书卷包。每一次贡献，都可能叫醒一个新世界。</p>
+          <div class="community-actions">
+            <a class="button button-primary" href="https://github.com/wkbin/zaomeng">参与项目 <span aria-hidden="true">↗</span></a>
+            <a class="button button-secondary" href="https://github.com/wkbin/zaomeng-library/issues">投稿书卷包 <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="community-meta">
+            <span>QQ 交流群</span><strong>1090225658</strong><i></i><span>AGPL-3.0</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <a class="brand footer-brand" href="#top">
+          <span class="brand-mark"><img src="assets/logo.webp" alt="" /></span>
+          <span>造梦</span>
+        </a>
+        <p>让故事里的人，再开口说话。</p>
+        <div class="footer-links">
+          <a href="https://github.com/wkbin/zaomeng">GitHub</a>
+          <a href="https://github.com/wkbin/zaomeng/blob/main/kmp/README.md">开发文档</a>
+          <a href="https://github.com/wkbin/zaomeng/blob/main/LICENSE">许可证</a>
+        </div>
+      </div>
+      <div class="shell footer-bottom">
+        <span>© <span data-year></span> 造梦 · Built in the open.</span>
+        <a href="#top">回到顶部 ↑</a>
+      </div>
+    </footer>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>

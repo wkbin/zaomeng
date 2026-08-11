@@ -8,7 +8,7 @@
 
 Distill Chinese novel characters into reusable persona bundles, extract relationship graphs, and let characters speak again with their own personality, stance, bonds, and memory.
 
-[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-8A2BE2.svg)](LICENSE) · [中文](README.md)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-8A2BE2.svg)](LICENSE) · [Website](https://wkbin.github.io/zaomeng/) · [中文](README.md)
 
 ## Project layout
 
