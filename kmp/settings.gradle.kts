@@ -38,7 +38,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "Zaomeng"
 include(":core:contracts")
+include(":core:domain")
 include(":core:runtime")
+include(":data:remote")
 include(":server")
 include(":plugins-api")
 include(":builtin-plugins")

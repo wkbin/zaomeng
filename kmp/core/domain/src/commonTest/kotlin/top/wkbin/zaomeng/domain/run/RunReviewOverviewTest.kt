@@ -1,6 +1,4 @@
-package top.wkbin.zaomeng.feature.rundetail
-
-import top.wkbin.zaomeng.domain.run.buildRunReviewOverview
+package top.wkbin.zaomeng.domain.run
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

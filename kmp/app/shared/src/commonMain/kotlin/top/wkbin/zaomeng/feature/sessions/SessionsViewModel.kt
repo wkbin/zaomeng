@@ -12,6 +12,9 @@ import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.ReusableCardDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionCommand
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionUseCase
+import top.wkbin.zaomeng.domain.sessions.DeleteDialogueSessionUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -93,6 +96,8 @@ data class SessionsUiState(
 
 class SessionsViewModel(
     private val repository: ZaomengRepository,
+    private val createDialogueSession: CreateDialogueSessionUseCase,
+    private val deleteDialogueSession: DeleteDialogueSessionUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(SessionsUiState())
     val state: StateFlow<SessionsUiState> = mutableState.asStateFlow()
@@ -549,26 +554,21 @@ class SessionsViewModel(
                     error = "",
                 )
             }
-            val knownSessionKeys = try {
-                repository.listSessions(draft.runId).mapTo(mutableSetOf(), DialogueSessionDto::key)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                emptySet()
-            }
             try {
-                val created = repository.createSession(
-                    runId = draft.runId,
-                    mode = draft.mode,
-                    participants = draft.participants.toList(),
-                    controlledCharacter = draft.controlledCharacter.takeIf { draft.mode == "act" }.orEmpty(),
-                    selfName = draft.selfName.trim(),
-                    selfIdentity = draft.selfIdentity.trim(),
-                    selfStyle = draft.selfStyle.trim(),
-                    sceneCardId = draft.sceneCardId,
-                    sceneProfile = draft.sceneProfile,
-                    selfCardId = draft.selfCardId,
-                    selfCardProfile = draft.selfProfile,
+                val created = createDialogueSession(
+                    CreateDialogueSessionCommand(
+                        runId = draft.runId,
+                        mode = draft.mode,
+                        participants = draft.participants.toList(),
+                        controlledCharacter = draft.controlledCharacter.takeIf { draft.mode == "act" }.orEmpty(),
+                        selfName = draft.selfName.trim(),
+                        selfIdentity = draft.selfIdentity.trim(),
+                        selfStyle = draft.selfStyle.trim(),
+                        sceneCardId = draft.sceneCardId,
+                        sceneProfile = draft.sceneProfile,
+                        selfCardId = draft.selfCardId,
+                        selfCardProfile = draft.selfProfile,
+                    ),
                 )
                 mutableState.update { current ->
                     current.afterSessionCreated(created)
@@ -578,22 +578,12 @@ class SessionsViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                val recovered = try {
-                    repository.listSessions(draft.runId).firstOrNull { session ->
-                        session.key !in knownSessionKeys && session.matches(draft)
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                    null
-                }
                 mutableState.update { current ->
-                    recovered?.let { current.afterSessionCreated(it) } ?: current.copy(
+                    current.copy(
                         creating = false,
                         error = error.readableMessage("创建会话失败，请检查模型配置后重试。"),
                     )
                 }
-                if (recovered != null) rebuildPagerIfNeeded()
             }
         }
     }
@@ -616,7 +606,7 @@ class SessionsViewModel(
                 )
             }
             try {
-                repository.deleteSession(session.runId, session.sessionId)
+                deleteDialogueSession(session.runId, session.sessionId)
                 mutableState.update {
                     it.copy(deletingSessionKeys = it.deletingSessionKeys - key)
                 }
@@ -624,27 +614,12 @@ class SessionsViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                val sessionStillExists = try {
-                    repository.listSessions(session.runId).any { it.key == key }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                    null
-                }
                 mutableState.update { current ->
-                    if (sessionStillExists == false) {
-                        current.copy(
-                            deletingSessionKeys = current.deletingSessionKeys - key,
-                            error = "",
-                        )
-                    } else {
-                        current.copy(
-                            deletingSessionKeys = current.deletingSessionKeys - key,
-                            error = error.readableMessage("删除会话失败，请稍后重试。"),
-                        )
-                    }
+                    current.copy(
+                        deletingSessionKeys = current.deletingSessionKeys - key,
+                        error = error.readableMessage("删除会话失败，请稍后重试。"),
+                    )
                 }
-                if (sessionStillExists == false) rebuildPagerIfNeeded()
             }
         }
     }
@@ -856,12 +831,6 @@ class SessionsViewModel(
             createdSession = created,
             error = "",
         )
-
-    private fun DialogueSessionDto.matches(draft: NewSessionDraft): Boolean =
-        runId == draft.runId &&
-            mode == draft.mode &&
-            participants.toSet() == draft.participants &&
-            (draft.mode != "act" || controlledCharacter == draft.controlledCharacter)
 
     private fun createValidationMessage(draft: NewSessionDraft): String = when {
         draft.runId.isBlank() -> "请选择一本已经完成人物蒸馏的书。"

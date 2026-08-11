@@ -16,6 +16,8 @@
 - `kmp/app/shared`：共享 UI、ViewModel、Repository 和平台 HTTP 实现。
 - `kmp/app/androidApp`：Android 应用入口与打包配置。
 - `kmp/app/desktopApp`：Desktop 应用入口。
+- `kmp/core/domain`：领域 Gateway、UseCase 与不依赖 UI 的业务编排。
+- `kmp/data/remote`：跨平台 Ktor API Client、客户端网络引擎与流式 HTTP 实现。
 - `kmp/server`：内嵌 Ktor 路由、业务服务、模型调用、持久化与平台抽象。
 - `kmp/plugins-api`：插件公共契约；保持向后兼容。
 - `kmp/builtin-plugins`：内置插件实现。

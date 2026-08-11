@@ -51,7 +51,9 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:contracts"))
+            implementation(project(":core:domain"))
             implementation(project(":core:runtime"))
+            implementation(project(":data:remote"))
             implementation(libs.bundles.compose.ui)
             implementation(libs.compose.lifecycle.runtime)
             api(libs.compose.lifecycle.viewmodel)
@@ -79,13 +81,9 @@ kotlin {
             implementation(libs.compose.ui.tooling)
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.androidx.core.ktx)
-            implementation(libs.ktor.client.okhttp)
-            implementation(libs.okhttp)
         }
         jvmMain.dependencies {
             implementation(project(":server"))
-            implementation(libs.ktor.client.okhttp)
-            implementation(libs.okhttp)
             implementation(libs.skiko.awt)
             // viewModelScope 依赖 Dispatchers.Main（桌面端由 coroutines-swing 提供）
             implementation(libs.kotlinx.coroutines.swing)
@@ -94,7 +92,6 @@ kotlin {
             iosMain {
                 dependencies {
                     implementation(project(":server"))
-                    implementation(libs.ktor.client.darwin)
                     implementation(libs.kitearchive)
                 }
             }

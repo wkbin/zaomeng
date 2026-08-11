@@ -24,7 +24,7 @@ import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 
 internal fun sharedViewModelModule(platform: AppPlatform) = module {
     viewModel { BookshelfViewModel(get(), get()) }
-    viewModel { SessionsViewModel(get()) }
+    viewModel { SessionsViewModel(get(), get(), get()) }
     viewModel { parameters ->
         ChaptersViewModel(
             repository = get(),

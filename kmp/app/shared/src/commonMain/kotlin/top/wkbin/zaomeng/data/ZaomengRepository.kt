@@ -124,6 +124,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.domain.chat.ChatSessionGateway
 import top.wkbin.zaomeng.domain.distill.DistillPlanningGateway
 import top.wkbin.zaomeng.domain.run.RunReviewGateway
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionCommand
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionGateway
+import top.wkbin.zaomeng.domain.sessions.DeleteDialogueSessionGateway
 
 class ZaomengRepository(
     private val backend: BackendController,
@@ -143,7 +146,8 @@ class ZaomengRepository(
     private val ktorRelations: KtorRelationsClient,
     private val ktorRunOps: KtorRunOpsClient,
     private val ktorOriginalKnowledge: KtorOriginalKnowledgeClient,
-) : ChatSessionGateway, DistillPlanningGateway, RunReviewGateway {
+) : ChatSessionGateway, DistillPlanningGateway, RunReviewGateway, CreateDialogueSessionGateway,
+    DeleteDialogueSessionGateway {
     private val avatarCache = mutableMapOf<String, ByteArray>()
     val backendState: StateFlow<BackendState> = backend.state
     val preferences: Flow<AppPreferences> = appPreferences.preferences
@@ -732,6 +736,20 @@ class ZaomengRepository(
         session
     }
 
+    override suspend fun createSession(command: CreateDialogueSessionCommand): DialogueSessionDto = createSession(
+        runId = command.runId,
+        mode = command.mode,
+        participants = command.participants,
+        controlledCharacter = command.controlledCharacter,
+        selfName = command.selfName,
+        selfIdentity = command.selfIdentity,
+        selfStyle = command.selfStyle,
+        sceneCardId = command.sceneCardId,
+        sceneProfile = command.sceneProfile,
+        selfCardId = command.selfCardId,
+        selfCardProfile = command.selfCardProfile,
+    )
+
     override suspend fun getSession(
         runId: String,
         sessionId: String,
@@ -1035,7 +1053,7 @@ class ZaomengRepository(
         ktorDialogue.mergeDuplicateMemories(runId, sessionId)
     }
 
-    suspend fun deleteSession(runId: String, sessionId: String) = request {
+    override suspend fun deleteSession(runId: String, sessionId: String): DeleteStatusDto = request {
         ktorSessions.delete(runId, sessionId).also {
             appPreferences.forgetSession(runId, sessionId)
         }
