@@ -692,8 +692,11 @@ class LlmClient(
             while (true) {
                 val data = sseData(response.readUtf8Line() ?: break) ?: continue
                 if (data == "[DONE]") continue
-                try {
-                    val chunk = json.decodeFromString<StreamChunk>(data)
+                consumeDecodedSsePayload(
+                    data = data,
+                    decode = { json.decodeFromString<StreamChunk>(it) },
+                    onDecodeFailure = { error -> PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", error) },
+                ) { chunk ->
                     responseModel = chunk.model.ifBlank { responseModel }
                     val delta = chunk.choices.firstOrNull()?.delta
                     delta?.content?.takeIf { it.isNotEmpty() }?.let {
@@ -702,8 +705,6 @@ class LlmClient(
                     }
                     delta?.reasoningContent?.takeIf { it.isNotEmpty() }?.let(onReasoning)
                     chunk.choices.firstOrNull()?.finishReason?.let { finishReason = it }
-                } catch (e: Exception) {
-                    PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
                 }
             }
 
@@ -776,13 +777,14 @@ class LlmClient(
             while (true) {
                 val data = sseData(response.readUtf8Line() ?: break) ?: continue
                 if (data == "[DONE]") continue
-                try {
-                    val chunk = json.decodeFromString<StreamChunk>(data)
+                consumeDecodedSsePayload(
+                    data = data,
+                    decode = { json.decodeFromString<StreamChunk>(it) },
+                    onDecodeFailure = { error -> PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", error) },
+                ) { chunk ->
                     val delta = chunk.choices.firstOrNull()?.delta
                     delta?.content?.takeIf { it.isNotEmpty() }?.let { emit(it) }
                     delta?.reasoningContent?.takeIf { it.isNotEmpty() }?.let { onReasoning?.invoke(it) }
-                } catch (e: Exception) {
-                    PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", e)
                 }
             }
         } finally {
@@ -843,4 +845,25 @@ class LlmClient(
     fun close() {
         httpClient.close()
     }
+}
+
+/**
+ * Only decoding failures are recoverable for an individual SSE payload.
+ * Exceptions raised by [consume] (for example a downstream Broken pipe) must propagate so a Flow
+ * stops immediately instead of attempting more emissions from a failed collector.
+ */
+internal suspend fun <T> consumeDecodedSsePayload(
+    data: String,
+    decode: (String) -> T,
+    onDecodeFailure: (Exception) -> Unit,
+    consume: suspend (T) -> Unit,
+): Boolean {
+    val decoded = try {
+        decode(data)
+    } catch (error: Exception) {
+        onDecodeFailure(error)
+        return false
+    }
+    consume(decoded)
+    return true
 }

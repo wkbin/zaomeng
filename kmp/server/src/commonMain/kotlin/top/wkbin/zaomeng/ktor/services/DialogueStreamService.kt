@@ -88,6 +88,17 @@ class DialogueStreamService(
             reasoningEffort = modelSettings["reasoning_effort"] as? String ?: "auto",
         )
 
+        // Apply the same speaker contract while streaming that is used for the final parse.
+        // Otherwise a model response for the user-controlled character is briefly rendered and
+        // then disappears when the committed transcript correctly filters it out.
+        val inputMap = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+        val participants = ((inputMap["participants"] as? List<*>) ?: emptyList<Any?>())
+            .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() } + listOf("旁白", "场景提示")
+        val forbidden = listOf(
+            inputMap["controlled_character"]?.toString()?.trim().orEmpty(),
+            inputMap["speaker"]?.toString()?.trim().orEmpty(),
+        )
+
         // 5. 创建流式解析器（密钥由 LlmClient 从活动模型配置与 Keystore 解析，无需在此获取）
         val parser = DialogueStreamParser(chunkSize = 24)
         val modelStartedAt = nowEpochMillis()
@@ -120,19 +131,12 @@ class DialogueStreamService(
                             "ttft_ms=${firstAt - modelStartedAt}, prompt_chars=$promptChars",
                     )
                 }
-                parser.feed(contentDelta).forEach { emit(it) }
+                filterDialogueStreamEvents(parser.feed(contentDelta), participants, forbidden).forEach { emit(it) }
             }
             val firstModelCompletedAt = nowEpochMillis()
 
             // 7. 流结束：从完整输出解析 responses 并提交 turn（对齐 Python generate_and_commit）
             val full = parser.fullContent()
-            val inputMap = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
-            val participants = ((inputMap["participants"] as? List<*>) ?: emptyList<Any?>())
-                .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() } + listOf("旁白", "场景提示")
-            val forbidden = listOf(
-                (inputMap["controlled_character"]?.toString()?.trim().orEmpty()),
-                (inputMap["speaker"]?.toString()?.trim().orEmpty()),
-            )
             // 解析失败重试一次（对齐 Python generate_dialogue_responses 的 0..1 重试循环：
             // retryOnEmpty 提示词 + maxTokens 翻倍到上限；第二次仍失败则抛错 → SSE error）
             var responses: List<DialogueResponse>
@@ -194,7 +198,11 @@ class DialogueStreamService(
                         },
                     ).collect { contentDelta ->
                         if (retryFirstContentAt == null) retryFirstContentAt = nowEpochMillis()
-                        retryParser.feed(contentDelta).forEach { emit(it) }
+                        filterDialogueStreamEvents(
+                            retryParser.feed(contentDelta),
+                            participants,
+                            forbidden,
+                        ).forEach { emit(it) }
                     }
                     val retryFull = retryParser.fullContent().trim()
                     PlatformLog.d(
@@ -232,3 +240,27 @@ class DialogueStreamService(
         }
     }
 }
+
+internal fun filterDialogueStreamEvents(
+    events: List<StreamEvent>,
+    allowedSpeakers: List<String>,
+    forbiddenSpeakers: List<String>,
+): List<StreamEvent> {
+    val allowedByNormalized = allowedSpeakers
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .associateBy(::normalizeDialogueSpeaker)
+    val forbidden = forbiddenSpeakers
+        .map(::normalizeDialogueSpeaker)
+        .filter(String::isNotEmpty)
+        .toSet()
+    return events.mapNotNull { event ->
+        val normalized = normalizeDialogueSpeaker(event.speaker)
+        if (normalized.isEmpty() || normalized in forbidden) return@mapNotNull null
+        val canonical = allowedByNormalized[normalized] ?: return@mapNotNull null
+        if (event.speaker == canonical) event else event.copy(speaker = canonical)
+    }
+}
+
+private fun normalizeDialogueSpeaker(value: String): String =
+    value.filterNot(Char::isWhitespace).lowercase()

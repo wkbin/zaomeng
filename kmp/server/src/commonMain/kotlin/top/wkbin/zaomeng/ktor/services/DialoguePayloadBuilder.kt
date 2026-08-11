@@ -882,6 +882,14 @@ class DialoguePayloadBuilder(
                 ),
             "mode_rule" to DialoguePromptRules.modeRule(mode, normalizedMessageKind, controlledCharacterName),
             "speaker_rule" to DialoguePromptRules.speakerRule(mode, session.toPayloadMap(), normalizedMessageKind),
+            "forbidden_speaker_rule" to (
+                if (mode == "act" && controlledCharacterName.isNotEmpty()) {
+                    "Never output a response object for $controlledCharacterName: this character is controlled by the user. " +
+                        "Only other currently active participants may reply."
+                } else {
+                    "Never output a response object for the input speaker or the user."
+                }
+                ),
             "response_style" to DialoguePromptRules.responseStyleRule(mode, normalizedMessageKind, controlledCharacterName),
             "scene_rule" to DialoguePromptRules.sceneRule(sceneCard),
             "progression_rule" to DialoguePromptRules.sceneProgressRule(sceneProgress),
