@@ -3,31 +3,18 @@
 // 本机（国内网络）保持阿里云优先以加速依赖下载。
 pluginManagement {
     repositories {
-        if (System.getenv("CI") == "true") {
-            google {
-                content {
-                    includeGroupByRegex("com\\.android.*")
-                    includeGroupByRegex("com\\.google.*")
-                    includeGroupByRegex("androidx.*")
-                }
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
             }
-            mavenCentral()
-            gradlePluginPortal()
         }
+        mavenCentral()
+        gradlePluginPortal()
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/gradle-plugin")
         maven("https://maven.aliyun.com/repository/central")
-        if (System.getenv("CI") != "true") {
-            google {
-                content {
-                    includeGroupByRegex("com\\.android.*")
-                    includeGroupByRegex("com\\.google.*")
-                    includeGroupByRegex("androidx.*")
-                }
-            }
-            mavenCentral()
-            gradlePluginPortal()
-        }
     }
 }
 plugins {
@@ -36,10 +23,8 @@ plugins {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        if (System.getenv("CI") == "true") {
-            google()
-            mavenCentral()
-        }
+        google()
+        mavenCentral()
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/central") {
             content {
@@ -48,14 +33,11 @@ dependencyResolutionManagement {
                 excludeGroupByRegex("io\\.github\\.yuroyami.*")
             }
         }
-        if (System.getenv("CI") != "true") {
-            google()
-            mavenCentral()
-        }
     }
 }
 
 rootProject.name = "Zaomeng"
+include(":core:contracts")
 include(":server")
 include(":plugins-api")
 include(":builtin-plugins")

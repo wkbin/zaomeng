@@ -6,6 +6,7 @@ import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
+import top.wkbin.zaomeng.domain.distill.EstimateDistillSamplingUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +46,7 @@ data class ImportBookUiState(
 class ImportBookViewModel(
     private val repository: ZaomengRepository,
     private val distillationForeground: DistillationForeground,
+    private val estimateDistillSampling: EstimateDistillSamplingUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ImportBookUiState())
     val state: StateFlow<ImportBookUiState> = mutableState.asStateFlow()
@@ -308,7 +310,7 @@ class ImportBookViewModel(
                 }
             }
             try {
-                val plan = repository.estimateSampling(
+                val plan = estimateDistillSampling(
                     charCount = current.charCount,
                     sentenceCount = current.sentenceCount,
                     characterCount = characterCount,

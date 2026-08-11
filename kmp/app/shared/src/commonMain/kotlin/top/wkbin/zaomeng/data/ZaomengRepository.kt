@@ -25,6 +25,7 @@ import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DialogueDirectorRequest
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
+import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
@@ -120,6 +121,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import top.wkbin.zaomeng.domain.chat.ChatSessionGateway
+import top.wkbin.zaomeng.domain.distill.DistillPlanningGateway
+import top.wkbin.zaomeng.domain.run.RunReviewGateway
 
 class ZaomengRepository(
     private val backend: BackendController,
@@ -139,7 +143,7 @@ class ZaomengRepository(
     private val ktorRelations: KtorRelationsClient,
     private val ktorRunOps: KtorRunOpsClient,
     private val ktorOriginalKnowledge: KtorOriginalKnowledgeClient,
-) {
+) : ChatSessionGateway, DistillPlanningGateway, RunReviewGateway {
     private val avatarCache = mutableMapOf<String, ByteArray>()
     val backendState: StateFlow<BackendState> = backend.state
     val preferences: Flow<AppPreferences> = appPreferences.preferences
@@ -316,7 +320,7 @@ class ZaomengRepository(
         }
     }
 
-    suspend fun estimateSampling(
+    override suspend fun estimateSampling(
         charCount: Int,
         sentenceCount: Int,
         characterCount: Int,
@@ -361,7 +365,7 @@ class ZaomengRepository(
         ktorRunManagement.get(runId)
     }
 
-    suspend fun getWorldMemory(runId: String): WorldMemoryDto = request {
+    override suspend fun getWorldMemory(runId: String): WorldMemoryDto = request {
         ktorWorldMemory.get(runId)
     }
 
@@ -427,10 +431,10 @@ class ZaomengRepository(
         return request { ktorRunOps.redistill(runId, payload) }
     }
 
-    suspend fun suggestRedistillSegments(
+    override suspend fun suggestRedistillSegments(
         runId: String,
         character: String,
-        maxSegments: Int = 3,
+        maxSegments: Int,
     ): RedistillSuggestionsDto = request {
         ktorRunOps.suggestRedistill(
             runId,
@@ -468,7 +472,7 @@ class ZaomengRepository(
         }
     }
 
-    suspend fun getPersonaAvatar(
+    override suspend fun getPersonaAvatar(
         runId: String,
         character: String,
         version: String,
@@ -563,7 +567,7 @@ class ZaomengRepository(
         ktorPersona.saveReview(runId, character, payload)
     }
 
-    suspend fun getPersonaQuality(runId: String, character: String): PersonaQualityReportDto = request {
+    override suspend fun getPersonaQuality(runId: String, character: String): PersonaQualityReportDto = request {
         ktorPersona.getQuality(runId, character)
     }
 
@@ -605,7 +609,7 @@ class ZaomengRepository(
         ktorPersona.suggestField(runId, character, field)
     }
 
-    suspend fun getRelations(runId: String): RelationDetailsDto = request {
+    override suspend fun getRelations(runId: String): RelationDetailsDto = request {
         ktorRelations.get(runId)
     }
 
@@ -660,7 +664,7 @@ class ZaomengRepository(
     }
 
     /** 全量读取会话列表（聊天页会话切换/章节归档等需要完整列表）；内部按分页接口循环取完。 */
-    suspend fun listSessions(runId: String? = null): List<DialogueSessionDto> = request {
+    override suspend fun listSessions(runId: String?): List<DialogueSessionDto> = request {
         val items = mutableListOf<DialogueSessionDto>()
         var offset = 0
         val pageSize = 200
@@ -728,21 +732,21 @@ class ZaomengRepository(
         session
     }
 
-    suspend fun getSession(
+    override suspend fun getSession(
         runId: String,
         sessionId: String,
-        includeTranscript: Boolean = true,
+        includeTranscript: Boolean,
     ): DialogueSessionDto = request {
         ktorSessions.get(runId, sessionId, includeTranscript = includeTranscript)
     }
 
     /** 会话消息分页：order=desc 时 offset 表示跳过最新 N 条，返回更早一页（新→旧）。 */
-    suspend fun listSessionMessages(
+    override suspend fun listSessionMessages(
         runId: String,
         sessionId: String,
-        offset: Int = 0,
-        limit: Int = 100,
-        order: String = "asc",
+        offset: Int,
+        limit: Int,
+        order: String,
     ): MessagesResponse = request {
         ktorSessions.listMessages(runId, sessionId, offset, limit, order)
     }
@@ -769,10 +773,10 @@ class ZaomengRepository(
         )
     }
 
-    suspend fun recoverSession(
+    override suspend fun recoverSession(
         runId: String,
         sessionId: String,
-        force: Boolean = false,
+        force: Boolean,
     ): DialogueSessionDto = request {
         ktorDialogue.recoverSession(runId, sessionId, force)
     }
@@ -1016,7 +1020,10 @@ class ZaomengRepository(
         ktorDialogue.deleteMemory(runId, sessionId, memoryId)
     }
 
-    suspend fun getDialogueMemoryQuality(runId: String, sessionId: String) = request {
+    override suspend fun getDialogueMemoryQuality(
+        runId: String,
+        sessionId: String,
+    ): MemoryQualityReportDto = request {
         ktorDialogue.getMemoryQuality(runId, sessionId)
     }
 

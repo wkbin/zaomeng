@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.rundetail
 
+import top.wkbin.zaomeng.domain.run.RunReviewOverview
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas

@@ -18,7 +18,7 @@ import top.wkbin.zaomeng.platform.NovelConversionForeground
 class KoinDiSmokeTest : KoinComponent {
     @Test
     fun `desktop koin graph resolves platform services and data layer`() {
-        startKoin { modules(sharedAppModule(DesktopAppPlatform())) }
+        startKoin { modules(sharedAppModules(DesktopAppPlatform())) }
 
         val distillation: DistillationForeground by inject()
         val conversion: NovelConversionForeground by inject()

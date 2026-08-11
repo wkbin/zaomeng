@@ -13,12 +13,12 @@ import okio.Sink
 import okio.buffer
 import okio.use
 import top.wkbin.zaomeng.data.api.RunManifestDto
+import top.wkbin.zaomeng.domain.run.LoadRunReviewUseCase
+import top.wkbin.zaomeng.domain.run.RunReviewOverview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +59,7 @@ class RunDetailViewModel(
     val runId: String,
     private val cacheDir: Path,
     private val distillationForeground: DistillationForeground,
+    private val loadRunReview: LoadRunReviewUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RunDetailUiState())
     val state: StateFlow<RunDetailUiState> = mutableState.asStateFlow()
@@ -422,34 +423,14 @@ class RunDetailViewModel(
         }
         reviewJob = viewModelScope.launch {
             mutableState.update { it.copy(reviewLoading = true, reviewOverview = null) }
-            val relations = async { fetchReviewData { repository.getRelations(runId) } }
-            val worldMemory = async { fetchReviewData { repository.getWorldMemory(runId) } }
-            val qualityReports = run.availableCharacters
-                .take(MAX_QUALITY_REPORTS)
-                .map { character ->
-                    async { fetchReviewData { repository.getPersonaQuality(runId, character) } }
-                }
-                .awaitAll()
-                .filterNotNull()
+            val overview = loadRunReview(run)
             mutableState.update {
                 it.copy(
                     reviewLoading = false,
-                    reviewOverview = buildRunReviewOverview(
-                        relations = relations.await(),
-                        worldMemory = worldMemory.await(),
-                        qualityReports = qualityReports,
-                    ),
+                    reviewOverview = overview,
                 )
             }
         }
-    }
-
-    private suspend fun <T> fetchReviewData(block: suspend () -> T): T? = try {
-        block()
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Throwable) {
-        null
     }
 
     private fun markDeleted() {
@@ -475,6 +456,5 @@ class RunDetailViewModel(
     private companion object {
         const val RUNNING_STATUS = "running"
         const val POLL_INTERVAL_MS = 2_000L
-        const val MAX_QUALITY_REPORTS = 12
     }
 }

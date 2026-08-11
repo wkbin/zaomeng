@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.RedistillSegmentDto
-import top.wkbin.zaomeng.data.api.RedistillSuggestionsDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
+import top.wkbin.zaomeng.domain.distill.CharacterRedistillSuggestions
+import top.wkbin.zaomeng.domain.distill.EstimateDistillSamplingUseCase
+import top.wkbin.zaomeng.domain.distill.SuggestRedistillSegmentsUseCase
 import top.wkbin.zaomeng.feature.importbook.ImportDocument
 import top.wkbin.zaomeng.feature.importbook.ImportDocumentKind
 import top.wkbin.zaomeng.feature.importbook.ImportDocumentLoader
@@ -15,8 +17,6 @@ import top.wkbin.zaomeng.feature.importbook.textStatistics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +38,7 @@ data class RedistillUiState(
     val readingFile: Boolean = false,
     val recommendationCharacters: Set<String> = emptySet(),
     val recommending: Boolean = false,
-    val suggestions: List<RedistillCharacterSuggestions> = emptyList(),
+    val suggestions: List<CharacterRedistillSuggestions> = emptyList(),
     val selectedSegmentKeys: Set<String> = emptySet(),
     val estimatingSampling: Boolean = false,
     val samplingPlan: SamplingPlanDto? = null,
@@ -55,11 +55,6 @@ data class RedistillUiState(
             }
         }
 }
-
-data class RedistillCharacterSuggestions(
-    val character: String,
-    val suggestions: RedistillSuggestionsDto,
-)
 
 data class RedistillSelectedSegment(
     val character: String,
@@ -85,6 +80,8 @@ class RedistillViewModel(
     private val repository: ZaomengRepository,
     val runId: String,
     private val distillationForeground: DistillationForeground,
+    private val estimateDistillSampling: EstimateDistillSamplingUseCase,
+    private val suggestRedistillSegments: SuggestRedistillSegmentsUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RedistillUiState())
     val state: StateFlow<RedistillUiState> = mutableState.asStateFlow()
@@ -279,14 +276,7 @@ class RedistillViewModel(
             }
             scheduleSamplingEstimate()
             try {
-                val suggestions = characters.map { character ->
-                    async {
-                        RedistillCharacterSuggestions(
-                            character = character,
-                            suggestions = repository.suggestRedistillSegments(runId, character),
-                        )
-                    }
-                }.awaitAll()
+                val suggestions = suggestRedistillSegments(runId, characters)
                 mutableState.update {
                     it.copy(recommending = false, suggestions = suggestions)
                 }
@@ -363,7 +353,7 @@ class RedistillViewModel(
                 }
             }
             try {
-                val plan = repository.estimateSampling(
+                val plan = estimateDistillSampling(
                     charCount = current.sourceCharCount,
                     sentenceCount = current.sourceSentenceCount,
                     characterCount = characterCount,

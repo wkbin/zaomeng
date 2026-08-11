@@ -381,7 +381,7 @@ class DistillExecutor(
         peerCharacters: List<String>,
     ): Pair<String, Map<String, Any?>> {
         val excerpt = payload.request["excerpt"]?.toString()?.trim().orEmpty()
-        if (shouldUseChunking(excerpt, DISTILL_CHUNK_TRIGGER_CHARS, DISTILL_CHUNK_TRIGGER_SENTENCES)) {
+        if (DistillChunkPlanner.shouldUse(excerpt, DISTILL_CHUNK_TRIGGER_CHARS, DISTILL_CHUNK_TRIGGER_SENTENCES)) {
             return generateChunkedProfileMarkdown(runId, payload, character, peerCharacters, fallbackReason = "")
         }
         return try {
@@ -404,7 +404,11 @@ class DistillExecutor(
         peerCharacters: List<String>,
         fallbackReason: String,
     ): Pair<String, Map<String, Any?>> {
-        val chunkEntries = buildDistillChunkPayloads(payload)
+        val chunkEntries = DistillChunkPlanner.buildCharacter(
+            payload,
+            DISTILL_CHUNK_MAX_CHARS,
+            DISTILL_CHUNK_MAX_SENTENCES,
+        )
         if (chunkEntries.size <= 1) {
             val content = validateFinalProfile(character, payload, callLlm(
                 DistillPromptBuilder.buildDistillMessages(payload, character, peerCharacters),
@@ -568,7 +572,7 @@ class DistillExecutor(
         characters: List<String>,
     ): Pair<String, Map<String, Any?>> {
         val excerpt = payload.request["excerpt"]?.toString()?.trim().orEmpty()
-        if (shouldUseChunking(excerpt, RELATION_CHUNK_TRIGGER_CHARS, RELATION_CHUNK_TRIGGER_SENTENCES)) {
+        if (DistillChunkPlanner.shouldUse(excerpt, RELATION_CHUNK_TRIGGER_CHARS, RELATION_CHUNK_TRIGGER_SENTENCES)) {
             return generateChunkedRelationMarkdown(runId, payload, characters, fallbackReason = "")
         }
         return try {
@@ -590,7 +594,11 @@ class DistillExecutor(
         characters: List<String>,
         fallbackReason: String,
     ): Pair<String, Map<String, Any?>> {
-        val chunkEntries = buildRelationChunkPayloads(payload)
+        val chunkEntries = DistillChunkPlanner.buildRelations(
+            payload,
+            RELATION_CHUNK_MAX_CHARS,
+            RELATION_CHUNK_MAX_SENTENCES,
+        )
         if (chunkEntries.size <= 1) {
             val content = callLlm(
                 DistillPromptBuilder.buildRelationMessages(payload, characters),
@@ -645,140 +653,12 @@ class DistillExecutor(
     // 分块（chunking.py）
     // ------------------------------------------------------------------
 
-    private fun shouldUseChunking(text: String, triggerChars: Int, triggerSentences: Int): Boolean {
-        val excerpt = text.trim()
-        if (excerpt.isEmpty()) return false
-        val sentenceCount = DistillExcerptBuilder.splitSentences(excerpt).size
-        return excerpt.length > triggerChars || sentenceCount > triggerSentences
-    }
-
-    private fun splitTextIntoChunks(text: String, maxChars: Int, maxSentences: Int): List<String> {
-        val clean = text.trim()
-        if (clean.isEmpty()) return emptyList()
-        var sentences = DistillExcerptBuilder.splitSentences(clean).map { it.trim() }.filter { it.isNotEmpty() }
-        if (sentences.isEmpty()) {
-            sentences = clean.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(clean) }
-        }
-        val chunks = mutableListOf<String>()
-        val current = mutableListOf<String>()
-        var currentChars = 0
-        for (sentence in sentences) {
-            val units = if (sentence.length > maxChars) sentence.chunked(maxChars) else listOf(sentence)
-            for (rawUnit in units) {
-                val unit = rawUnit.trim()
-                if (unit.isEmpty()) continue
-                val projected = currentChars + unit.length + if (current.isNotEmpty()) 1 else 0
-                if (current.isNotEmpty() && (current.size >= maxSentences || projected > maxChars)) {
-                    chunks.add(current.joinToString("\n").trim())
-                    current.clear()
-                    currentChars = 0
-                }
-                current.add(unit)
-                currentChars += unit.length + if (current.size > 1) 1 else 0
-            }
-        }
-        if (current.isNotEmpty()) chunks.add(current.joinToString("\n").trim())
-        return chunks.filter { it.isNotEmpty() }
-    }
-
-    private data class ChunkEntry(val label: String, val payload: DistillPayload)
-
-    private fun buildDistillChunkPayloads(payload: DistillPayload): List<ChunkEntry> {
-        val request = payload.request.toMutableMap()
-        val excerpt = request["excerpt"]?.toString()?.trim().orEmpty()
-        val stages = (request["excerpt_stages"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
-        val entries = mutableListOf<ChunkEntry>()
-        for ((stageKey, stageLabel) in listOf("start" to "前段", "mid" to "中段", "end" to "后段")) {
-            val stageText = stages[stageKey]?.toString()?.trim().orEmpty()
-            if (stageText.isEmpty()) continue
-            val chunks = splitTextIntoChunks(stageText, DISTILL_CHUNK_MAX_CHARS, DISTILL_CHUNK_MAX_SENTENCES)
-            chunks.forEachIndexed { index, chunkText ->
-                val chunkRequest = request.toMutableMap()
-                chunkRequest["excerpt"] = chunkText
-                chunkRequest["excerpt_stages"] = linkedMapOf("start" to "", "mid" to "", "end" to "").apply {
-                    put(stageKey, chunkText)
-                }
-                val focus = ((request["excerpt_focus"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.toMutableMap() ?: mutableMapOf())
-                focus["strategy"] = "chunked_character_windows"
-                chunkRequest["excerpt_focus"] = focus
-                val chunkMeta = payload.meta.toMutableMap()
-                chunkMeta["chunk_stage"] = stageKey
-                chunkMeta["chunk_index"] = index + 1
-                chunkMeta["chunk_total"] = chunks.size
-                entries.add(
-                    ChunkEntry(
-                        label = if (chunks.size > 1) "$stageLabel-${index + 1}" else stageLabel,
-                        payload = payload.copy(request = chunkRequest, meta = chunkMeta),
-                    ),
-                )
-            }
-        }
-        if (entries.isNotEmpty()) return entries
-        val excerptChunks = splitTextIntoChunks(excerpt, DISTILL_CHUNK_MAX_CHARS, DISTILL_CHUNK_MAX_SENTENCES)
-        return excerptChunks.mapIndexed { index, chunkText ->
-            val chunkRequest = request.toMutableMap()
-            chunkRequest["excerpt"] = chunkText
-            chunkRequest["excerpt_stages"] = linkedMapOf("start" to "", "mid" to "", "end" to "")
-            val chunkMeta = payload.meta.toMutableMap()
-            chunkMeta["chunk_index"] = index + 1
-            chunkMeta["chunk_total"] = excerptChunks.size
-            ChunkEntry(
-                label = "证据块-${index + 1}",
-                payload = payload.copy(request = chunkRequest, meta = chunkMeta),
-            )
-        }
-    }
-
-    private fun buildRelationChunkPayloads(payload: DistillPayload): List<ChunkEntry> {
-        val request = payload.request.toMutableMap()
-        val excerpt = request["excerpt"]?.toString()?.trim().orEmpty()
-        val stages = (request["excerpt_stages"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
-        val entries = mutableListOf<ChunkEntry>()
-        for ((stageKey, stageLabel) in listOf("start" to "前段", "mid" to "中段", "end" to "后段")) {
-            val stageText = stages[stageKey]?.toString()?.trim().orEmpty()
-            if (stageText.isEmpty()) continue
-            val chunks = splitTextIntoChunks(stageText, RELATION_CHUNK_MAX_CHARS, RELATION_CHUNK_MAX_SENTENCES)
-            chunks.forEachIndexed { index, chunkText ->
-                val chunkRequest = request.toMutableMap()
-                chunkRequest["excerpt"] = chunkText
-                chunkRequest["excerpt_stages"] = linkedMapOf("start" to "", "mid" to "", "end" to "").apply {
-                    put(stageKey, chunkText)
-                }
-                val focus = ((request["excerpt_focus"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.toMutableMap() ?: mutableMapOf())
-                focus["strategy"] = "chunked_relation_windows"
-                chunkRequest["excerpt_focus"] = focus
-                val chunkMeta = payload.meta.toMutableMap()
-                chunkMeta["chunk_stage"] = stageKey
-                chunkMeta["chunk_index"] = index + 1
-                chunkMeta["chunk_total"] = chunks.size
-                entries.add(
-                    ChunkEntry(
-                        label = if (chunks.size > 1) "$stageLabel-${index + 1}" else stageLabel,
-                        payload = payload.copy(request = chunkRequest, meta = chunkMeta),
-                    ),
-                )
-            }
-        }
-        if (entries.isNotEmpty()) return entries
-        val excerptChunks = splitTextIntoChunks(excerpt, RELATION_CHUNK_MAX_CHARS, RELATION_CHUNK_MAX_SENTENCES)
-        return excerptChunks.mapIndexed { index, chunkText ->
-            val chunkRequest = request.toMutableMap()
-            chunkRequest["excerpt"] = chunkText
-            chunkRequest["excerpt_stages"] = linkedMapOf("start" to "", "mid" to "", "end" to "")
-            val chunkMeta = payload.meta.toMutableMap()
-            chunkMeta["chunk_index"] = index + 1
-            chunkMeta["chunk_total"] = excerptChunks.size
-            ChunkEntry(
-                label = "关系块-${index + 1}",
-                payload = payload.copy(request = chunkRequest, meta = chunkMeta),
-            )
-        }
-    }
+    // Chunk planning is pure and tested independently in DistillChunkPlanner.
 
     private suspend fun runChunkDrafts(
-        entries: List<ChunkEntry>,
+        entries: List<DistillChunkEntry>,
         workers: Int,
-        runOne: suspend (ChunkEntry, Int) -> String,
+        runOne: suspend (DistillChunkEntry, Int) -> String,
     ): List<Pair<String, String>> {
         if (entries.isEmpty()) return emptyList()
         if (workers <= 1) {

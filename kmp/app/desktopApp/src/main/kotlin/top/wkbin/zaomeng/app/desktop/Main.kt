@@ -30,7 +30,7 @@ import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.data.update.ReleaseUpdateChecker
 import top.wkbin.zaomeng.di.DesktopAppPlatform
-import top.wkbin.zaomeng.di.sharedAppModule
+import top.wkbin.zaomeng.di.sharedAppModules
 import top.wkbin.zaomeng.feature.update.AppUpdateDialog
 import top.wkbin.zaomeng.platform.createHttpClientEngine
 import top.wkbin.zaomeng.platform.rememberOpenExternalUrl
@@ -42,7 +42,7 @@ import java.util.prefs.Preferences
 fun main() {
     FileKit.init(appId = "top.wkbin.zaomeng")
     application {
-        startKoin { modules(sharedAppModule(DesktopAppPlatform())) }
+        startKoin { modules(sharedAppModules(DesktopAppPlatform())) }
         // 窗口创建前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
         val initialPreferences = runBlocking {
             GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()

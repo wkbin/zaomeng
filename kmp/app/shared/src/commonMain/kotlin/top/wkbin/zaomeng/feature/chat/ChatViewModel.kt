@@ -14,6 +14,7 @@ import top.wkbin.zaomeng.data.api.ReusableCardDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ChatDisplayPreferences
+import top.wkbin.zaomeng.domain.chat.LoadChatSessionUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -192,6 +193,7 @@ data class ChatUiState(
 class ChatViewModel(
     private val repository: ZaomengRepository,
     preferencesRepository: AppPreferencesRepository,
+    private val loadChatSession: LoadChatSessionUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = mutableState.asStateFlow()
@@ -285,53 +287,23 @@ class ChatViewModel(
         }
         loadJob = viewModelScope.launch {
             try {
-                val runSessions = runCatching { repository.listSessions(normalizedRunId) }
-                    .getOrDefault(emptyList())
-                val loadedSession = repository.getSession(
-                    normalizedRunId,
-                    normalizedSessionId,
-                    includeTranscript = false,
+                val loaded = loadChatSession(
+                    runId = normalizedRunId,
+                    sessionId = normalizedSessionId,
+                    transcriptPageSize = INITIAL_TRANSCRIPT_PAGE,
                 )
-                val session = if (loadedSession.status == "ready") {
-                    // 轻量响应：从消息分页接口取最新一页作为本地 transcript 起点
-                    if (loadedSession.transcript.isEmpty() && loadedSession.transcriptCount > 0) {
-                        val tail = repository.listSessionMessages(
-                            normalizedRunId,
-                            normalizedSessionId,
-                            offset = 0,
-                            limit = INITIAL_TRANSCRIPT_PAGE,
-                            order = "desc",
-                        )
-                        loadedSession.copy(
-                            transcript = tail.items.asReversed(),
-                            transcriptCount = tail.total,
-                        )
-                    } else {
-                        loadedSession
-                    }
-                } else {
-                    val recovered = repository.recoverSession(
-                        normalizedRunId,
-                        normalizedSessionId,
-                        force = true,
-                    )
-                    recovered
-                }
-                val avatars = loadAvatars(normalizedRunId, session)
+                val session = loaded.session
                 val plugins = loadChatPlugins()
-                val memoryQuality = runCatching {
-                    repository.getDialogueMemoryQuality(normalizedRunId, normalizedSessionId)
-                }.getOrDefault(MemoryQualityReportDto())
                 updateLoadState(requestId, normalizedRunId, normalizedSessionId) {
                     it.copy(
                         loading = false,
                         refreshing = false,
                         session = session,
-                        runSessions = runSessions,
-                        avatarBytes = avatars,
+                        runSessions = loaded.runSessions,
+                        avatarBytes = loaded.avatarBytes,
                         pluginActions = plugins.actions,
                         generationEnhancers = plugins.enhancers,
-                        memoryQuality = memoryQuality,
+                        memoryQuality = loaded.memoryQuality,
                         includeInnerThoughts = plugins.enhancers.any { enhancer ->
                             enhancer.stateKey == INNER_THOUGHTS_ENHANCER_KEY &&
                                 enhancer.isActive(session)
@@ -404,13 +376,6 @@ class ChatViewModel(
                 }
             }
         }
-    }
-
-    private suspend fun loadAvatars(runId: String, session: DialogueSessionDto): Map<String, ByteArray> {
-        return session.characterAvatars.mapNotNull { (character, version) ->
-            runCatching { repository.getPersonaAvatar(runId, character, version) }
-                .getOrNull()?.let { character to it }
-        }.toMap()
     }
 
     private suspend fun loadChatPlugins(): LoadedChatPlugins {
