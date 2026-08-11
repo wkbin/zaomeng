@@ -150,7 +150,7 @@ fun RunDetailScreen(
     }
     val fileExporter = rememberFileExporter(
         onSave = { sink -> viewModel.saveExportedPackage(sink) },
-        onCancelled = { viewModel.retryExportDestination() },
+        onCancelled = { viewModel.cancelExportDestination() },
     )
     fun startOriginalRedistill() {
         resumeAfterPermission = false
@@ -171,10 +171,11 @@ fun RunDetailScreen(
         }
     }
 
-    LaunchedEffect(state.exportRequestId) {
-        state.exportedPackage?.let { exported ->
-            fileExporter(exported.filename, "application/zip")
-        }
+    LaunchedEffect(state.exportRequestId, state.exportDestinationPending) {
+        val exported = state.exportedPackage ?: return@LaunchedEffect
+        if (!state.exportDestinationPending) return@LaunchedEffect
+        viewModel.consumeExportDestinationRequest(state.exportRequestId)
+        fileExporter(exported.filename, "application/zip")
     }
 
     LaunchedEffect(state.deleted) {

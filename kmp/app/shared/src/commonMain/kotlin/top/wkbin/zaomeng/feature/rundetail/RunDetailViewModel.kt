@@ -42,6 +42,7 @@ data class RunDetailUiState(
     val message: String = "",
     val exportedPackage: ExportedRunPackage? = null,
     val exportRequestId: Long = 0,
+    val exportDestinationPending: Boolean = false,
     val avatarBytes: Map<String, ByteArray> = emptyMap(),
     val updatingAvatar: String = "",
     val reviewLoading: Boolean = false,
@@ -191,7 +192,13 @@ class RunDetailViewModel(
         viewModelScope.launch {
             val staleExport = state.value.exportedPackage
             mutableState.update {
-                it.copy(exporting = true, exportedPackage = null, error = "", message = "")
+                it.copy(
+                    exporting = true,
+                    exportedPackage = null,
+                    exportDestinationPending = false,
+                    error = "",
+                    message = "",
+                )
             }
             withContext(platformIoDispatcher) { staleExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
             var pendingExport: ExportedRunPackage? = null
@@ -207,6 +214,7 @@ class RunDetailViewModel(
                         exporting = false,
                         exportedPackage = exported,
                         exportRequestId = it.exportRequestId + 1,
+                        exportDestinationPending = true,
                         message = "书卷包已经准备好，请选择保存位置。",
                     )
                 }
@@ -225,33 +233,62 @@ class RunDetailViewModel(
 
     fun consumeExportedPackage() {
         val exported = state.value.exportedPackage
-        mutableState.update { it.copy(exportedPackage = null, message = "") }
+        mutableState.update {
+            it.copy(
+                exportedPackage = null,
+                exportDestinationPending = false,
+                message = "",
+            )
+        }
         exported?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } }
     }
 
-    fun saveExportedPackage(destination: Sink) {
+    fun consumeExportDestinationRequest(requestId: Long) {
+        mutableState.update {
+            if (it.exportRequestId == requestId) {
+                it.copy(exportDestinationPending = false)
+            } else {
+                it
+            }
+        }
+    }
+
+    fun cancelExportDestination() {
+        if (state.value.exportedPackage == null) return
+        mutableState.update {
+            it.copy(
+                exportDestinationPending = false,
+                error = "已取消选择保存位置。",
+                message = "",
+            )
+        }
+    }
+
+    suspend fun saveExportedPackage(destination: Sink) {
         val exported = state.value.exportedPackage ?: return
-        viewModelScope.launch {
-            try {
-                withContext(platformIoDispatcher) {
-                    FileSystem.SYSTEM.source(exported.file).buffer().use { source ->
-                        destination.buffer().use { sink -> sink.writeAll(source) }
-                    }
+        try {
+            withContext(platformIoDispatcher) {
+                FileSystem.SYSTEM.source(exported.file).buffer().use { source ->
+                    destination.buffer().use { sink -> sink.writeAll(source) }
                 }
-                withContext(platformIoDispatcher) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
-                mutableState.update {
-                    it.copy(
-                        exportedPackage = null,
-                        error = "",
-                        message = "书卷已导出（不含聊天记录）。",
-                    )
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(error = error.message ?: "导出文件写入失败。")
-                }
+            }
+            withContext(platformIoDispatcher) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
+            mutableState.update {
+                it.copy(
+                    exportedPackage = null,
+                    exportDestinationPending = false,
+                    error = "",
+                    message = "书卷已导出（不含聊天记录）。",
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            mutableState.update {
+                it.copy(
+                    exportDestinationPending = false,
+                    error = error.message ?: "导出文件写入失败。",
+                )
             }
         }
     }
@@ -263,6 +300,7 @@ class RunDetailViewModel(
                 error = "",
                 message = "请重新选择保存位置。",
                 exportRequestId = it.exportRequestId + 1,
+                exportDestinationPending = true,
             )
         }
     }
