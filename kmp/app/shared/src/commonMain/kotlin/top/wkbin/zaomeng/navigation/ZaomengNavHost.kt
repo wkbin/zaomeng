@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.scaleIn
@@ -96,6 +97,7 @@ fun ZaomengNavHost(
     builtInBackHandlingEnabled: Boolean = true,
 ) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
+    val runDetailRefreshEpoch = remember { mutableStateOf(0) }
 
     val pendingLaunchRunId = remember(launchChaptersRunId) {
         launchChaptersRunId?.takeIf { it.isNotBlank() }
@@ -253,6 +255,7 @@ fun ZaomengNavHost(
                     koinViewModel(parameters = { parametersOf(destination.runId) })
                 RunDetailScreen(
                     viewModel = viewModel,
+                    refreshEpoch = runDetailRefreshEpoch.value,
                     onBack = popBack,
                     onOpenPersona = { runId, character ->
                         backStack.add(PersonaDestination(runId, character))
@@ -359,6 +362,10 @@ fun ZaomengNavHost(
                     runId = destination.runId,
                     character = destination.character,
                     onBack = popBack,
+                    onDeleted = {
+                        backStack.removeLastOrNull()
+                        runDetailRefreshEpoch.value += 1
+                    },
                 )
             }
         }

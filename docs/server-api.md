@@ -498,6 +498,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 |---|---|---|---|
 | GET | `` | 无 | `200 PersonaReview` |
 | PUT | `` | 任意字符串字段的 JSON 对象 | `200 PersonaReview` |
+| DELETE | `` | 无 | `200 {"status":"deleted"}`；同时清理头像、关系条目与 manifest 索引 |
 | GET | `/quality-report` | 无 | `200 PersonaQualityReport` |
 | GET | `/repair-proposal` | 无 | `200 PersonaRepairProposal` |
 | POST | `/suggest-field` | 见下 | `200` 字段建议 |

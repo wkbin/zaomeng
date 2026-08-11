@@ -1,6 +1,7 @@
 package top.wkbin.zaomeng.data.api
 
 import io.ktor.client.call.body
+import io.ktor.client.request.delete
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
@@ -34,6 +35,10 @@ class KtorPersonaClient(
 
     suspend fun getRepairProposal(runId: String, character: String): PersonaRepairProposalDto = request { endpoint ->
         http.client.get("${url(endpoint, runId, character)}/repair-proposal")
+    }.body()
+
+    suspend fun delete(runId: String, character: String): DeleteStatusDto = request { endpoint ->
+        http.client.delete(url(endpoint, runId, character))
     }.body()
 
     suspend fun uploadAvatar(runId: String, character: String, bytes: ByteArray): PersonaAvatarDto = request { endpoint ->

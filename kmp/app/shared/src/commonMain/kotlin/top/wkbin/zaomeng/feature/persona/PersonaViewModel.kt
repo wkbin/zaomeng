@@ -58,14 +58,16 @@ data class PersonaUiState(
     val fieldFeedback: Map<String, PersonaFieldFeedback> = emptyMap(),
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
+    val isDeleting: Boolean = false,
     val suggestingField: String? = null,
     val hasLoaded: Boolean = false,
     val hasUnsavedChanges: Boolean = false,
+    val deleted: Boolean = false,
     val loadError: String = "",
     val notice: PersonaNotice? = null,
 ) {
     val isBusy: Boolean
-        get() = isLoading || isSaving || suggestingField != null
+        get() = isLoading || isSaving || isDeleting || suggestingField != null
 
     fun issueFor(field: String): PersonaIssueDto? = quality?.issues
         ?.firstOrNull { field in it.fields }
@@ -210,6 +212,31 @@ class PersonaViewModel(
                     current.copy(
                         isSaving = false,
                         notice = notice(readableError(error, "人物资料保存失败，请稍后重试。")),
+                    )
+                }
+            }
+        }
+    }
+
+    fun delete() {
+        val snapshot = _uiState.value
+        if (!snapshot.hasLoaded || snapshot.isDeleting || snapshot.isSaving || snapshot.suggestingField != null) return
+        val runId = snapshot.runId
+        val character = snapshot.character
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDeleting = true) }
+            try {
+                repository.deletePersona(runId, character)
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(isDeleting = false, deleted = true)
+                }
+            } catch (error: Throwable) {
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(
+                        isDeleting = false,
+                        notice = notice(readableError(error, "人物删除失败，请稍后重试。")),
                     )
                 }
             }

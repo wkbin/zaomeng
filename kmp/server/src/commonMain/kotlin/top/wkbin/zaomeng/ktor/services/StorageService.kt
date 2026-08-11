@@ -148,6 +148,11 @@ class StorageService(
         }
     }
 
+    /** 删除某个角色的 Room 实体行，供人物删除流程在删除档案目录后同步清理。 */
+    fun deletePersonaEntities(runId: String, novelId: String, names: Collection<String>) {
+        domain?.deletePersonas(runId, novelId, names)
+    }
+
     fun listFiles(path: Path): List<Path> = store.listFiles(path)
 
     fun lastModifiedMillis(path: Path): Long = store.updatedAtMillis(path) ?: 0L

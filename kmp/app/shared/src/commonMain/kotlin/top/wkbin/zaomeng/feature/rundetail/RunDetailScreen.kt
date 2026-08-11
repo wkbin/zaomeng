@@ -114,6 +114,7 @@ private const val AVATAR_ZOOM_WHEEL_STEP = 1.1f
 @Composable
 fun RunDetailScreen(
     viewModel: RunDetailViewModel,
+    refreshEpoch: Int = 0,
     onBack: () -> Unit,
     onOpenPersona: (runId: String, character: String) -> Unit,
     onOpenSessions: (runId: String) -> Unit,
@@ -180,6 +181,10 @@ fun RunDetailScreen(
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onDeleted()
+    }
+
+    LaunchedEffect(refreshEpoch) {
+        if (refreshEpoch > 0) viewModel.refresh()
     }
 
     if (confirmStop) {

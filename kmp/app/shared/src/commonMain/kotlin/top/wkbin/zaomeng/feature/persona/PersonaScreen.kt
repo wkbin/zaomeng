@@ -17,11 +17,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +70,7 @@ fun PersonaScreen(
     runId: String,
     character: String,
     onBack: () -> Unit,
+    onDeleted: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PersonaViewModel = koinViewModel(),
 ) {
@@ -82,10 +85,14 @@ fun PersonaScreen(
         snackbarHostState.showSnackbar(notice.message)
         viewModel.dismissNotice(notice.id)
     }
+    LaunchedEffect(state.deleted) {
+        if (state.deleted) onDeleted()
+    }
 
     PersonaContent(
         state = state,
         onBack = onBack,
+        onDelete = viewModel::delete,
         onRetry = { viewModel.load(runId, character) },
         onFieldChange = viewModel::updateField,
         onReviewNoteChange = viewModel::updateReviewNote,
@@ -103,6 +110,7 @@ fun PersonaScreen(
 fun PersonaContent(
     state: PersonaUiState,
     onBack: () -> Unit,
+    onDelete: () -> Unit,
     onRetry: () -> Unit,
     onFieldChange: (String, String) -> Unit,
     onReviewNoteChange: (String) -> Unit,
@@ -118,6 +126,7 @@ fun PersonaContent(
             PERSONA_FIELD_GROUPS.forEach { group -> put(group.key, false) }
         }
     }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -149,6 +158,12 @@ fun PersonaContent(
                 actions = {
                     IconButton(onClick = onRetry, enabled = !state.isBusy) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "重新载入")
+                    }
+                    IconButton(
+                        onClick = { confirmDelete = true },
+                        enabled = state.hasLoaded && !state.isBusy,
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = "删除人物")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -195,6 +210,29 @@ fun PersonaContent(
                     .padding(innerPadding),
             )
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { if (!state.isDeleting) confirmDelete = false },
+            title = { Text("删除人物“${state.character}”？") },
+            text = { Text("人物档案、头像和相关关系条目会永久删除；已有聊天记录会保留。此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                    enabled = !state.isDeleting,
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }, enabled = !state.isDeleting) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

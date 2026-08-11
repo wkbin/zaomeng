@@ -119,6 +119,13 @@ class DomainStore(
         return runBlockingPlatform { dao.cardsOf(kind) }
     }
 
+    /** 删除单个角色的 Room 实体行；档案目录删除由调用方负责。 */
+    fun deletePersonas(runId: String, novelId: String, names: Collection<String>) {
+        val distinct = names.filter(String::isNotBlank).distinct()
+        if (distinct.isEmpty()) return
+        runBlockingPlatform { dao.deletePersonas(runId, novelId, distinct) }
+    }
+
     // ------------------------------------------------------------ 内部实现
 
     private fun upsertRun(key: String, text: String, updatedAtMillis: Long) {

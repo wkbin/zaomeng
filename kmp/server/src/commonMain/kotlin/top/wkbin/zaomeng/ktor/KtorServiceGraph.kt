@@ -34,8 +34,8 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val chapterManagement = ChapterManagementService(storage, sessionManagement, llm, promptLoader)
     val cards = CardsService(storage, llm, promptLoader)
     val cardsManagement = CardsManagementService(storage)
-    val persona = PersonaService(storage, llm, promptLoader)
     val relations = RelationsService(storage)
+    val persona = PersonaService(storage, llm, promptLoader, relations)
     val runOperations = RunOperationsService(
         storage,
         runManagement,

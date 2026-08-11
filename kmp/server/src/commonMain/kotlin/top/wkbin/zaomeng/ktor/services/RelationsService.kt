@@ -124,6 +124,34 @@ class RelationsService(private val storage: StorageService) {
         return updatedPayload
     }
 
+    /** 从关系文件中移除包含指定人物的关系对，返回新的关系图元数据；无关系文件或无匹配时返回 null。 */
+    fun removeCharacter(runId: String, character: String): JsonObject? {
+        val manifest = storage.readRunManifest(runId) ?: return null
+        val file = resolveRelationsFile(runId, manifest) ?: return null
+        val payload = loadPayload(file) ?: return null
+        val relations = (payload["relations"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
+        val removed = relations.keys.filter { character in splitPair(it) }
+        if (removed.isEmpty()) return null
+        removed.forEach(relations::remove)
+        val conflicts = detectConflicts(relations)
+        writePayload(
+            file,
+            buildJsonObject {
+                put("novel_id", manifest["novel_id"]?.jsonPrimitive?.contentOrNull
+                    ?.takeIf(String::isNotBlank) ?: runId)
+                put("relations", buildJsonObject {
+                    relations.entries.sortedBy { it.key }.forEach { (key, value) -> put(key, value) }
+                })
+                put("conflicts", conflicts)
+            },
+        )
+        return buildJsonObject {
+            put("relations_file", file.toString())
+            put("relation_count", relations.size)
+            put("has_relation_graph", relations.isNotEmpty())
+        }
+    }
+
     // ------------------------------------------------------------------
     // 内部辅助
     // ------------------------------------------------------------------

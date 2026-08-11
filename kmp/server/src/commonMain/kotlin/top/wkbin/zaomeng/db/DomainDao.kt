@@ -83,4 +83,7 @@ interface DomainDao {
 
     @Query("DELETE FROM personas WHERE runId = :runId")
     suspend fun deletePersonasOf(runId: String)
+
+    @Query("DELETE FROM personas WHERE runId = :runId AND novelId = :novelId AND name IN (:names)")
+    suspend fun deletePersonas(runId: String, novelId: String, names: List<String>)
 }

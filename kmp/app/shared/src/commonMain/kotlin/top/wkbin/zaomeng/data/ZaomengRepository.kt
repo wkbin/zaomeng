@@ -579,6 +579,12 @@ class ZaomengRepository(
         ktorPersona.getRepairProposal(runId, character)
     }
 
+    suspend fun deletePersona(runId: String, character: String): DeleteStatusDto = request {
+        ktorPersona.delete(runId, character).also {
+            avatarCache.keys.removeAll { key -> key.startsWith("$runId|$character|") }
+        }
+    }
+
     suspend fun searchOriginalKnowledge(
         runId: String,
         query: String,

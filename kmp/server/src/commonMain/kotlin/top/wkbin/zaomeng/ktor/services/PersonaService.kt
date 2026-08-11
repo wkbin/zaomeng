@@ -7,10 +7,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.PersonaAvatarDto
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
@@ -20,12 +22,14 @@ import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.dumpYaml
+import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.parseYaml
 
 class PersonaService(
     private val storage: StorageService,
     private val llm: LlmClient? = null,
     private val prompts: PromptLoader? = null,
+    private val relations: RelationsService,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
 
@@ -40,6 +44,182 @@ class PersonaService(
             generatedProfilePath = (directory / "PROFILE.generated.md").takeIf { storage.exists(it) }?.toString().orEmpty(),
             fields = REVIEW_FIELDS.associateWith { readField(profile, it) },
         )
+    }
+
+    fun deletePersona(runId: String, character: String): DeleteStatusDto {
+        val normalized = character.trim()
+        if (normalized.isBlank() || normalized.contains('/') || normalized.contains('\\') || normalized.contains("..")) {
+            throw IllegalArgumentException("Invalid character name")
+        }
+        val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
+        if (manifest["status"]?.jsonPrimitive?.contentOrNull == "running") {
+            throw IllegalArgumentException("蒸馏进行中，请先停止蒸馏再删除人物。")
+        }
+        val source = resolveProfile(runId, normalized)
+        val profileDir = requireNotNull(source.parent)
+        val profileNames = linkedSetOf(normalized)
+        loadProfile(source)["name"]?.toString()?.trim()?.takeIf(String::isNotBlank)?.let(profileNames::add)
+        val novelId = manifest["novel_id"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf(String::isNotBlank) ?: runId
+        val entityNovelId = profileDir.parent?.name?.takeIf(String::isNotBlank) ?: novelId
+        val runDir = storage.getRunDirectory(runId)
+        val avatar = storage.avatarFile(runId, normalized)
+        if (storage.isFile(avatar)) storage.deleteFile(avatar)
+        val payload = runDir / "payloads/distill_${PathSafety.sanitizePathComponent(normalized, "character")}.json"
+        if (storage.isFile(payload)) storage.deleteFile(payload)
+        storage.deleteRecursively(profileDir)
+        storage.deletePersonaEntities(runId, entityNovelId, profileNames)
+        val relationGraph = relations.removeCharacter(runId, normalized)
+        storage.writeRunManifest(runId, removeCharacterFromManifest(manifest, normalized, relationGraph))
+        return DeleteStatusDto(status = "deleted")
+    }
+
+    private fun removeCharacterFromManifest(
+        manifest: JsonObject,
+        character: String,
+        relationGraph: JsonObject?,
+    ): JsonObject {
+        val artifactIndex = manifest["artifact_index"]?.jsonObject ?: JsonObject(emptyMap())
+        val oldCharacters = artifactIndex["characters"]?.jsonArray ?: JsonArray(emptyList())
+        val keptCharacters = buildJsonArray {
+            oldCharacters.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                .filter { it["name"]?.jsonPrimitive?.contentOrNull != character }
+                .forEach(::add)
+        }
+        val updatedIndex = buildJsonObject {
+            artifactIndex.forEach { (key, value) -> if (key != "characters") put(key, value) }
+            put("characters", keptCharacters)
+            relationGraph?.let { graph ->
+                val oldGraph = artifactIndex["relation_graph"]?.jsonObject
+                put("relation_graph", buildJsonObject {
+                    oldGraph?.forEach { (key, value) ->
+                        if (key !in setOf("relation_count", "has_relation_graph")) put(key, value)
+                    }
+                    graph.forEach { (key, value) -> put(key, value) }
+                })
+            }
+        }
+
+        val locked = manifest["locked_characters"]?.jsonArray ?: JsonArray(emptyList())
+        val keptLocked = buildJsonArray {
+            locked.mapNotNull { it.jsonPrimitive.contentOrNull }
+                .filter { it != character }
+                .forEach { add(JsonPrimitive(it)) }
+        }
+        val wasLocked = locked.isNotEmpty() && keptLocked.size != locked.size
+
+        val progress = manifest["progress"]?.jsonObject ?: JsonObject(emptyMap())
+        val completed = progress["completed_characters"]?.jsonArray ?: JsonArray(emptyList())
+        val keptCompleted = buildJsonArray {
+            completed.mapNotNull { it.jsonPrimitive.contentOrNull }
+                .filter { it != character }
+                .forEach { add(JsonPrimitive(it)) }
+        }
+        val wasCompleted = completed.isNotEmpty() && keptCompleted.size != completed.size
+        val oldTotal = progress["total_characters"]?.jsonPrimitive?.intOrNull
+        val oldCompletedCount = progress["completed_count"]?.jsonPrimitive?.intOrNull
+        val updatedProgress = buildJsonObject {
+            progress.forEach { (key, value) ->
+                when (key) {
+                    "completed_characters" -> put(key, keptCompleted)
+                    "completed_count" -> put(
+                        key,
+                        JsonPrimitive(if (wasCompleted) keptCompleted.size else oldCompletedCount ?: keptCompleted.size),
+                    )
+                    "total_characters" -> oldTotal?.let { total ->
+                        put(key, JsonPrimitive(if (wasLocked) maxOf(0, total - 1) else total))
+                    }
+                    "current_character" -> if (value.jsonPrimitive.contentOrNull == character) {
+                        put(key, JsonPrimitive(""))
+                    } else {
+                        put(key, value)
+                    }
+                    else -> put(key, value)
+                }
+            }
+            if (oldTotal == null) put("total_characters", JsonPrimitive(keptCompleted.size))
+            if (oldCompletedCount == null) put("completed_count", JsonPrimitive(keptCompleted.size))
+        }
+
+        val summary = manifest["summary"]?.jsonObject ?: JsonObject(emptyMap())
+        val updatedSummary = buildJsonObject {
+            summary.forEach { (key, value) ->
+                when (key) {
+                    "characters_total" -> {
+                        val total = value.jsonPrimitive.intOrNull
+                        if (total != null) {
+                            put(key, JsonPrimitive(if (wasLocked) maxOf(0, total - 1) else total))
+                        } else {
+                            put(key, value)
+                        }
+                    }
+                    "characters_completed" -> {
+                        val completedCount = value.jsonPrimitive.intOrNull
+                        if (completedCount != null) {
+                            put(key, JsonPrimitive(if (wasCompleted) keptCompleted.size else completedCount))
+                        } else {
+                            put(key, value)
+                        }
+                    }
+                    else -> put(key, value)
+                }
+            }
+        }
+
+        val quality = manifest["quality"]?.jsonObject
+        val updatedQuality = quality?.let { oldQuality ->
+            buildJsonObject {
+                oldQuality.forEach { (key, value) ->
+                    when (key) {
+                        "matched_characters", "missing_characters" -> put(
+                            key,
+                            buildJsonArray {
+                                value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+                                    .filter { it != character }
+                                    .forEach { add(JsonPrimitive(it)) }
+                            },
+                        )
+                        "character_focus", "distill_chunk_by_character" -> put(
+                            key,
+                            buildJsonObject {
+                                value.jsonObject.forEach { (name, item) ->
+                                    if (name != character) put(name, item)
+                                }
+                            },
+                        )
+                        "profile_repairs" -> {
+                            val repairs = value.jsonObject
+                            val repaired = repairs["characters"]?.jsonArray
+                                ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                                ?.filter { it != character }
+                                .orEmpty()
+                            put(key, buildJsonObject {
+                                repairs.forEach { (name, item) ->
+                                    if (name !in setOf("characters", "count")) put(name, item)
+                                }
+                                put("characters", buildJsonArray { repaired.forEach { add(JsonPrimitive(it)) } })
+                                put("count", JsonPrimitive(repaired.size))
+                            })
+                        }
+                        else -> put(key, value)
+                    }
+                }
+            }
+        }
+
+        return buildJsonObject {
+            manifest.forEach { (key, value) ->
+                when (key) {
+                    "artifact_index" -> put(key, updatedIndex)
+                    "locked_characters" -> put(key, keptLocked)
+                    "progress" -> put(key, updatedProgress)
+                    "summary" -> put(key, updatedSummary)
+                    "quality" -> put(key, updatedQuality ?: value)
+                    "updated_at" -> put(key, JsonPrimitive(nowIsoString()))
+                    else -> put(key, value)
+                }
+            }
+        }
     }
 
     fun saveReview(runId: String, character: String, fields: Map<String, String>): PersonaReviewDto {

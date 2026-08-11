@@ -26,6 +26,9 @@ fun Route.personaRoutes(service: PersonaService) {
                 call.respond(service.saveReview(runId, character, fields))
             }
         }
+        delete {
+            personaCall { runId, character -> call.respond(service.deletePersona(runId, character)) }
+        }
         get("/quality-report") {
             personaCall { runId, character -> call.respond(service.getQualityReport(runId, character)) }
         }
