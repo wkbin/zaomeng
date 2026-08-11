@@ -54,7 +54,7 @@ zaomeng
 
 | 手机端 | 桌面端 |
 | --- | --- |
-| <img src="docs/images/mobile.jpg" width="240" alt="手机端"> | <img src="docs/images/desktop.png" width="480" alt="桌面端"> |
+| <img src="docs/images/mobile.jpg" height="360" alt="手机端"> | <img src="docs/images/desktop.png" height="360" alt="桌面端"> |
 
 ## 社区
 
@@ -65,6 +65,23 @@ zaomeng
 </p>
 
 - 书卷包投稿：[zaomeng-library](https://github.com/wkbin/zaomeng-library/issues)
+
+## 赞助支持
+
+如果造梦对你有所帮助，欢迎请作者喝杯奶茶 🧋
+
+每一笔支持都会用于持续开发新功能、修复 Bug、提升项目稳定性，以及购买模型 API Token 用于功能测试与体验优化。感谢你帮助造梦走得更远。
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/sponsor-wechat.png" alt="造梦微信赞助收款码" height="420">
+    </td>
+    <td align="center">
+      <img src="docs/assets/sponsor-alipay.jpg" alt="造梦支付宝赞助收款码" height="420">
+    </td>
+  </tr>
+</table>
 
 ## 许可证
 

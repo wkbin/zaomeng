@@ -58,6 +58,7 @@ fun AppSupportSettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 state = state,
                 onExportDiagnostics = { fileExporter("zaomeng-diagnostics.json", "application/json") },
+                onOpenOfficialWebsite = { openExternalUrl("https://wkbin.github.io/zaomeng/") },
                 onOpenProject = { openExternalUrl("https://github.com/wkbin/zaomeng") },
                 onOpenPackageLibrary = { openExternalUrl("https://github.com/wkbin/zaomeng-library") },
                 onJoinQqGroup = {
@@ -79,6 +80,7 @@ private fun SettingsSupportGroup(
     modifier: Modifier,
     state: SettingsUiState,
     onExportDiagnostics: () -> Unit,
+    onOpenOfficialWebsite: () -> Unit,
     onOpenProject: () -> Unit,
     onOpenPackageLibrary: () -> Unit,
     onJoinQqGroup: () -> Unit,
@@ -95,6 +97,12 @@ private fun SettingsSupportGroup(
                 value = if (state.exportingDiagnostics) "导出中" else "导出",
                 enabled = !state.exportingDiagnostics,
                 onClick = onExportDiagnostics,
+            )
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            SettingsRow(
+                title = "官方网站",
+                subtitle = "wkbin.github.io/zaomeng",
+                onClick = onOpenOfficialWebsite,
             )
             androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsRow(
