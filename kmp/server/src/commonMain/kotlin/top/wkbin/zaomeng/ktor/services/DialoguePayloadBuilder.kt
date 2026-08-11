@@ -822,6 +822,7 @@ class DialoguePayloadBuilder(
                     query = listOf(message, sceneProgress["location"], sceneProgress["progression_note"])
                         .filterNotNull().joinToString(" "),
                     limit = 3,
+                    currentTurnId = turnId,
                 )
             }
             TurnContextSources(

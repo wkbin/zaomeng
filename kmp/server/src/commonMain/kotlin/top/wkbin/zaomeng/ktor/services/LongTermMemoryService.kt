@@ -13,6 +13,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.nowIsoString
+import top.wkbin.zaomeng.data.api.DialogueMemoryDto
+import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 
 /** 本地持久化长期记忆：以 lexical retrieval 替代 1.5 的可选 Pinecone。 */
 class LongTermMemoryService(private val storage: StorageService) {
@@ -79,13 +81,18 @@ class LongTermMemoryService(private val storage: StorageService) {
         sessionId: String,
         query: String,
         limit: Int = 3,
+        currentTurnId: String = "",
     ): List<Map<String, Any?>> = lockFor(runId, sessionId).withLock {
         val queryText = normalize(query)
         if (queryText.isBlank()) return@withLock emptyList()
         val queryTokens = tokens(queryText)
-        read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+        val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+            .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+        val selected = entries
             .mapNotNull { raw ->
-                val entry = runCatching { raw.jsonObject }.getOrNull() ?: return@mapNotNull null
+                val entry = raw
+                if (entry["enabled"]?.jsonPrimitive?.contentOrNull == "false") return@mapNotNull null
+                if (entry["status"]?.jsonPrimitive?.contentOrNull in setOf("stale", "conflict")) return@mapNotNull null
                 val text = entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 if (text.isBlank()) return@mapNotNull null
                 val overlap = queryTokens.count { text.lowercase().contains(it) }
@@ -96,6 +103,22 @@ class LongTermMemoryService(private val storage: StorageService) {
             }
             .sortedByDescending { it.first }
             .take(limit.coerceIn(1, 6))
+        if (currentTurnId.isNotBlank() && selected.isNotEmpty()) {
+            val selectedIds = selected.mapTo(hashSetOf()) { it.second["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty() }
+            val timestamp = nowIsoString()
+            val updated = entries.map { entry ->
+                if (entry["memory_id"]?.jsonPrimitive?.contentOrNull !in selectedIds) return@map entry
+                buildJsonObject {
+                    entry.forEach { (key, value) -> put(key, value) }
+                    put("last_hit_turn_id", currentTurnId)
+                    val hitCount = entry["hit_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+                    put("hit_count", hitCount + 1)
+                    put("last_hit_at", timestamp)
+                }
+            }
+            writeEntries(runId, sessionId, updated)
+        }
+        selected
             .map { (score, entry) ->
                 mapOf<String, Any?>(
                     "text" to trim(entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty(), 180),
@@ -106,6 +129,159 @@ class LongTermMemoryService(private val storage: StorageService) {
                 )
             }
     }
+
+    fun qualityReport(runId: String, sessionId: String): MemoryQualityReportDto =
+        lockFor(runId, sessionId).withLock {
+            val automatic = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                .map(::toAutomaticMemory)
+            val controlled = runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+                ?.get("memory_ledger")?.jsonArray.orEmpty()
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                .map(::toControlledMemory)
+            val groups = automatic
+                .filter { it.status == "active" && it.text.isNotBlank() }
+                .groupBy { duplicateKey(it.text) }
+                .values
+                .filter { it.size > 1 }
+                .map { group -> group.map(DialogueMemoryDto::memoryId) }
+            val latestHitTurnId = automatic.filter { it.lastHitAt.isNotBlank() }
+                .maxByOrNull(DialogueMemoryDto::lastHitAt)?.lastHitTurnId.orEmpty()
+            val decoratedAutomatic = automatic.map { memory ->
+                val duplicateOf = groups.firstOrNull { memory.memoryId in it }
+                    ?.firstOrNull { it != memory.memoryId }.orEmpty()
+                memory.copy(duplicateOf = duplicateOf)
+            }
+            val allEntries = controlled + decoratedAutomatic
+            val visibleAutomatic = (
+                decoratedAutomatic.filter {
+                    it.status != "active" || it.lastHitTurnId == latestHitTurnId || it.duplicateOf.isNotBlank()
+                } + decoratedAutomatic.takeLast(80)
+            ).distinctBy(DialogueMemoryDto::memoryId).takeLast(120)
+            MemoryQualityReportDto(
+                entries = controlled + visibleAutomatic,
+                latestHitTurnId = latestHitTurnId,
+                duplicateGroups = groups,
+                activeCount = allEntries.count { it.enabled && it.status == "active" },
+                staleCount = allEntries.count { it.status == "stale" },
+                conflictCount = allEntries.count { it.status == "conflict" },
+            )
+        }
+
+    fun updateStatus(runId: String, sessionId: String, memoryId: String, status: String): MemoryQualityReportDto =
+        lockFor(runId, sessionId).withLock {
+            require(status in setOf("active", "stale", "conflict")) { "无效的记忆状态" }
+            val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+            require(entries.any { it["memory_id"]?.jsonPrimitive?.contentOrNull == memoryId }) { "自动记忆不存在" }
+            val updated = entries.map { entry ->
+                if (entry["memory_id"]?.jsonPrimitive?.contentOrNull != memoryId) return@map entry
+                buildJsonObject {
+                    entry.forEach { (key, value) -> put(key, value) }
+                    put("status", status)
+                    put("updated_at", nowIsoString())
+                }
+            }
+            writeEntries(runId, sessionId, updated)
+            qualityReportUnlocked(runId, sessionId)
+        }
+
+    fun mergeDuplicates(runId: String, sessionId: String): MemoryQualityReportDto =
+        lockFor(runId, sessionId).withLock {
+            val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+            val duplicateGroups = entries.groupBy { duplicateKey(it["text"]?.jsonPrimitive?.contentOrNull.orEmpty()) }
+                .values.filter { it.size > 1 }
+            if (duplicateGroups.isNotEmpty()) {
+                val removedIds = duplicateGroups.flatMap { group -> group.drop(1) }
+                    .mapTo(hashSetOf()) { it["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty() }
+                val replacements = duplicateGroups.associate { group ->
+                    val retained = group.first()
+                    val retainedId = retained["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    retainedId to buildJsonObject {
+                        retained.forEach { (key, value) -> put(key, value) }
+                        put("text", group.maxBy { it["text"]?.jsonPrimitive?.contentOrNull.orEmpty().length }["text"]!!)
+                        put("merged_source_ids", buildJsonArray {
+                            group.drop(1).forEach {
+                                add(JsonPrimitive(it["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+                            }
+                        })
+                        put("updated_at", nowIsoString())
+                    }
+                }
+                writeEntries(runId, sessionId, entries.mapNotNull { entry ->
+                    val id = entry["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    when {
+                        id in removedIds -> null
+                        id in replacements -> replacements.getValue(id)
+                        else -> entry
+                    }
+                })
+            }
+            qualityReportUnlocked(runId, sessionId)
+        }
+
+    private fun qualityReportUnlocked(runId: String, sessionId: String): MemoryQualityReportDto {
+        val automatic = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
+            .mapNotNull { runCatching { it.jsonObject }.getOrNull() }.map(::toAutomaticMemory)
+        val controlled = runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+            ?.get("memory_ledger")?.jsonArray.orEmpty()
+            .mapNotNull { runCatching { it.jsonObject }.getOrNull() }.map(::toControlledMemory)
+        val groups = automatic.filter { it.status == "active" }.groupBy { duplicateKey(it.text) }
+            .values.filter { it.size > 1 }.map { it.map(DialogueMemoryDto::memoryId) }
+        val latestHitTurnId = automatic.filter { it.lastHitAt.isNotBlank() }
+            .maxByOrNull(DialogueMemoryDto::lastHitAt)?.lastHitTurnId.orEmpty()
+        val decoratedAutomatic = automatic.map { memory ->
+            memory.copy(duplicateOf = groups.firstOrNull { memory.memoryId in it }
+                ?.firstOrNull { it != memory.memoryId }.orEmpty())
+        }
+        val allEntries = controlled + decoratedAutomatic
+        val visibleAutomatic = (
+            decoratedAutomatic.filter {
+                it.status != "active" || it.lastHitTurnId == latestHitTurnId || it.duplicateOf.isNotBlank()
+            } + decoratedAutomatic.takeLast(80)
+        ).distinctBy(DialogueMemoryDto::memoryId).takeLast(120)
+        return MemoryQualityReportDto(
+            entries = controlled + visibleAutomatic,
+            latestHitTurnId = latestHitTurnId,
+            duplicateGroups = groups,
+            activeCount = allEntries.count { it.enabled && it.status == "active" },
+            staleCount = allEntries.count { it.status == "stale" },
+            conflictCount = allEntries.count { it.status == "conflict" },
+        )
+    }
+
+    private fun toAutomaticMemory(entry: JsonObject) = DialogueMemoryDto(
+        memoryId = entry["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        text = entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty().take(500),
+        category = "long_term",
+        pinned = entry["pinned"]?.jsonPrimitive?.contentOrNull == "true",
+        enabled = entry["enabled"]?.jsonPrimitive?.contentOrNull != "false",
+        createdAt = entry["created_at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        updatedAt = entry["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        source = "automatic",
+        sourceTurnId = entry["turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        status = entry["status"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "active" },
+        lastHitTurnId = entry["last_hit_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        lastHitAt = entry["last_hit_at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        hitCount = entry["hit_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+        mergedSourceIds = entry["merged_source_ids"]?.jsonArray.orEmpty()
+            .mapNotNull { it.jsonPrimitive.contentOrNull },
+    )
+
+    private fun toControlledMemory(entry: JsonObject) = DialogueMemoryDto(
+        memoryId = entry["memory_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        text = entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        category = entry["category"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "story" },
+        pinned = entry["pinned"]?.jsonPrimitive?.contentOrNull == "true",
+        enabled = entry["enabled"]?.jsonPrimitive?.contentOrNull != "false",
+        createdAt = entry["created_at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        updatedAt = entry["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        source = "user",
+    )
+
+    private fun duplicateKey(text: String): String = normalize(text).lowercase()
+        .replace(Regex("[\\p{P}\\p{S}\\s]+"), "")
 
     private fun read(runId: String, sessionId: String): JsonObject {
         val file = file(runId, sessionId)
@@ -144,6 +320,12 @@ class LongTermMemoryService(private val storage: StorageService) {
                 put("speaker", speaker)
                 put("text", normalize(text).take(MAX_TEXT_LENGTH))
                 put("created_at", timestamp)
+                put("updated_at", timestamp)
+                put("source", "automatic")
+                put("enabled", true)
+                put("pinned", false)
+                put("status", "active")
+                put("hit_count", 0)
             }
         }
     }

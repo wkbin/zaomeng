@@ -98,6 +98,8 @@ fun ChatToolsSheet(
     onSwitchScene: (String, String, Boolean) -> Unit,
     onSaveMemory: (DialogueMemoryDto) -> Unit,
     onDeleteMemory: (String) -> Unit,
+    onUpdateAutomaticMemoryStatus: (String, String) -> Unit,
+    onMergeDuplicateMemories: () -> Unit,
     onRelationLock: (String, Boolean) -> Unit,
     onOpenStoryRecap: () -> Unit,
 ) {
@@ -433,7 +435,7 @@ fun ChatToolsSheet(
             }
 
             item {
-                ToolSection("可控记忆") {
+                ToolSection("用户固定记忆") {
                     OutlinedButton(
                         onClick = { memoryDraft = DialogueMemoryDto() },
                         modifier = Modifier.fillMaxWidth(),
@@ -449,6 +451,49 @@ fun ChatToolsSheet(
                             enabled = toolsEnabled,
                             onEdit = { memoryDraft = memory },
                             onDelete = { pendingMemoryDeletion = memory },
+                        )
+                    }
+                }
+            }
+
+            item {
+                val quality = state.memoryQuality
+                val automatic = quality.entries.filter { it.source == "automatic" }
+                ToolSection("自动记忆质量") {
+                    Text(
+                        "启用 ${quality.activeCount} · 过期 ${quality.staleCount} · 冲突 ${quality.conflictCount}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (quality.duplicateGroups.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = onMergeDuplicateMemories,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = toolsEnabled,
+                        ) {
+                            Text("合并 ${quality.duplicateGroups.size} 组重复记忆")
+                        }
+                    }
+                    val currentHits = automatic.filter {
+                        quality.latestHitTurnId.isNotBlank() && it.lastHitTurnId == quality.latestHitTurnId
+                    }
+                    if (currentHits.isNotEmpty()) {
+                        Text("本轮命中", style = MaterialTheme.typography.titleSmall)
+                        currentHits.forEach { memory ->
+                            AutomaticMemoryRow(memory, toolsEnabled, onUpdateAutomaticMemoryStatus)
+                        }
+                    }
+                    val remaining = automatic.filterNot { it in currentHits }
+                    if (remaining.isNotEmpty()) {
+                        Text("全部自动记忆", style = MaterialTheme.typography.titleSmall)
+                        remaining.takeLast(40).asReversed().forEach { memory ->
+                            AutomaticMemoryRow(memory, toolsEnabled, onUpdateAutomaticMemoryStatus)
+                        }
+                    } else if (automatic.isEmpty()) {
+                        Text(
+                            "完成对话后会自动建立带来源轮次的本地记忆。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -907,6 +952,53 @@ private fun MemoryRow(
                     contentDescription = "删除记忆",
                     tint = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
+private fun AutomaticMemoryRow(
+    memory: DialogueMemoryDto,
+    enabled: Boolean,
+    onUpdateStatus: (String, String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(memory.text, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Text(
+            buildString {
+                append("自动 · 来源轮次 ")
+                append(memory.sourceTurnId.ifBlank { "未知" })
+                append(" · 命中 ")
+                append(memory.hitCount)
+                append(" 次")
+                if (memory.duplicateOf.isNotBlank()) append(" · 疑似重复")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (memory.status == "active") {
+                TextButton(
+                    onClick = { onUpdateStatus(memory.memoryId, "stale") },
+                    enabled = enabled,
+                ) { Text("标记过期") }
+                TextButton(
+                    onClick = { onUpdateStatus(memory.memoryId, "conflict") },
+                    enabled = enabled,
+                ) { Text("标记冲突") }
+            } else {
+                Text(
+                    if (memory.status == "stale") "已过期" else "有冲突",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(
+                    onClick = { onUpdateStatus(memory.memoryId, "active") },
+                    enabled = enabled,
+                ) { Text("恢复使用") }
             }
         }
         HorizontalDivider()

@@ -6,6 +6,7 @@ import top.wkbin.zaomeng.data.ReusableCardKind
 import top.wkbin.zaomeng.data.ApiRequestException
 import top.wkbin.zaomeng.data.ZaomengRepository
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
+import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
@@ -130,6 +131,7 @@ data class ChatUiState(
     val recommendedTransition: String = "",
     val navigationSession: DialogueSessionDto? = null,
     val memorySaveRevision: Long = 0,
+    val memoryQuality: MemoryQualityReportDto = MemoryQualityReportDto(),
     val draft: String = "",
     val messageKind: String = "dialogue",
     val searchQuery: String = "",
@@ -317,6 +319,9 @@ class ChatViewModel(
                 }
                 val avatars = loadAvatars(normalizedRunId, session)
                 val plugins = loadChatPlugins()
+                val memoryQuality = runCatching {
+                    repository.getDialogueMemoryQuality(normalizedRunId, normalizedSessionId)
+                }.getOrDefault(MemoryQualityReportDto())
                 updateLoadState(requestId, normalizedRunId, normalizedSessionId) {
                     it.copy(
                         loading = false,
@@ -326,6 +331,7 @@ class ChatViewModel(
                         avatarBytes = avatars,
                         pluginActions = plugins.actions,
                         generationEnhancers = plugins.enhancers,
+                        memoryQuality = memoryQuality,
                         includeInnerThoughts = plugins.enhancers.any { enhancer ->
                             enhancer.stateKey == INNER_THOUGHTS_ENHANCER_KEY &&
                                 enhancer.isActive(session)
@@ -410,7 +416,7 @@ class ChatViewModel(
     private suspend fun loadChatPlugins(): LoadedChatPlugins {
         return try {
             val plugins = repository.listPlugins()
-                .filter { plugin -> plugin.enabled && plugin.status == "enabled" }
+                .filter { plugin -> plugin.executable && plugin.enabled && plugin.status == "enabled" }
             val actions = plugins.asSequence()
                 .flatMap { plugin ->
                     plugin.contributes.chatActions.asSequence()
@@ -962,6 +968,17 @@ class ChatViewModel(
                                     notice = if (event.replayed) "已恢复这次发送的本地结果。" else current.notice,
                                     error = "",
                                 )
+                            }
+                            runCatching {
+                                repository.getDialogueMemoryQuality(snapshot.runId, snapshot.sessionId)
+                            }.getOrNull()?.let { report ->
+                                mutableState.update { current ->
+                                    if (current.runId == snapshot.runId && current.sessionId == snapshot.sessionId) {
+                                        current.copy(memoryQuality = report)
+                                    } else {
+                                        current
+                                    }
+                                }
                             }
                             onComplete?.invoke()
                         }
@@ -1588,22 +1605,61 @@ class ChatViewModel(
             return
         }
         runTool("memory") {
+            val session = sessionMutation { repository.saveDialogueMemory(runId, sessionId, memory) }
             acceptSession(
-                sessionMutation { repository.saveDialogueMemory(runId, sessionId, memory) },
+                session,
                 "会话记忆已保存。",
                 memorySaved = true,
             )
+            refreshMemoryQuality()
         }
     }
 
     fun deleteMemory(memoryId: String) {
         if (memoryId.isBlank()) return
         runTool("memory") {
+            val session = sessionMutation { repository.deleteDialogueMemory(runId, sessionId, memoryId) }
             acceptSession(
-                sessionMutation { repository.deleteDialogueMemory(runId, sessionId, memoryId) },
+                session,
                 "会话记忆已删除。",
             )
+            refreshMemoryQuality()
         }
+    }
+
+    fun updateAutomaticMemoryStatus(memoryId: String, status: String) {
+        if (memoryId.isBlank()) return
+        runTool("memory_quality") {
+            val report = repository.updateAutomaticMemoryStatus(runId, sessionId, memoryId, status)
+            updateState {
+                it.copy(
+                    memoryQuality = report,
+                    notice = when (status) {
+                        "stale" -> "已将自动记忆标记为过期。"
+                        "conflict" -> "已将自动记忆标记为冲突。"
+                        else -> "自动记忆已恢复使用。"
+                    },
+                )
+            }
+        }
+    }
+
+    fun mergeDuplicateMemories() {
+        runTool("memory_quality") {
+            val before = snapshot.memoryQuality.duplicateGroups.size
+            val report = repository.mergeDuplicateDialogueMemories(runId, sessionId)
+            updateState {
+                it.copy(
+                    memoryQuality = report,
+                    notice = if (before > 0) "重复自动记忆已合并。" else "没有发现可合并的重复记忆。",
+                )
+            }
+        }
+    }
+
+    private suspend fun ToolRequest.refreshMemoryQuality() {
+        val report = repository.getDialogueMemoryQuality(runId, sessionId)
+        updateState { it.copy(memoryQuality = report) }
     }
 
     fun setRelationLock(pairKey: String, locked: Boolean) {

@@ -16,6 +16,7 @@ import okio.Path
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
+import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 
 /**
  * 对话高级功能服务
@@ -318,6 +319,26 @@ class DialogueAdvancedService(
         return saveSession(runId, sessionId, session, extra = buildJsonObject {
             put("memory_ledger", buildJsonArray { filtered.forEach(::add) })
         })
+    }
+
+    fun memoryQuality(runId: String, sessionId: String): MemoryQualityReportDto {
+        requireSession(runId, sessionId)
+        return longTermMemory.qualityReport(runId, sessionId)
+    }
+
+    fun updateAutomaticMemoryStatus(
+        runId: String,
+        sessionId: String,
+        memoryId: String,
+        status: String,
+    ): MemoryQualityReportDto {
+        requireSession(runId, sessionId)
+        return longTermMemory.updateStatus(runId, sessionId, memoryId, status)
+    }
+
+    fun mergeDuplicateMemories(runId: String, sessionId: String): MemoryQualityReportDto {
+        requireSession(runId, sessionId)
+        return longTermMemory.mergeDuplicates(runId, sessionId)
     }
 
     // ------------------------------------------------------------------

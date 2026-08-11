@@ -21,6 +21,7 @@ import top.wkbin.zaomeng.data.api.SwitchDialogueSceneRequest
 import top.wkbin.zaomeng.data.api.UpdateDialogueBranchMetaRequest
 import top.wkbin.zaomeng.data.api.UpdateDialogueRelationLockRequest
 import top.wkbin.zaomeng.data.api.UpsertDialogueMemoryRequest
+import top.wkbin.zaomeng.data.api.UpdateMemoryQualityStatusRequest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -130,6 +131,31 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         val (runId, sessionId) = requireRunAndSession()
         val memoryId = call.parameters["memory_id"].orEmpty()
         runRoute(call) { service.deleteMemory(runId, sessionId, memoryId) }
+    }
+
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/memory-quality") {
+        val (runId, sessionId) = requireRunAndSession()
+        try {
+            call.respond(HttpStatusCode.OK, service.memoryQuality(runId, sessionId))
+        } catch (e: NoSuchElementException) {
+            call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
+        }
+    }
+
+    put("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/memory-quality/{memory_id}/status") {
+        val (runId, sessionId) = requireRunAndSession()
+        val memoryId = call.parameters["memory_id"].orEmpty()
+        val request = call.receive<UpdateMemoryQualityStatusRequest>()
+        try {
+            call.respond(HttpStatusCode.OK, service.updateAutomaticMemoryStatus(runId, sessionId, memoryId, request.status))
+        } catch (e: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid request")))
+        }
+    }
+
+    post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/memory-quality/merge-duplicates") {
+        val (runId, sessionId) = requireRunAndSession()
+        call.respond(HttpStatusCode.OK, service.mergeDuplicateMemories(runId, sessionId))
     }
 
     // POST .../sessions/{session_id}/suggest

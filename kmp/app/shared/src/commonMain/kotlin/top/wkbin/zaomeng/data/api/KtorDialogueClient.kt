@@ -158,6 +158,27 @@ class KtorDialogueClient(
         },
     )
 
+    suspend fun getMemoryQuality(runId: String, sessionId: String): MemoryQualityReportDto =
+        request { endpoint ->
+            http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/memory-quality")
+        }.body()
+
+    suspend fun updateAutomaticMemoryStatus(
+        runId: String,
+        sessionId: String,
+        memoryId: String,
+        status: String,
+    ): MemoryQualityReportDto = request { endpoint ->
+        http.client.put("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/memory-quality/$memoryId/status") {
+            setBody(UpdateMemoryQualityStatusRequest(status))
+        }
+    }.body()
+
+    suspend fun mergeDuplicateMemories(runId: String, sessionId: String): MemoryQualityReportDto =
+        request { endpoint ->
+            http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/memory-quality/merge-duplicates")
+        }.body()
+
     suspend fun switchScene(
         runId: String,
         sessionId: String,
