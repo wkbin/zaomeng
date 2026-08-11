@@ -29,6 +29,13 @@ class ResPromptSourceTest {
     }
 
     @Test
+    fun readsPackagedProfileRepairPrompt() {
+        val repair = source.read("distill/profile_repair.md")
+        assertNotNull(repair, "distill/profile_repair.md 应打包进 Desktop composeResources")
+        assertTrue(repair.first.contains("\"changes\""))
+    }
+
+    @Test
     fun missingPromptReturnsNull() {
         assertNull(source.read("dialogue/not-exist.yaml"))
     }

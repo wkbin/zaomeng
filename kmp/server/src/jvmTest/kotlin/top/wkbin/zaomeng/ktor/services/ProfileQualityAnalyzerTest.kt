@@ -89,4 +89,43 @@ class ProfileQualityAnalyzerTest {
         assertTrue("[S000004] 后来宋江再次归来。" in result.excerpt)
         assertTrue(result.excerptStages.values.any { "[S000002]" in it })
     }
+
+    @Test
+    fun `distill excerpt matches common given name alias`() {
+        val source = "序章。\n金莲低头不语。\n旁人离开。\n后来金莲再次开口。"
+
+        val result = DistillExcerptBuilder.build(source, listOf("潘金莲"), 20, 2_000)
+
+        assertEquals(listOf("潘金莲"), result.matchedCharacters)
+        assertTrue("金莲低头不语" in result.excerpt)
+        assertTrue("后来金莲再次开口" in result.excerpt)
+    }
+
+    @Test
+    fun `distill excerpt honors explicit aliases without changing canonical name`() {
+        val source = "序章。\n花和尚提起禅杖。\n众人退开。"
+
+        val result = DistillExcerptBuilder.build(source, listOf("鲁智深|花和尚"), 20, 2_000)
+
+        assertEquals(listOf("鲁智深"), result.requestedCharacters)
+        assertEquals(listOf("鲁智深"), result.matchedCharacters)
+        assertTrue("花和尚提起禅杖" in result.excerpt)
+    }
+
+    @Test
+    fun `sparse character hits retain enough nearby story context`() {
+        val source = (0 until 200).joinToString("\n") { index ->
+            when (index) {
+                50 -> "金莲第一次出现。"
+                150 -> "金莲后来再次出现。"
+                else -> "第${index}句叙事内容。"
+            }
+        }
+
+        val result = DistillExcerptBuilder.build(source, listOf("潘金莲"), 300, 120_000)
+
+        assertTrue(DistillExcerptBuilder.splitSentences(result.excerpt).size >= 90)
+        assertTrue("金莲第一次出现" in result.excerpt)
+        assertTrue("金莲后来再次出现" in result.excerpt)
+    }
 }

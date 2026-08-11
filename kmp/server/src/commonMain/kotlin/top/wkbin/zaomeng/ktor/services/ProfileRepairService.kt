@@ -154,6 +154,9 @@ class ProfileRepairService(
     ): List<PersonaRepairChangeDto> {
         val activeLlm = requireNotNull(llm)
         val activePrompts = requireNotNull(promptLoader)
+        val repairPrompt = requireNotNull(activePrompts.loadRawPrompt("distill/profile_repair.md")) {
+            "Missing required prompt: distill/profile_repair.md"
+        }
         val payload = buildJsonObject {
             put("character", character)
             put("allowed_fields", buildJsonArray { repairFields.forEach { add(JsonPrimitive(it)) } })
@@ -188,7 +191,7 @@ class ProfileRepairService(
         }
         val response = activeLlm.chatCompletion(
             messages = listOf(
-                LlmClient.ChatMessage("system", activePrompts.loadRawPrompt("distill/profile_repair.md")),
+                LlmClient.ChatMessage("system", repairPrompt),
                 LlmClient.ChatMessage("user", json.encodeToString(JsonObject.serializer(), payload)),
             ),
             temperature = 0.1,

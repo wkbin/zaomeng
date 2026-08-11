@@ -57,8 +57,9 @@ class DistillExecutor(
         private const val TAG = "DistillExecutor"
 
         // 对齐 Python workflow.py 蒸馏常量
-        private const val DISTILL_CHUNK_TRIGGER_CHARS = 18_000
-        private const val DISTILL_CHUNK_TRIGGER_SENTENCES = 180
+        // 人物档案字段较多；中等规模证据也分块提炼，避免单次生成只填写少量字段后被当作成功。
+        private const val DISTILL_CHUNK_TRIGGER_CHARS = 9_000
+        private const val DISTILL_CHUNK_TRIGGER_SENTENCES = 90
         private const val DISTILL_CHUNK_MAX_CHARS = 9_000
         private const val DISTILL_CHUNK_MAX_SENTENCES = 70
         private const val RELATION_CHUNK_TRIGGER_CHARS = 9_000

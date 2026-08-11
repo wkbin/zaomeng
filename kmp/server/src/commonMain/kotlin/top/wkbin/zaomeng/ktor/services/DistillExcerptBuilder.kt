@@ -4,13 +4,15 @@ package top.wkbin.zaomeng.ktor.services
  * 蒸馏/关系原文节选构建（迁移自 Python src/skill_support/novel_preparation.py
  * 的 build_excerpt_payload_from_text）。
  *
- * 差异（保留说明）：Android 端未携带 zaomeng-skill/character_aliases.json，
- * 别名解析（如繁体/异体）未迁移；策略、命中窗口、前/中/后段分桶保持一致。
+ * 人物名支持 `本名|别名1|别名2`，并为常见中文姓名补充去姓后的称呼，
+ * 避免小说主要使用名字或称呼时只命中极少量完整姓名。
  */
 object DistillExcerptBuilder {
 
     private const val MIXED_EXCERPT_MIN_CHARS = 3000
     private const val MIXED_EXCERPT_MIN_SENTENCES = 40
+    private const val FOCUSED_CONTEXT_TARGET_SENTENCES = 120
+    private const val MAX_FOCUSED_CONTEXT_RADIUS = 24
 
     private val IGNORED_CHARS = setOf(
         ' ', '\u3000', '\u00b7', '\u2027', '\u30fb', '\'', '"', '`', '~', '!', '@', '#', '$', '%', '^', '&', '*',
@@ -31,13 +33,19 @@ object DistillExcerptBuilder {
         val excerptStages: Map<String, String>,
     )
 
+    private data class CharacterSpec(
+        val canonical: String,
+        val aliases: List<String>,
+    )
+
     fun build(
         text: String,
         characters: List<String>,
         maxSentences: Int,
         maxChars: Int,
     ): ExcerptPayload {
-        val requested = normalizeCharacters(characters)
+        val characterSpecs = normalizeCharacterSpecs(characters)
+        val requested = characterSpecs.map(CharacterSpec::canonical)
         val clean = text.trim()
         if (clean.isEmpty()) {
             return ExcerptPayload(
@@ -50,8 +58,8 @@ object DistillExcerptBuilder {
             )
         }
         val sentences = splitSentences(clean)
-        if (requested.isNotEmpty()) {
-            val focused = characterFocusedExcerpt(sentences, requested, maxSentences, maxChars)
+        if (characterSpecs.isNotEmpty()) {
+            val focused = characterFocusedExcerpt(sentences, characterSpecs, maxSentences, maxChars)
             if (focused.excerpt.isNotEmpty()) return focused
         }
         val leading = leadingExcerpt(sentences, maxSentences, maxChars)
@@ -65,12 +73,24 @@ object DistillExcerptBuilder {
         )
     }
 
-    private fun normalizeCharacters(characters: List<String>): List<String> {
+    private fun normalizeCharacterSpecs(characters: List<String>): List<CharacterSpec> {
         val seen = mutableSetOf<String>()
-        return characters.mapNotNull { name ->
-            val canonical = name.trim().substringBefore('|').trim()
-            if (canonical.isEmpty() || !seen.add(canonical)) null else canonical
+        return characters.mapNotNull { rawName ->
+            val supplied = rawName.split('|').map(String::trim).filter(String::isNotEmpty).distinct()
+            val canonical = supplied.firstOrNull().orEmpty()
+            if (canonical.isEmpty() || !seen.add(canonical)) return@mapNotNull null
+            CharacterSpec(
+                canonical = canonical,
+                aliases = (supplied + derivedChineseNameAliases(canonical)).distinct(),
+            )
         }
+    }
+
+    private fun derivedChineseNameAliases(canonical: String): List<String> {
+        if (canonical.length !in 3..4 || canonical.any { it !in '\u3400'..'\u9fff' }) return emptyList()
+        val surnameLength = if (COMPOUND_SURNAMES.any(canonical::startsWith)) 2 else 1
+        val givenName = canonical.drop(surnameLength)
+        return listOfNotNull(givenName.takeIf { it.length >= 2 })
     }
 
     fun splitSentences(text: String): List<String> {
@@ -98,6 +118,9 @@ object DistillExcerptBuilder {
         return normalizedAlias.isNotEmpty() && normalizedSentence.contains(normalizedAlias)
     }
 
+    private fun sentenceMentionsCharacter(sentence: String, character: CharacterSpec): Boolean =
+        character.aliases.any { sentenceMentionsCharacter(sentence, it) }
+
     private fun leadingExcerpt(sentences: List<String>, maxSentences: Int, maxChars: Int): Pair<String, List<Int>> {
         val selected = mutableListOf<String>()
         val indices = mutableListOf<Int>()
@@ -123,14 +146,16 @@ object DistillExcerptBuilder {
 
     private fun characterFocusedExcerpt(
         sentences: List<String>,
-        characters: List<String>,
+        characterSpecs: List<CharacterSpec>,
         maxSentences: Int,
         maxChars: Int,
     ): ExcerptPayload {
+        val characters = characterSpecs.map(CharacterSpec::canonical)
+        val specsByCanonical = characterSpecs.associateBy(CharacterSpec::canonical)
         val characterHits = characters.associateWith { mutableListOf<Int>() }.toMutableMap()
         for ((idx, sentence) in sentences.withIndex()) {
             for (canon in characters) {
-                if (sentenceMentionsCharacter(sentence, canon)) {
+                if (sentenceMentionsCharacter(sentence, specsByCanonical.getValue(canon))) {
                     characterHits.getValue(canon).add(idx)
                 }
             }
@@ -174,7 +199,7 @@ object DistillExcerptBuilder {
         var augmented = false
         if (needsAugmentation(sentences, selected, maxSentences, maxChars)) {
             val augmentedIndices = augmentCharacterExcerptIndices(
-                sentences, selected, characterHits, matched, characters, maxSentences, maxChars,
+                sentences, selected, characterHits, matched, characterSpecs, maxSentences, maxChars,
             )
             selected.clear()
             selected.addAll(augmentedIndices)
@@ -310,9 +335,9 @@ object DistillExcerptBuilder {
 
     private fun contextRadiusForCenters(centers: List<Int>, totalSentences: Int): Int {
         if (centers.isEmpty() || totalSentences <= 0) return 1
-        if (centers.size == 1) return 3
-        if (centers.size <= 3) return 2
-        return 1
+        val targetSentences = minOf(totalSentences, FOCUSED_CONTEXT_TARGET_SENTENCES)
+        val sentencesPerCenter = (targetSentences + centers.size - 1) / centers.size
+        return ((sentencesPerCenter - 1) / 2).coerceIn(1, MAX_FOCUSED_CONTEXT_RADIUS)
     }
 
     private fun windowIndices(center: Int, total: Int, radius: Int): List<Int> {
@@ -340,7 +365,7 @@ object DistillExcerptBuilder {
         selectedIndices: List<Int>,
         characterHits: Map<String, List<Int>>,
         matchedCharacters: List<String>,
-        characterSpecs: List<String>,
+        characterSpecs: List<CharacterSpec>,
         maxSentences: Int,
         maxChars: Int,
     ): List<Int> {
@@ -421,7 +446,7 @@ object DistillExcerptBuilder {
         return THOUGHT_PATTERN.containsMatchIn(sample)
     }
 
-    private fun dialogueCandidateIndices(sentences: List<String>, characters: List<String>): List<Int> {
+    private fun dialogueCandidateIndices(sentences: List<String>, characters: List<CharacterSpec>): List<Int> {
         val primary = mutableListOf<Int>()
         val secondary = mutableListOf<Int>()
         for ((idx, sentence) in sentences.withIndex()) {
@@ -432,7 +457,7 @@ object DistillExcerptBuilder {
         return primary + secondary
     }
 
-    private fun thoughtOrEvaluationIndices(sentences: List<String>, characters: List<String>): List<Int> {
+    private fun thoughtOrEvaluationIndices(sentences: List<String>, characters: List<CharacterSpec>): List<Int> {
         val primary = mutableListOf<Int>()
         val secondary = mutableListOf<Int>()
         for ((idx, sentence) in sentences.withIndex()) {
@@ -442,4 +467,11 @@ object DistillExcerptBuilder {
         }
         return primary + secondary
     }
+
+    private val COMPOUND_SURNAMES = setOf(
+        "欧阳", "司马", "上官", "诸葛", "东方", "皇甫", "尉迟", "公羊", "赫连", "澹台",
+        "公冶", "宗政", "濮阳", "淳于", "单于", "太叔", "申屠", "公孙", "仲孙", "轩辕",
+        "令狐", "钟离", "宇文", "长孙", "慕容", "鲜于", "闾丘", "司徒", "司空", "亓官",
+        "司寇", "南宫", "西门", "东郭", "左丘", "东门", "第五",
+    )
 }
