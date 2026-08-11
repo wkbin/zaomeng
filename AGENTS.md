@@ -63,6 +63,7 @@
 ## UI 与 API
 
 - 网络 DTO 位于共享 API 模型中；服务端与客户端字段需要同步变更并保持合理默认值。
+- `docs/server-api.md` 是当前 Ktor HTTP 接口文档；新增、删除或修改路由、请求/响应字段、认证、分页、流式事件或状态码时必须同步更新。
 - 聊天完成事件优先返回轻量 session 和本轮增量，不要在每次发送后重新传输完整 transcript。
 - ViewModel 状态更新应保持幂等，尤其注意断线重试、operation ID、流式 reset/complete 和历史分页合并。
 - Compose 列表元素应使用稳定 key；避免在高频 delta 上进行昂贵的全列表重建。
