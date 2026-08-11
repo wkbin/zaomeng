@@ -56,7 +56,7 @@ object DistillExcerptBuilder {
         }
         val leading = leadingExcerpt(sentences, maxSentences, maxChars)
         return ExcerptPayload(
-            excerpt = leading.first,
+            excerpt = renderExcerpt(sentences, leading.second, maxChars),
             requestedCharacters = requested,
             matchedCharacters = emptyList(),
             missingCharacters = requested,
@@ -213,14 +213,18 @@ object DistillExcerptBuilder {
 
     private fun renderExcerpt(sentences: List<String>, selectedIndices: List<Int>, maxChars: Int): String {
         val selectedSentences = selectedIndices.filter { it in sentences.indices }.mapIndexed { index, idx ->
-            if (index == 0 && maxChars > 0 && sentences[idx].length > maxChars) {
+            val sentence = if (index == 0 && maxChars > 0 && sentences[idx].length > maxChars) {
                 sentences[idx].take(maxChars).trim()
             } else {
                 sentences[idx]
             }
+            evidenceTaggedSentence(idx, sentence)
         }
-        return selectedSentences.filter { it.isNotBlank() }.joinToString("\n").trim()
+        return selectedSentences.filter { it.isNotBlank() }.joinToString("\n").take(maxChars).trim()
     }
+
+    private fun evidenceTaggedSentence(index: Int, sentence: String): String =
+        "[S${(index + 1).toString().padStart(6, '0')}] ${sentence.trim()}"
 
     private fun buildStageBlocks(sentences: List<String>, selectedIndices: List<Int>): Map<String, String> {
         val ordered = selectedIndices.filter { it in sentences.indices }.sorted()
@@ -236,7 +240,7 @@ object DistillExcerptBuilder {
                 ratio >= 0.67 -> "end"
                 else -> "mid"
             }
-            val sentence = sentences[idx].trim()
+            val sentence = evidenceTaggedSentence(idx, sentences[idx])
             if (sentence.isNotEmpty() && sentence !in buckets.getValue(stage)) buckets.getValue(stage).add(sentence)
         }
         return buckets.mapValues { (_, values) -> values.joinToString("\n").trim() }

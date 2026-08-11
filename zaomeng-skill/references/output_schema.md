@@ -15,7 +15,7 @@
 
 ## Basic Positioning
 - core_identity: 核心身份与社会定位
-- gender: 性别或性别呈现；证据不足时写证据不足
+- gender: 性别或性别呈现；没有稳定证据时留空
 - age_stage: 年龄阶段或年龄感；优先写少年 / 青年 / 中年 / 长者等稳定阶段
 - faction_position: 阵营、派系、立场位置
 - world_belong: 所属势力 / 地域 / 种族 / 阶层标签
@@ -111,7 +111,7 @@
 - dialogue_count: 2
 - thought_count: 0
 - chunk_count: 1
-- evidence_source: 第03回-段落12；第05回-段落03
+- evidence_source: S000123；S000456
 - contradiction_note: 前期偏克制，后期在特定关系中明显失控，需按时间线区分
 ```
 
@@ -121,9 +121,9 @@
 - `decision_rules` max 8 unique items
 - list-like fields use `；` as the separator in markdown scalar lines
 - `values` all integers in `[0,10]`
-- evidence fields优先存索引、章节、段落编号，不复制大段原文
+- `evidence_source` 只存输入 excerpt 中真实出现的证据 ID，最多 12 个，不复制原文，不虚构章节或段落
 - `sentence_openers` / `connective_tokens` / `sentence_endings` / `forbidden_fillers` 为可选字段，无稳定证据时留空
-- 任意高风险深层字段若证据不足，允许直接写 `证据不足`
+- 任意高风险深层字段若没有稳定证据，必须留空，禁止写占位词
 - `arc_start` / `arc_mid` / `arc_end` 只有在识别到稳定阶段变化时才量化；证据不足时可保留空值或只写 `trigger_event` / `final_state` 类说明
 
 ### 统一标尺
@@ -162,7 +162,7 @@
 
 - 只采信原作正文中的描写、行为、对话、心理活动与明确叙述。
 - 拒绝二创、同人、读者脑补、影视改编附会与“合理推测式补全”。
-- 无原文支撑时直接写 `证据不足`，不要用常识补完。
+- 无原文支撑时留空，不要用占位词或常识补完。
 
 ### 人设权重规则
 
@@ -181,7 +181,7 @@
 - 一次同时蒸馏多名角色时，每个角色必须被当作独立任务处理。
 - 必须明确回答“这个角色与同批其他角色最不同的地方是什么”。
 - 共享场景优先用于提取 `key_bonds`、关系变化、冲突点与互动节奏，不得直接批量写入多人共同的背景与人格字段。
-- 若某字段与其他角色高度雷同且缺少更强证据，应留空或写 `证据不足`，不要用模板话术填满。
+- 若某字段与其他角色高度雷同且缺少更强证据，应留空，不要用占位词或模板话术填满。
 
 ### 推荐字段分组
 

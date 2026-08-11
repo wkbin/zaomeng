@@ -65,14 +65,31 @@ class DistillExecutor(
         private const val RELATION_CHUNK_TRIGGER_SENTENCES = 110
         private const val RELATION_CHUNK_MAX_CHARS = 4_800
         private const val RELATION_CHUNK_MAX_SENTENCES = 36
-        private const val DISTILL_SINGLE_MAX_TOKENS = 1800
-        private const val DISTILL_MERGE_MAX_TOKENS = 1800
-        private const val RELATION_SINGLE_MAX_TOKENS = 1000
-        private const val RELATION_CHUNK_MAX_TOKENS = 800
-        private const val RELATION_MERGE_MAX_TOKENS = 1000
+        // 一份完整人物档案包含约 70 个字段。1800 token 会让部分模型在十几个字段后
+        // 因 length 截断，但旧实现没有检查 finish_reason，半张人物卡仍会被提交。
+        private const val DISTILL_SINGLE_MAX_TOKENS = 6000
+        private const val DISTILL_CHUNK_MAX_TOKENS = 3600
+        private const val DISTILL_MERGE_MAX_TOKENS = 6000
+        private const val RELATION_SINGLE_MAX_TOKENS = 5000
+        private const val RELATION_CHUNK_MAX_TOKENS = 2500
+        private const val RELATION_MERGE_MAX_TOKENS = 6000
+        private const val LLM_TRUNCATION_RETRY_MAX_TOKENS = 8000
+        private const val PROFILE_MIN_SCHEMA_FIELDS = 32
+        private const val MAX_PROFILE_EVIDENCE_IDS = 12
+        private val EVIDENCE_ID = Regex("S\\d{6}")
         private const val PARALLEL_WORKERS_CAP = 6
-        private const val RELATION_MAX_CHARS = 12_000
-        private const val RELATION_MAX_SENTENCES = 80
+        private const val RELATION_MAX_CHARS = 80_000
+        private const val RELATION_MAX_SENTENCES = 300
+
+        internal fun relationSentenceBudget(perCharacterBudget: Int, characterCount: Int): Int =
+            (perCharacterBudget.toLong() * characterCount.coerceAtLeast(1))
+                .coerceAtMost(RELATION_MAX_SENTENCES.toLong())
+                .toInt()
+
+        internal fun relationCharBudget(perCharacterBudget: Int, characterCount: Int): Int =
+            (perCharacterBudget.toLong() * characterCount.coerceAtLeast(1))
+                .coerceAtMost(RELATION_MAX_CHARS.toLong())
+                .toInt()
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -368,11 +385,11 @@ class DistillExecutor(
             return generateChunkedProfileMarkdown(runId, payload, character, peerCharacters, fallbackReason = "")
         }
         return try {
-            val content = callLlm(
+            val content = validateFinalProfile(character, payload, callLlm(
                 DistillPromptBuilder.buildDistillMessages(payload, character, peerCharacters),
                 DISTILL_SINGLE_MAX_TOKENS,
                 0.2,
-            )
+            ))
             content to mapOf("chunked" to false, "chunk_count" to 1)
         } catch (e: Exception) {
             PlatformLog.w(TAG, "Single-pass distill failed for $character, retrying with chunked distill: ${e.message}")
@@ -389,11 +406,11 @@ class DistillExecutor(
     ): Pair<String, Map<String, Any?>> {
         val chunkEntries = buildDistillChunkPayloads(payload)
         if (chunkEntries.size <= 1) {
-            val content = callLlm(
+            val content = validateFinalProfile(character, payload, callLlm(
                 DistillPromptBuilder.buildDistillMessages(payload, character, peerCharacters),
                 DISTILL_SINGLE_MAX_TOKENS,
                 0.2,
-            )
+            ))
             return content to mapOf("chunked" to false, "chunk_count" to 1)
         }
         val workers = minOf(PARALLEL_WORKERS_CAP, chunkEntries.size)
@@ -420,7 +437,7 @@ class DistillExecutor(
                     chunkTotal = chunkEntries.size,
                     chunkMode = "partial",
                 ),
-                DISTILL_SINGLE_MAX_TOKENS,
+                DISTILL_CHUNK_MAX_TOKENS,
                 0.2,
             )
         }
@@ -432,19 +449,43 @@ class DistillExecutor(
             "parallel_workers" to workers,
         )
         if (drafts.size == 1) {
-            return drafts.first().second to chunkMeta
+            return validateFinalProfile(character, payload, drafts.first().second) to chunkMeta
         }
         applyDistillProgress(
             runId,
             "merging_character",
             mapOf("character" to character, "chunk_total" to drafts.size, "parallel_workers" to workers),
         )
-        val merged = callLlm(
+        val merged = validateFinalProfile(character, payload, callLlm(
             DistillPromptBuilder.buildDistillMergeMessages(payload, character, peerCharacters, drafts, fallbackReason),
             DISTILL_MERGE_MAX_TOKENS,
             0.2,
-        )
+        ))
         return merged to chunkMeta
+    }
+
+    private fun validateFinalProfile(character: String, payload: DistillPayload, content: String): String {
+        val fields = parseGeneratedMarkdown(content)
+        val schemaFields = ProfileQualityAnalyzer.REPAIRABLE_FIELDS.count(fields::containsKey)
+        if (schemaFields < PROFILE_MIN_SCHEMA_FIELDS) {
+            throw IllegalStateException(
+                "$character 的人物档案结构不完整：仅返回 $schemaFields/${ProfileQualityAnalyzer.REPAIRABLE_FIELDS.size} 个核心字段",
+            )
+        }
+        val allowedEvidenceIds = EVIDENCE_ID.findAll(payload.request["excerpt"]?.toString().orEmpty())
+            .map { it.value }
+            .toSet()
+        val evidenceSource = fields["evidence_source"]?.toString().orEmpty().trim()
+        if (evidenceSource.isNotEmpty()) {
+            val referencedIds = EVIDENCE_ID.findAll(evidenceSource).map { it.value }.toList()
+            if (referencedIds.isEmpty() || referencedIds.any { it !in allowedEvidenceIds }) {
+                throw IllegalStateException("$character 的 evidence_source 引用了输入片段中不存在的证据")
+            }
+            if (referencedIds.distinct().size > MAX_PROFILE_EVIDENCE_IDS) {
+                throw IllegalStateException("$character 的 evidence_source 超过 $MAX_PROFILE_EVIDENCE_IDS 条关键证据")
+            }
+        }
+        return content
     }
 
     // ------------------------------------------------------------------
@@ -462,8 +503,9 @@ class DistillExecutor(
         maxChars: Int,
     ) {
         applyRelationProgress(runId, "rendering_graph", emptyMap())
-        val relationMaxSentences = minOf(maxSentences, RELATION_MAX_SENTENCES)
-        val relationMaxChars = minOf(maxChars, RELATION_MAX_CHARS)
+        // 人物档案节选本来就是逐人独立预算；关系图谱是多人共享节选，需要随人数扩容。
+        val relationMaxSentences = relationSentenceBudget(maxSentences, characters.size)
+        val relationMaxChars = relationCharBudget(maxChars, characters.size)
         val payload = buildRelationPayload(
             novelText = novelText,
             sourcePath = sourcePath,
@@ -999,13 +1041,27 @@ class DistillExecutor(
 
     private suspend fun callLlm(messages: List<LlmClient.ChatMessage>, maxTokens: Int, temperature: Double): String {
         val client = llm ?: throw IllegalStateException("LLM 客户端未配置")
-        val content = client.chatCompletion(
-            messages = messages,
-            temperature = temperature,
-            maxTokens = maxTokens,
-        ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
-        if (content.isBlank()) throw IllegalStateException("LLM 返回空内容")
-        return stripFences(content)
+        var tokenBudget = maxTokens
+        repeat(2) { attempt ->
+            val choice = client.chatCompletion(
+                messages = messages,
+                temperature = temperature,
+                maxTokens = tokenBudget,
+            ).choices.firstOrNull() ?: throw IllegalStateException("LLM 未返回候选内容")
+            val content = choice.message?.content?.trim().orEmpty()
+            if (content.isBlank()) throw IllegalStateException("LLM 返回空内容")
+            if (!choice.finish_reason.equals("length", ignoreCase = true)) {
+                return stripFences(content)
+            }
+            if (attempt == 0 && tokenBudget < LLM_TRUNCATION_RETRY_MAX_TOKENS) {
+                val nextBudget = (tokenBudget * 2).coerceAtMost(LLM_TRUNCATION_RETRY_MAX_TOKENS)
+                PlatformLog.w(TAG, "LLM output truncated at $tokenBudget tokens; retrying with $nextBudget tokens")
+                tokenBudget = nextBudget
+            } else {
+                throw IllegalStateException("LLM 输出达到 $tokenBudget token 上限，人物档案可能不完整")
+            }
+        }
+        throw IllegalStateException("LLM 输出重试失败")
     }
 
     private fun resolveSourcePath(manifest: JsonObject, runDir: Path): String {

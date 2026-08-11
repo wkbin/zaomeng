@@ -233,12 +233,7 @@ class ProfileRepairService(
         confidence: Int,
         pendingRepairs: Int,
     ): PersonaQualityReportDto {
-        val filled = ProfileQualityAnalyzer.REPAIRABLE_FIELDS.count { field ->
-            fields[field]?.trim()?.takeIf(String::isNotBlank)?.isInsufficientValue() == false
-        }
-        val completeness = filled * 100 / ProfileQualityAnalyzer.REPAIRABLE_FIELDS.size
-        val penalty = issues.sumOf { if (it.severity == "high") 5 else 2 }.coerceAtMost(35)
-        val score = (completeness - penalty).coerceIn(0, 100)
+        val score = ProfileQualityAnalyzer.qualityScore(fields, issues)
         return PersonaQualityReportDto(
             character = character,
             score = score,
@@ -247,7 +242,7 @@ class ProfileRepairService(
             verdict = when {
                 issues.isEmpty() -> "人物档案核心字段完整，未发现明显重复或矛盾。"
                 pendingRepairs > 0 -> "发现 ${issues.size} 项质量问题，已生成 $pendingRepairs 项有原文依据的字段修复建议。"
-                else -> "发现 ${issues.size} 项质量问题，但当前原文证据不足以安全自动补全。"
+                else -> "发现 ${issues.size} 项待完善内容，未生成可安全应用的自动修改；未知字段保持为空。"
             },
             issues = issues,
             evidenceCoverage = evidenceCoverage,
@@ -438,6 +433,23 @@ object ProfileQualityAnalyzer {
             }
         }
         return issues.distinctBy { issue -> issue.fields.sorted().joinToString("|") + issue.message }
+    }
+
+    fun isMissingFieldIssue(issue: PersonaIssueDto): Boolean =
+        issue.message.endsWith("为空或仍是占位内容。")
+
+    fun qualityScore(fields: Map<String, String>, issues: List<PersonaIssueDto>): Int {
+        val filled = REPAIRABLE_FIELDS.count { field ->
+            val value = fields[field].orEmpty().trim()
+            value.isNotBlank() && !value.isPlaceholder()
+        }
+        val completeness = filled * 100 / REPAIRABLE_FIELDS.size
+        // 空字段已通过 completeness 计分，不能再作为 issue 重复扣一次分。
+        // 否则一份实际完整度 50~60 的档案会被压到 10~20。
+        val qualityPenalty = issues.filterNot(::isMissingFieldIssue)
+            .sumOf { if (it.severity == "high") 5 else 2 }
+            .coerceAtMost(35)
+        return (completeness - qualityPenalty).coerceIn(0, 100)
     }
 
     private fun String.isPlaceholder(): Boolean {

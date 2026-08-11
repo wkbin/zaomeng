@@ -133,7 +133,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
-import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.data.preferences.ChatDisplayPreferences
 import top.wkbin.zaomeng.platform.PlatformBackHandler
 import top.wkbin.zaomeng.platform.rememberClipboardTextWriter
@@ -1628,7 +1627,6 @@ private fun TranscriptBubble(
                             style = messageStyle.copy(fontStyle = FontStyle.Italic),
                             baseColor = MaterialTheme.colorScheme.onTertiaryContainer,
                         )
-                        TurnEvidenceBlock(item.evidence)
                     }
                 }
                 MessageContextMenu(
@@ -1691,7 +1689,6 @@ private fun TranscriptBubble(
                             baseColor = MaterialTheme.colorScheme.onSurface,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
-                        TurnEvidenceBlock(item.evidence)
                     }
                 }
                 MessageContextMenu(
@@ -1789,7 +1786,6 @@ private fun TranscriptBubble(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
-                        TurnEvidenceBlock(item.evidence)
                     }
                 }
                 MessageContextMenu(
@@ -1802,37 +1798,6 @@ private fun TranscriptBubble(
                     onRegenerate = onRegenerate,
                     onBranch = onBranch,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TurnEvidenceBlock(evidence: List<OriginalKnowledgeEntryDto>) {
-    if (evidence.isEmpty()) return
-    var expanded by remember(evidence.map(OriginalKnowledgeEntryDto::sourceId)) { mutableStateOf(false) }
-    TextButton(
-        onClick = { expanded = !expanded },
-        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-    ) {
-        Text(if (expanded) "收起本轮原文依据" else "查看本轮使用的 ${evidence.size} 段原文依据")
-    }
-    if (expanded) {
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            evidence.forEach { item ->
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            "${item.sourceId} · 字符 ${item.location.startChar}–${item.location.endChar}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(item.excerpt, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
             }
         }
     }

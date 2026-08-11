@@ -1,6 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -58,5 +59,34 @@ class ProfileQualityAnalyzerTest {
 
         assertTrue(issues.any { it.severity == "high" && "冷静" in it.message && "冲动" in it.message })
         assertTrue(issues.any { it.severity == "high" && "克制" in it.message && "失控" in it.message })
+    }
+
+    @Test
+    fun `missing fields reduce completeness once instead of being double penalized`() {
+        val fields = ProfileQualityAnalyzer.REPAIRABLE_FIELDS.take(20)
+            .associateWith { field -> "$field 的原文支持内容" }
+        val issues = ProfileQualityAnalyzer.analyze(fields)
+
+        assertEquals(51, ProfileQualityAnalyzer.qualityScore(fields, issues))
+        assertTrue(issues.count(ProfileQualityAnalyzer::isMissingFieldIssue) > 0)
+    }
+
+    @Test
+    fun `relation excerpt budget grows with selected character count`() {
+        assertEquals(120, DistillExecutor.relationSentenceBudget(120, 1))
+        assertEquals(300, DistillExecutor.relationSentenceBudget(120, 10))
+        assertEquals(50_000, DistillExecutor.relationCharBudget(50_000, 1))
+        assertEquals(80_000, DistillExecutor.relationCharBudget(50_000, 10))
+    }
+
+    @Test
+    fun `distill excerpts carry stable source evidence ids`() {
+        val source = "序章。\n宋江说道今日启程。\n旁人应允。\n后来宋江再次归来。"
+
+        val result = DistillExcerptBuilder.build(source, listOf("宋江"), 20, 2_000)
+
+        assertTrue("[S000002] 宋江说道今日启程。" in result.excerpt)
+        assertTrue("[S000004] 后来宋江再次归来。" in result.excerpt)
+        assertTrue(result.excerptStages.values.any { "[S000002]" in it })
     }
 }

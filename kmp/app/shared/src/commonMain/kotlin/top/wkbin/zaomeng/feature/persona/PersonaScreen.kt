@@ -425,6 +425,7 @@ private fun RepairProposalCard(
 ) {
     if (proposal == null && error.isBlank()) return
     if (proposal?.status in setOf("not_available", "not_needed", "applied") && error.isBlank()) return
+    var expanded by rememberSaveable(proposal?.createdAt, error) { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -448,22 +449,30 @@ private fun RepairProposalCard(
                         )
                     }
                 }
-                if (!proposal?.changes.isNullOrEmpty()) {
-                    TextButton(
-                        onClick = onApplyAll,
-                        enabled = enabled && proposal.changes.any { it.field !in appliedFields },
-                    ) { Text("全部应用到草稿") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (expanded && !proposal?.changes.isNullOrEmpty()) {
+                        TextButton(
+                            onClick = onApplyAll,
+                            enabled = enabled && proposal.changes.any { it.field !in appliedFields },
+                        ) { Text("全部应用") }
+                    }
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = if (expanded) "收起自动修复建议" else "展开自动修复建议",
+                        )
+                    }
                 }
             }
-            if (error.isNotBlank()) {
-                Text(error, color = MaterialTheme.colorScheme.error)
-            } else if (proposal != null && proposal.changes.isEmpty()) {
-                Text(
-                    "检测到 ${proposal.issues.size} 项问题，但没有足够直接的原文证据可安全补全；建议手动复核。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                proposal?.changes.orEmpty().forEach { change ->
+            if (expanded) {
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                } else if (proposal != null && proposal.changes.isEmpty()) {
+                    Text(
+                        "检测到 ${proposal.issues.size} 项待完善内容，未生成可安全应用的修改；未知字段将保持为空。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else proposal?.changes.orEmpty().forEach { change ->
                     val applied = change.field in appliedFields
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(
