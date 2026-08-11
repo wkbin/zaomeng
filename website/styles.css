@@ -15,7 +15,7 @@
   --shadow: 0 36px 90px rgba(0, 0, 0, 0.42);
   --radius-lg: 30px;
   --radius-md: 20px;
-  --shell: min(1180px, calc(100% - 48px));
+  --shell: min(1120px, calc(100% - 48px));
   color-scheme: dark;
 }
 
@@ -37,7 +37,7 @@ body {
     radial-gradient(circle at 73% 8%, rgba(90, 50, 120, 0.22), transparent 30%),
     radial-gradient(circle at 15% 48%, rgba(92, 56, 112, 0.12), transparent 28%),
     var(--ink);
-  font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
@@ -106,7 +106,7 @@ img {
 }
 
 .section-pad {
-  padding-block: 124px;
+  padding-block: 96px;
 }
 
 .page-noise {
@@ -172,10 +172,10 @@ img {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  font-family: "STKaiti", "KaiTi", serif;
-  font-size: 22px;
+  font-family: inherit;
+  font-size: 20px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.05em;
 }
 
 .brand-mark {
@@ -263,8 +263,8 @@ img {
 .hero {
   position: relative;
   display: grid;
-  min-height: 100svh;
-  padding: 132px 0 90px;
+  min-height: 92svh;
+  padding: 116px 0 72px;
   place-items: center;
 }
 
@@ -285,8 +285,8 @@ img {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.9fr) minmax(540px, 1.25fr);
-  gap: 38px;
+  grid-template-columns: minmax(380px, 0.88fr) minmax(500px, 1.12fr);
+  gap: 52px;
   align-items: center;
 }
 
@@ -323,15 +323,15 @@ img {
 .download h2,
 .community h2 {
   margin: 0;
-  font-family: "STKaiti", "KaiTi", "Noto Serif SC", serif;
-  font-weight: 600;
-  line-height: 1.13;
-  letter-spacing: -0.045em;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
 }
 
 .hero h1 {
   margin-top: 25px;
-  font-size: clamp(56px, 6vw, 88px);
+  font-size: clamp(44px, 4.5vw, 64px);
 }
 
 .hero h1 em {
@@ -344,7 +344,7 @@ img {
   max-width: 610px;
   margin: 25px 0 0;
   color: var(--paper-muted);
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .hero-actions,
@@ -400,7 +400,7 @@ img {
 .hero-meta {
   display: flex;
   gap: 28px;
-  margin-top: 48px;
+  margin-top: 36px;
 }
 
 .hero-meta > div {
@@ -412,7 +412,7 @@ img {
 
 .hero-meta strong {
   color: var(--paper);
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 19px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -426,9 +426,9 @@ img {
 .hero-stage {
   position: relative;
   z-index: 1;
-  width: 112%;
-  margin-right: -12%;
-  transform: perspective(1400px) rotateY(-5deg) rotateX(2deg);
+  width: 100%;
+  margin-right: 0;
+  transform: perspective(1400px) rotateY(-3deg) rotateX(1deg);
   transform-origin: center left;
 }
 
@@ -605,9 +605,10 @@ img {
 
 .manifesto blockquote {
   margin: -10px 0 0;
-  font-family: "STKaiti", "KaiTi", serif;
-  font-size: clamp(32px, 4vw, 55px);
-  line-height: 1.5;
+  font-family: inherit;
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .manifesto-copy {
@@ -623,7 +624,7 @@ img {
 .section-heading h2,
 .download h2,
 .community h2 {
-  font-size: clamp(42px, 5vw, 68px);
+  font-size: clamp(34px, 4vw, 52px);
 }
 
 .heading-row {
@@ -652,7 +653,7 @@ img {
 
 .journey-card {
   position: relative;
-  min-height: 390px;
+  min-height: 340px;
   padding: 28px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -669,15 +670,15 @@ img {
 
 .step-index {
   color: #756b7d;
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 12px;
 }
 
 .step-glyph {
   display: grid;
-  width: 92px;
-  height: 92px;
-  margin: 38px 0 28px;
+  width: 76px;
+  height: 76px;
+  margin: 28px 0 24px;
   place-items: center;
   color: var(--gold-light);
   border: 1px solid var(--line-strong);
@@ -685,8 +686,9 @@ img {
   background:
     radial-gradient(circle, rgba(229, 170, 67, 0.12), transparent 65%),
     var(--ink-soft);
-  font-family: "STKaiti", "KaiTi", serif;
-  font-size: 38px;
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 600;
   box-shadow: inset 0 0 0 8px rgba(229, 170, 67, 0.025);
 }
 
@@ -694,9 +696,9 @@ img {
 .feature-card h3,
 .skill-strip h3 {
   margin: 0;
-  font-family: "STKaiti", "KaiTi", serif;
-  font-size: 27px;
-  font-weight: 600;
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 700;
   line-height: 1.3;
 }
 
@@ -710,7 +712,7 @@ img {
 .journey-arrow {
   align-self: center;
   color: rgba(229, 170, 67, 0.45);
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 24px;
 }
 
@@ -818,12 +820,12 @@ img {
 
 .feature-card h3 {
   margin-top: 14px;
-  font-size: 31px;
+  font-size: 26px;
 }
 
 .feature-card-wide {
   display: grid;
-  min-height: 390px;
+  min-height: 350px;
   grid-column: span 8;
   grid-template-columns: 1fr 0.9fr;
   align-items: center;
@@ -922,7 +924,7 @@ img {
   color: var(--gold-light);
   border-radius: 50%;
   background: #443054;
-  font-family: serif;
+  font-family: inherit;
   font-size: 11px;
   font-style: normal;
 }
@@ -997,7 +999,7 @@ img {
 .local-ring span {
   z-index: 1;
   color: var(--gold-light);
-  font-family: "STKaiti", "KaiTi", serif;
+  font-family: inherit;
   font-size: 20px;
 }
 
@@ -1049,7 +1051,7 @@ img {
 
 .showcase-canvas {
   position: relative;
-  min-height: 720px;
+  min-height: 640px;
   padding: 55px 55px 0;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1173,7 +1175,7 @@ img {
 .screen-caption span {
   margin-right: 8px;
   color: var(--gold);
-  font-family: Georgia, serif;
+  font-family: inherit;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -1236,7 +1238,7 @@ img {
   border: 1px solid var(--line-strong);
   border-radius: 15px;
   background: rgba(229, 170, 67, 0.05);
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 18px;
 }
 
@@ -1282,7 +1284,7 @@ img {
   color: var(--gold);
   border: 1px solid var(--line-strong);
   border-radius: 50%;
-  font-family: Georgia, serif;
+  font-family: inherit;
 }
 
 .upgrade-note p { margin: 0; }
@@ -1395,7 +1397,7 @@ img {
 
 .community-meta strong {
   color: var(--gold-light);
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 13px;
   letter-spacing: 0.08em;
 }
@@ -1424,7 +1426,7 @@ img {
 .footer-grid > p {
   color: #716777;
   text-align: center;
-  font-family: "STKaiti", "KaiTi", serif;
+  font-family: inherit;
 }
 
 .footer-links {
@@ -1473,12 +1475,9 @@ img {
     grid-template-columns: 0.95fr 1.05fr;
   }
 
-  .hero-stage {
-    width: 105%;
-    margin-right: -5%;
-  }
+  .hero-stage { width: 100%; margin-right: 0; }
 
-  .hero h1 { font-size: clamp(52px, 6vw, 72px); }
+  .hero h1 { font-size: clamp(42px, 5vw, 58px); }
   .manifesto-grid { grid-template-columns: 0.35fr 1.3fr 0.7fr; gap: 30px; }
   .feature-card-wide { grid-column: span 7; }
   .feature-card-chat { grid-column: span 5; }
@@ -1487,7 +1486,7 @@ img {
 
 @media (max-width: 900px) {
   :root { --shell: min(100% - 36px, 760px); }
-  .section-pad { padding-block: 92px; }
+  .section-pad { padding-block: 76px; }
 
   .menu-button {
     position: relative;
@@ -1511,8 +1510,8 @@ img {
     visibility: hidden;
     opacity: 0;
     background: rgba(16, 13, 22, 0.97);
-    font-family: "STKaiti", "KaiTi", serif;
-    font-size: 30px;
+    font-family: inherit;
+    font-size: 24px;
     transform: translateY(-10px);
     transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
   }
@@ -1574,11 +1573,11 @@ img {
 
 @media (max-width: 620px) {
   :root { --shell: calc(100% - 28px); --radius-lg: 22px; }
-  .section-pad { padding-block: 78px; }
+  .section-pad { padding-block: 64px; }
   .nav-shell { height: 68px; }
 
   .hero { padding-top: 110px; }
-  .hero h1 { font-size: clamp(46px, 15vw, 64px); }
+  .hero h1 { font-size: clamp(38px, 12vw, 48px); }
   .hero-lead { font-size: 16px; }
   .hero-actions { flex-direction: column; }
   .hero-actions .button { width: 100%; }
@@ -1596,17 +1595,17 @@ img {
   .memory-note-top { top: -26px; }
   .memory-note-bottom { bottom: -28px; }
 
-  .manifesto blockquote { font-size: 30px; }
+  .manifesto blockquote { font-size: 26px; }
   .section-heading { margin-bottom: 38px; }
   .section-heading h2,
   .download h2,
-  .community h2 { font-size: 40px; }
+  .community h2 { font-size: 34px; }
 
   .journey-card { min-height: 310px; padding: 24px; }
   .step-glyph { width: 74px; height: 74px; margin: 28px 0 22px; font-size: 31px; }
 
   .feature-card { min-height: 0; padding: 26px; }
-  .feature-card h3 { font-size: 27px; }
+  .feature-card h3 { font-size: 23px; }
   .feature-card-wide { grid-template-columns: 1fr; }
   .constellation { width: 250px; height: 220px; margin: 25px auto -20px; transform: scale(0.86); transform-origin: center; }
   .feature-card-local { grid-template-columns: 1fr; }
