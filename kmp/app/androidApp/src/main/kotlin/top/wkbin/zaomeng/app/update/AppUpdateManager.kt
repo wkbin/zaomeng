@@ -38,7 +38,7 @@ class AppUpdateManager(
             .build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("检查更新失败：GitHub 返回 ${response.code}")
-            parseLatestRelease(response.body?.string().orEmpty(), BuildConfig.VERSION_NAME)
+            parseLatestRelease(response.body.string(), BuildConfig.VERSION_NAME)
         }
     }
 
@@ -63,7 +63,7 @@ class AppUpdateManager(
                 .build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) error("下载更新失败：服务器返回 ${response.code}")
-                val body = response.body ?: error("下载更新失败：响应内容为空")
+                val body = response.body
                 val totalBytes = body.contentLength().takeIf { it > 0L } ?: -1L
                 if (totalBytes > MAX_UPDATE_BYTES) error("更新包过大，无法安全下载。")
                 var downloadedBytes = 0L
