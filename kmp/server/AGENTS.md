@@ -4,9 +4,12 @@
 
 ## 职责边界
 
+- `:server` 是聚合模块：保留 `commonMain/ktor/routes`、`commonMain/ktor/services` 与平台 actual。
+- `:server:storage` 承载 `commonMain/db`、`StorageService`、`PathSafety` 与模型 DTO。
+- `:server:llm` 承载 `LlmClient`、`ModelApiKeyService`、提示词构建与响应解析。
+- `:server:http` 承载 Ktor 插件、SSE 编码器与 `HealthRoute`。
 - `commonMain/ktor/routes` 只负责 HTTP/SSE 参数、状态码和响应映射；业务逻辑放入 service。
 - `commonMain/ktor/services` 承载模型调用编排、对话、书卷、记忆、卡片和插件业务。
-- `commonMain/db` 维护 Room 实体、DAO、文档存储与领域索引同步。
 - `commonMain/platform` 声明跨平台能力；Android、JVM、iOS 源码集提供对应实现。
 - 不要在 route 中直接读写 Room、文件或安全存储。
 
@@ -47,7 +50,7 @@
 从 `kmp/` 运行最小验证：
 
 ```powershell
-.\gradlew.bat :server:jvmTest :server:compileKotlinJvm :server:compileAndroidMain
+.\gradlew.bat :server:storage:jvmTest :server:llm:jvmTest :server:http:jvmTest :server:jvmTest :server:compileKotlinJvm :server:compileAndroidMain
 ```
 
 iOS 平台实现有变化时，必须说明是否已在 macOS CI 或本机执行 `:server:compileKotlinIosSimulatorArm64`。

@@ -4,9 +4,9 @@
 
 ## 分层
 
-- Compose screen/composable 负责展示与用户事件，不直接访问 Ktor、Room 或平台文件系统。
+- Compose screen/composable（通常位于 `feature:*` 模块）负责展示与用户事件，不直接访问 Ktor、Room 或平台文件系统。
 - ViewModel 负责页面状态、任务生命周期和幂等合并；网络调用通过 Repository/API client。
-- Repository 负责 DTO、HTTP 错误映射、SSE 事件和缓存边界，不包含界面文案布局逻辑。
+- Repository 位于 `data:repository`，负责 DTO、HTTP 错误映射、SSE 事件和缓存边界，不包含界面文案布局逻辑。
 - 平台能力放入对应源码集的 `actual` 实现，`commonMain` 保持平台无关。
 
 ## 状态与流式 UI

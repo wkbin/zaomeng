@@ -33,10 +33,23 @@ Android / 桌面 / iOS 三端共享的 Compose Multiplatform 应用，内嵌 Kto
 ```
 kmp/
 ├── app/
-│   ├── shared/          # 三端共享 UI 与业务逻辑（commonMain + 各平台 actual）
+│   ├── shared/          # 导航、App、ViewModel/DI 装配与平台入口
 │   ├── androidApp/      # Android 入口
 │   └── desktopApp/      # 桌面入口
-├── server/              # 内嵌 Ktor 后端：路由 / 服务 / 模型 / 插件，Room 持久化
+├── core/
+│   ├── contracts/       # 跨层 DTO、稳定契约和纯值类型
+│   ├── domain/          # UseCase 与 Gateway 契约
+│   └── runtime/         # 嵌入式后端、安全存储与流式 HTTP 等运行时抽象
+├── data/
+│   ├── remote/          # Ktor client、SSE、下载、更新检查与偏好存储
+│   └── repository/      # 应用 Repository 实现与 Gateway 适配
+├── feature/             # 各业务 Screen/ViewModel 独立模块
+├── ui/
+│   └── shared/          # 主题、跨平台 UI 辅助与共享展示模型
+├── server/              # 内嵌 Ktor 聚合：路由 / 业务服务 / 插件 / 平台入口
+│   ├── storage/         # Room、StorageService、PathSafety
+│   ├── llm/             # LlmClient、提示词构建与响应解析
+│   └── http/            # HTTP 插件、SSE 编码器与基础路由
 ├── plugins-api/         # 插件接口契约
 ├── builtin-plugins/     # 内置插件实现
 └── iosApp/              # iOS Xcode 工程（独立于 Gradle 构建）
@@ -65,7 +78,7 @@ kmp/
 .\gradlew.bat :app:desktopApp:run
 
 # JVM 单测
-.\gradlew.bat :server:jvmTest :app:shared:jvmTest
+.\gradlew.bat :server:storage:jvmTest :server:llm:jvmTest :server:http:jvmTest :server:jvmTest :app:shared:jvmTest
 ```
 
 iOS：用 Xcode 打开 `iosApp/iosApp.xcodeproj`，构建脚本会自动调用 Gradle 生成 shared framework。

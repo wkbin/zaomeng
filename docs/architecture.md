@@ -32,9 +32,14 @@ flowchart LR
 | `core/runtime` | 嵌入式后端、端点与安全存储等运行时抽象 |
 | `data/remote` | Ktor API client、SSE、在线书库下载、更新检查、流式文件读写和偏好存储 |
 | `data/repository` | 应用 Repository 实现与 domain Gateway 适配 |
+| `ui/shared` | 主题、跨平台 UI 辅助、平台能力 actual 与共享展示模型 |
+| `feature/*` | 按业务拆分的 Screen/ViewModel 模块（bookshelf、chapters、sessions、persona、chat 等） |
 | `app/androidApp` | Android 入口、权限、签名与 APK 打包 |
 | `app/desktopApp` | Desktop 入口与桌面打包 |
-| `server` | 本地 Ktor、业务服务、模型编排、Room 持久化 |
+| `server` | 本地 Ktor 聚合模块：路由、业务服务、插件宿主与平台入口，组合 storage/llm/http |
+| `server/storage` | Room、StorageService、PathSafety 与领域模型 |
+| `server/llm` | LlmClient、模型密钥、提示词构建与响应解析 |
+| `server/http` | HTTP 插件、SSE 编码器与基础路由 |
 | `plugins-api` | 插件稳定契约 |
 | `builtin-plugins` | 官方内置插件 |
 | `iosApp` | iOS Xcode 宿主工程 |

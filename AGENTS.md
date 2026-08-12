@@ -13,12 +13,20 @@
 
 ## KMP 模块
 
-- `kmp/app/shared`：共享 UI、ViewModel、Repository 和平台 HTTP 实现。
+- `kmp/app/shared`：共享 UI、导航、ViewModel、展示层 DI 与平台入口。
 - `kmp/app/androidApp`：Android 应用入口与打包配置。
 - `kmp/app/desktopApp`：Desktop 应用入口。
+- `kmp/core/contracts`：跨层 DTO、稳定契约和纯值类型。
 - `kmp/core/domain`：领域 Gateway、UseCase 与不依赖 UI 的业务编排。
-- `kmp/data/remote`：跨平台 Ktor API Client、客户端网络引擎与流式 HTTP 实现。
-- `kmp/server`：内嵌 Ktor 路由、业务服务、模型调用、持久化与平台抽象。
+- `kmp/core/runtime`：嵌入式后端、端点、安全存储与流式 HTTP 等运行时抽象。
+- `kmp/data/remote`：Ktor API client、SSE、在线书库下载、更新检查、流式文件读写与 DataStore 偏好存储。
+- `kmp/data/repository`：面向应用的 Repository 实现与 domain Gateway 适配。
+- `kmp/ui/shared`：主题、跨平台 UI 辅助与共享展示模型。
+- `kmp/feature/*`：按业务拆分的 Screen/ViewModel 模块（bookshelf、chapters、sessions、persona、chat 等）。
+- `kmp/server`：内嵌 Ktor 聚合模块，保留路由、业务服务、插件宿主与平台入口。
+- `kmp/server/storage`：Room、StorageService、PathSafety 与领域模型。
+- `kmp/server/llm`：LlmClient、ModelApiKeyService、提示词构建与响应解析。
+- `kmp/server/http`：HTTP 插件、SSE 编码器与基础路由。
 - `kmp/plugins-api`：插件公共契约；保持向后兼容。
 - `kmp/builtin-plugins`：内置插件实现。
 - `kmp/iosApp`：iOS Xcode 工程。
@@ -74,13 +82,13 @@
 
 命令默认从 `kmp/` 目录运行。Windows 使用 `gradlew.bat`，Unix/macOS 使用 `./gradlew`。需要 JDK 17+，CI 使用 JDK 21。
 
-快速验证服务端改动：
+快速验证服务端改动（含子模块）：
 
 ```powershell
-.\gradlew.bat :server:jvmTest :server:compileKotlinJvm :server:compileAndroidMain
+.\gradlew.bat :server:storage:jvmTest :server:llm:jvmTest :server:http:jvmTest :server:jvmTest :server:compileKotlinJvm :server:compileAndroidMain
 ```
 
-共享应用改动：
+共享应用改动（涉及独立 feature 模块时追加对应 `:feature:*:jvmTest`）：
 
 ```powershell
 .\gradlew.bat :app:shared:jvmTest :app:shared:compileKotlinJvm :app:shared:compileAndroidMain
