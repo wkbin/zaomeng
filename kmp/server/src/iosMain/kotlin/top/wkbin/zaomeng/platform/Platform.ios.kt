@@ -34,30 +34,9 @@ import platform.Foundation.NSNumber
 import platform.Foundation.NSUUID
 import platform.UIKit.UIDevice
 
-actual object PlatformLog {
-    actual fun d(tag: String, message: String) {
-        println("[$tag] $message")
-    }
-
-    actual fun i(tag: String, message: String) {
-        println("[$tag] $message")
-    }
-
-    actual fun w(tag: String, message: String, throwable: Throwable?) {
-        println("[$tag] $message")
-    }
-
-    actual fun e(tag: String, message: String, throwable: Throwable?) {
-        println("[$tag] $message")
-        throwable?.printStackTrace()
-    }
-}
 
 // YAML：jvm/android 用 snakeyaml（经典版）；iOS 用 snakeyaml-engine-kmp（同一语义的 KMP 移植）。
 @Suppress("UNCHECKED_CAST")
-actual fun parseYaml(text: String): Map<String, Any?>? =
-    runCatching { Load().loadOne(text) }.getOrNull() as? Map<String, Any?>
-
 actual fun dumpYaml(value: Any?): String =
     Dump(DumpSettings(defaultFlowStyle = FlowStyle.BLOCK)).dumpToString(value)
 
@@ -93,52 +72,3 @@ actual fun systemProperty(name: String): String? = when (name) {
     "os.arch" -> null
     else -> null
 }
-
-actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.Default
-
-actual fun createHttpClientEngine(): HttpClientEngine = Darwin.create()
-
-private val streamingHttpClient by lazy {
-    HttpClient(Darwin) { expectSuccess = false }
-}
-
-actual suspend fun openStreamingHttpPost(
-    url: String,
-    headers: Map<String, String>,
-    body: String,
-): PlatformStreamingResponse {
-    val requestHeaders = headers
-    val response = streamingHttpClient.preparePost(url) {
-        contentType(ContentType.Application.Json)
-        headers {
-            requestHeaders.forEach { (name, value) -> append(name, value) }
-        }
-        setBody(body)
-    }.execute()
-    return DarwinStreamingResponse(
-        statusCode = response.status.value,
-        statusDescription = response.status.description,
-        channel = response.bodyAsChannel(),
-    )
-}
-
-private class DarwinStreamingResponse(
-    override val statusCode: Int,
-    override val statusDescription: String,
-    private val channel: ByteReadChannel,
-) : PlatformStreamingResponse {
-    override suspend fun readUtf8Line(): String? = channel.readUTF8Line()
-
-    override suspend fun readRemainingText(): String = buildString {
-        while (true) {
-            val line = channel.readUTF8Line() ?: break
-            if (isNotEmpty()) append('\n')
-            append(line)
-        }
-    }
-
-    override fun close() = channel.cancel()
-}
-
-actual fun <T> runBlockingPlatform(block: suspend CoroutineScope.() -> T): T =
-    runBlocking(block = block)

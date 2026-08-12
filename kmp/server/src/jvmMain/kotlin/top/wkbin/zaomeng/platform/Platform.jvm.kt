@@ -26,27 +26,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-actual object PlatformLog {
-    actual fun d(tag: String, message: String) {
-        println("[$tag] $message")
-    }
 
-    actual fun i(tag: String, message: String) {
-        println("[$tag] $message")
-    }
-
-    actual fun w(tag: String, message: String, throwable: Throwable?) {
-        println("[$tag] WARN: $message")
-        throwable?.printStackTrace()
-    }
-
-    actual fun e(tag: String, message: String, throwable: Throwable?) {
-        System.err.println("[$tag] ERROR: $message")
-        throwable?.printStackTrace()
-    }
-}
-
-private val jvmYamlParser = Yaml(SafeConstructor(LoaderOptions()))
 private val jvmYamlDumper = Yaml(
     DumperOptions().apply {
         defaultFlowStyle = DumperOptions.FlowStyle.BLOCK
@@ -54,9 +34,6 @@ private val jvmYamlDumper = Yaml(
 )
 
 @Suppress("UNCHECKED_CAST")
-actual fun parseYaml(text: String): Map<String, Any?>? =
-    runCatching { jvmYamlParser.load<Any?>(text) }.getOrNull() as? Map<String, Any?>
-
 actual fun dumpYaml(value: Any?): String = jvmYamlDumper.dump(value)
 
 actual fun randomUuid(): String = UUID.randomUUID().toString()
@@ -120,49 +97,3 @@ actual fun diskSpaceOf(path: Path): DiskSpaceInfo? = try {
 }
 
 actual fun systemProperty(name: String): String? = System.getProperty(name)
-
-actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.IO
-
-actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
-
-private val streamingHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.MINUTES)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
-}
-
-actual suspend fun openStreamingHttpPost(
-    url: String,
-    headers: Map<String, String>,
-    body: String,
-): PlatformStreamingResponse = withContext(Dispatchers.IO) {
-    val requestBuilder = Request.Builder()
-        .url(url)
-        .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-    headers.forEach { (name, value) -> requestBuilder.header(name, value) }
-    OkHttpStreamingResponse(streamingHttpClient.newCall(requestBuilder.build()).execute())
-}
-
-private class OkHttpStreamingResponse(
-    private val response: Response,
-) : PlatformStreamingResponse {
-    private val source = requireNotNull(response.body).source()
-
-    override val statusCode: Int = response.code
-    override val statusDescription: String = response.message
-
-    override suspend fun readUtf8Line(): String? = withContext(Dispatchers.IO) {
-        source.readUtf8Line()
-    }
-
-    override suspend fun readRemainingText(): String = withContext(Dispatchers.IO) {
-        source.readUtf8()
-    }
-
-    override fun close() = response.close()
-}
-
-actual fun <T> runBlockingPlatform(block: suspend CoroutineScope.() -> T): T =
-    runBlocking(block = block)

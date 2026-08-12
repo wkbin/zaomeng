@@ -82,7 +82,8 @@ android {
 }
 
 dependencies {
-    implementation(project(":app:shared"))
+            implementation(project(":app:shared"))
+            implementation(project(":data:remote"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

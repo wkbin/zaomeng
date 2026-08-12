@@ -9,8 +9,6 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp.library)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.androidx.room3)
 }
 
 kotlin {
@@ -40,12 +38,13 @@ kotlin {
         commonMain.dependencies {
             api(project(":core:contracts"))
             api(project(":core:runtime"))
+            api(project(":server:storage"))
+            implementation(project(":server:llm"))
+            implementation(project(":server:http"))
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.okio)
-            implementation(libs.androidx.room3.runtime)
-            implementation(libs.androidx.sqlite.bundled)
             implementation(libs.ktor.server.core)
             implementation(libs.ktor.server.cio.kmp)
             implementation(libs.ktor.server.content.negotiation)
@@ -90,18 +89,5 @@ kotlin {
             implementation(libs.snakeyaml.engine.kmp)
             implementation(libs.kitearchive)
         }
-    }
-}
-
-room3 {
-    schemaDirectory("$projectDir/schemas")
-}
-
-dependencies {
-    add("kspJvm", libs.androidx.room3.compiler)
-    add("kspAndroid", libs.androidx.room3.compiler)
-    if (isMacHost) {
-        add("kspIosArm64", libs.androidx.room3.compiler)
-        add("kspIosSimulatorArm64", libs.androidx.room3.compiler)
     }
 }

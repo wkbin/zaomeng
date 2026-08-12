@@ -28,7 +28,9 @@ import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import androidx.window.core.layout.WindowSizeClass
 import org.koin.core.parameter.parametersOf
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import top.wkbin.zaomeng.di.AppPlatform
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfScreen
 import top.wkbin.zaomeng.feature.bookshelf.BookshelfViewModel
 import top.wkbin.zaomeng.feature.chapters.ChaptersScreen
@@ -97,6 +99,7 @@ fun ZaomengNavHost(
     builtInBackHandlingEnabled: Boolean = true,
 ) {
     val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
+    val platform: AppPlatform = koinInject()
     val runDetailRefreshEpoch = remember { mutableStateOf(0) }
 
     val pendingLaunchRunId = remember(launchChaptersRunId) {
@@ -171,7 +174,7 @@ fun ZaomengNavHost(
                 )
             }
             entry(ChatDisplaySettingsDestination) {
-                ChatDisplaySettingsScreen(onBack = popBack)
+                ChatDisplaySettingsScreen(filesDir = platform.filesDir, onBack = popBack)
             }
             entry(AppearanceSettingsDestination) {
                 AppearanceSettingsScreen(
@@ -202,7 +205,7 @@ fun ZaomengNavHost(
                 )
             }
             entry(PluginsDestination) {
-                PluginsScreen(onBack = popBack)
+                PluginsScreen(filesDir = platform.filesDir, onBack = popBack)
             }
             entry(AppSupportSettingsDestination) {
                 val viewModel: SettingsViewModel = koinViewModel()

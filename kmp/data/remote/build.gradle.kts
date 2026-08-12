@@ -5,6 +5,7 @@ val isMacHost = hostOs == "mac os x" || hostOs == "macos" || hostOs == "darwin"
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp.library)
 }
 
@@ -38,6 +39,7 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            api(libs.bundles.androidx.datastore)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)

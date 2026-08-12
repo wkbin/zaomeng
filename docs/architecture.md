@@ -9,8 +9,8 @@
 ```mermaid
 flowchart LR
     UI["Compose UI"] --> VM["ViewModel"]
-    VM --> Repo["Shared Repository"]
-    Repo --> LocalHTTP["localhost HTTP / SSE"]
+    VM --> Repo["Application Repository"]
+    Repo --> LocalHTTP["data:remote / localhost HTTP / SSE"]
     LocalHTTP --> Routes["Ktor Routes"]
     Routes --> Services["Domain Services"]
     Services --> Storage["StorageService"]
@@ -26,7 +26,12 @@ flowchart LR
 
 | 模块 | 职责 |
 | --- | --- |
-| `app/shared` | 共享 UI、ViewModel、Repository、API client、平台 HTTP 能力 |
+| `app/shared` | 共享 UI、导航、ViewModel、展示层 DI 与应用级偏好 |
+| `core/contracts` | 跨层 DTO、稳定契约和纯值类型 |
+| `core/domain` | 用例与依赖倒置的 Gateway 契约 |
+| `core/runtime` | 嵌入式后端、端点与安全存储等运行时抽象 |
+| `data/remote` | Ktor API client、SSE、在线书库下载、更新检查、流式文件读写和偏好存储 |
+| `data/repository` | 应用 Repository 实现与 domain Gateway 适配 |
 | `app/androidApp` | Android 入口、权限、签名与 APK 打包 |
 | `app/desktopApp` | Desktop 入口与桌面打包 |
 | `server` | 本地 Ktor、业务服务、模型编排、Room 持久化 |

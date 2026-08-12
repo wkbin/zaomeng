@@ -27,29 +27,9 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-actual object PlatformLog {
-    actual fun d(tag: String, message: String) {
-        Log.d(tag, message)
-    }
-
-    actual fun i(tag: String, message: String) {
-        Log.i(tag, message)
-    }
-
-    actual fun w(tag: String, message: String, throwable: Throwable?) {
-        if (throwable != null) Log.w(tag, message, throwable) else Log.w(tag, message)
-    }
-
-    actual fun e(tag: String, message: String, throwable: Throwable?) {
-        if (throwable != null) Log.e(tag, message, throwable) else Log.e(tag, message)
-    }
-}
 
 // YAML：Android 用 snakeyaml-engine-kmp（经典 snakeyaml 依赖 java.beans，Android 上不可用）。
 @Suppress("UNCHECKED_CAST")
-actual fun parseYaml(text: String): Map<String, Any?>? =
-    runCatching { Load().loadOne(text) }.getOrNull() as? Map<String, Any?>
-
 actual fun dumpYaml(value: Any?): String =
     Dump(DumpSettings(defaultFlowStyle = FlowStyle.BLOCK)).dumpToString(value)
 
@@ -119,49 +99,3 @@ actual fun systemProperty(name: String): String? = when (name) {
     "os.arch" -> Build.SUPPORTED_ABIS?.firstOrNull() ?: "unknown"
     else -> null
 }
-
-actual val platformIoDispatcher: CoroutineDispatcher = Dispatchers.IO
-
-actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
-
-private val streamingHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.MINUTES)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
-}
-
-actual suspend fun openStreamingHttpPost(
-    url: String,
-    headers: Map<String, String>,
-    body: String,
-): PlatformStreamingResponse = withContext(Dispatchers.IO) {
-    val requestBuilder = Request.Builder()
-        .url(url)
-        .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-    headers.forEach { (name, value) -> requestBuilder.header(name, value) }
-    OkHttpStreamingResponse(streamingHttpClient.newCall(requestBuilder.build()).execute())
-}
-
-private class OkHttpStreamingResponse(
-    private val response: Response,
-) : PlatformStreamingResponse {
-    private val source = requireNotNull(response.body).source()
-
-    override val statusCode: Int = response.code
-    override val statusDescription: String = response.message
-
-    override suspend fun readUtf8Line(): String? = withContext(Dispatchers.IO) {
-        source.readUtf8Line()
-    }
-
-    override suspend fun readRemainingText(): String = withContext(Dispatchers.IO) {
-        source.readUtf8()
-    }
-
-    override fun close() = response.close()
-}
-
-actual fun <T> runBlockingPlatform(block: suspend CoroutineScope.() -> T): T =
-    runBlocking(block = block)

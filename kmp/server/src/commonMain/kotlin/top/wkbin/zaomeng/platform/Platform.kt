@@ -19,15 +19,8 @@ import kotlin.time.TimeSource
  */
 
 /** 平台日志：Android 走 Logcat，JVM 走 stdout/stderr。 */
-expect object PlatformLog {
-    fun d(tag: String, message: String)
-    fun i(tag: String, message: String)
-    fun w(tag: String, message: String, throwable: Throwable? = null)
-    fun e(tag: String, message: String, throwable: Throwable? = null)
-}
 
 /** YAML 解析（snakeyaml 仅 JVM 系平台可用，隔离到 expect/actual；非 map 文档/解析失败返回 null）。 */
-expect fun parseYaml(text: String): Map<String, Any?>?
 
 /** YAML 序列化（block 风格，等价 snakeyaml DumperOptions.FlowStyle.BLOCK）。 */
 expect fun dumpYaml(value: Any?): String
@@ -62,30 +55,9 @@ expect fun diskSpaceOf(path: Path): DiskSpaceInfo?
 expect fun systemProperty(name: String): String?
 
 /** 平台 IO 调度器（Android/JVM 均为 Dispatchers.IO，保留下发语义）。 */
-expect val platformIoDispatcher: CoroutineDispatcher
 
 /** 平台 HTTP 客户端引擎（Android/JVM 均用 OkHttp）。 */
-expect fun createHttpClientEngine(): HttpClientEngine
-
-/** A response body that remains incremental instead of being buffered until EOF. */
-interface PlatformStreamingResponse {
-    val statusCode: Int
-    val statusDescription: String
-
-    suspend fun readUtf8Line(): String?
-    suspend fun readRemainingText(): String
-    fun close()
-}
-
-/** Open a POST request whose response body must be consumed as bytes arrive. */
-expect suspend fun openStreamingHttpPost(
-    url: String,
-    headers: Map<String, String>,
-    body: String,
-): PlatformStreamingResponse
-
 /** 平台阻塞桥接（JVM/Android 用 runBlocking；Room DAO 为 suspend，服务层保持同步语义）。 */
-expect fun <T> runBlockingPlatform(block: suspend kotlinx.coroutines.CoroutineScope.() -> T): T
 
 /** 服务器运行平台：数据根目录、提示词资源、安全密钥存储。 */
 interface ServerPlatform {
@@ -102,11 +74,7 @@ interface ServerPlatform {
 fun nowIsoString(): String = Clock.System.now().toString()
 
 /** 当前 epoch 毫秒（等价 System.currentTimeMillis()）。 */
-@OptIn(ExperimentalTime::class)
-fun nowEpochMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
 /** 单调时钟纳秒（等价 System.nanoTime()）。 */
-fun monotonicNanos(): Long = TimeSource.Monotonic.markNow().elapsedNow().inWholeNanoseconds
 
 /** 字节数组小写十六进制（等价 "%02x".format(byte) 拼接）。 */
-fun ByteArray.toHex(): String = joinToString("") { b -> (b.toInt() and 0xFF).toString(16).padStart(2, '0') }

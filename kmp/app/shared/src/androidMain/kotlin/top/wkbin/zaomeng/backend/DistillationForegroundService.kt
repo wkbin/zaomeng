@@ -17,7 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import top.wkbin.zaomeng.app.shared.R
-import top.wkbin.zaomeng.data.ZaomengRepository
+import top.wkbin.zaomeng.data.RunRepository
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +34,7 @@ import org.koin.core.component.inject
 /** 蒸馏前台服务：内嵌后端 + 仓库轮询运行中任务，展示进度通知并支持“停止全部”。 */
 class DistillationForegroundService : Service(), KoinComponent {
     private val backend: BackendController by inject()
-    private val repository: ZaomengRepository by inject()
+    private val repository: RunRepository by inject()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
     @Volatile private var stopRequested = false

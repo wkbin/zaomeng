@@ -15,7 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import top.wkbin.zaomeng.app.shared.R
-import top.wkbin.zaomeng.data.ZaomengRepository
+import top.wkbin.zaomeng.data.ChapterRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +30,7 @@ import org.koin.core.component.inject
 /** 对话转小说前台服务：队列化后台生成章节并展示进度/结果通知。 */
 class NovelConversionForegroundService : Service(), KoinComponent {
     private val backend: BackendController by inject()
-    private val repository: ZaomengRepository by inject()
+    private val repository: ChapterRepository by inject()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueLock = Any()
     private val pendingConversions = ArrayDeque<ConversionRequest>()

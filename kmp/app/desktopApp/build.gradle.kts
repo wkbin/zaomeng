@@ -9,7 +9,8 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":app:shared"))
+            implementation(project(":app:shared"))
+            implementation(project(":data:remote"))
     implementation(project(":server"))
     implementation(libs.koin.core)
     implementation(libs.okio)

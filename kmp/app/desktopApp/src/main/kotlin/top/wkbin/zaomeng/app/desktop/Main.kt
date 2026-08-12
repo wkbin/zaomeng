@@ -26,6 +26,7 @@ import org.koin.core.context.startKoin
 import org.koin.core.context.GlobalContext
 import org.jetbrains.compose.resources.painterResource
 import top.wkbin.zaomeng.app.shared.App
+import top.wkbin.zaomeng.app.shared.AppMetadata
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.data.update.ReleaseUpdateChecker
@@ -73,7 +74,10 @@ fun main() {
                 )
                 scope.launch {
                     try {
-                        val update = ReleaseUpdateChecker(updateClient).checkForUpdate()
+                        val update = ReleaseUpdateChecker(
+                            updateClient,
+                            AppMetadata.VERSION_NAME,
+                        ).checkForUpdate()
                         appUpdateState = AppUpdateUiState(
                             availableUpdate = update,
                             message = if (update == null) "当前已是最新版本。" else "发现 ${update.version} 新版本。",

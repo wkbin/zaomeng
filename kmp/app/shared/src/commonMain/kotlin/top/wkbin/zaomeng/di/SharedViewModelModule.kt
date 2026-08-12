@@ -23,18 +23,19 @@ import top.wkbin.zaomeng.feature.storyrecap.StoryRecapViewModel
 import top.wkbin.zaomeng.feature.timeline.WorldTimelineViewModel
 
 internal fun sharedViewModelModule(platform: AppPlatform) = module {
-    viewModel { BookshelfViewModel(get(), get()) }
-    viewModel { SessionsViewModel(get(), get(), get()) }
+    viewModel { BookshelfViewModel(get(), get(), get(), get()) }
+    viewModel { SessionsViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { parameters ->
         ChaptersViewModel(
-            repository = get(),
+            chapters = get(),
+            sessions = get(),
             runId = parameters.get(),
             cacheDir = platform.cacheDir,
             novelConversionForeground = platform.novelConversionForeground,
         )
     }
-    viewModel { ChatViewModel(get(), get(), get()) }
-    viewModel { SettingsViewModel(get()) }
+    viewModel { ChatViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get()) }
     viewModel { ModelProfilesViewModel(get()) }
     viewModel { PluginsViewModel(get()) }
     viewModel { parameters -> ModelProfileEditorViewModel(get(), parameters.get()) }
@@ -42,13 +43,13 @@ internal fun sharedViewModelModule(platform: AppPlatform) = module {
     viewModel { CrossoverViewModel(get()) }
     viewModel { parameters -> RelationsViewModel(get(), parameters.get()) }
     viewModel { parameters -> WorldTimelineViewModel(get(), parameters.get()) }
-    viewModel { parameters -> OriginalKnowledgeViewModel(get(), parameters.get()) }
+    viewModel { parameters -> OriginalKnowledgeViewModel(get(), get(), parameters.get()) }
     viewModel { parameters -> StoryRecapViewModel(get(), parameters.get(), parameters.get()) }
     viewModel { OnlineLibraryViewModel(get(), get()) }
     viewModel { PersonaViewModel(get()) }
-    viewModel { ImportBookViewModel(get(), get(), get()) }
+    viewModel { ImportBookViewModel(get(), get(), get(), get(), get()) }
     viewModel { parameters -> RedistillViewModel(get(), parameters.get(), get(), get(), get()) }
     viewModel { parameters ->
-        RunDetailViewModel(get(), parameters.get(), platform.cacheDir, get(), get())
+        RunDetailViewModel(get(), get(), parameters.get(), platform.cacheDir, get(), get())
     }
 }
