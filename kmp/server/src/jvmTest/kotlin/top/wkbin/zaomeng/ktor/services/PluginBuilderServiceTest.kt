@@ -11,6 +11,11 @@ import top.wkbin.zaomeng.data.api.PluginBuilderActionMode
 import top.wkbin.zaomeng.data.api.PluginBuilderSettingDraft
 import top.wkbin.zaomeng.data.api.PluginBuilderTemplate
 import top.wkbin.zaomeng.data.api.PluginDraft
+import top.wkbin.zaomeng.data.api.PluginRuleActionDraft
+import top.wkbin.zaomeng.data.api.PluginRuleActionType
+import top.wkbin.zaomeng.data.api.PluginRuleDraft
+import top.wkbin.zaomeng.data.api.PluginRuleEvent
+import top.wkbin.zaomeng.data.api.PluginRuleMatchDraft
 import top.wkbin.zaomeng.platform.base64Encode
 import top.wkbin.zaomeng.platform.readZipEntries
 import kotlin.io.path.createTempDirectory
@@ -22,6 +27,36 @@ import kotlin.test.assertTrue
 class PluginBuilderServiceTest {
     private val builder = PluginBuilderService()
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun `ai generation normalizes and validates model draft`() = kotlinx.coroutines.test.runTest {
+        val service = PluginBuilderService {
+            """{"name":"多语气回复","id":"ignored","version":"9.9.9","description":"生成三种回复","template":"chat_action","title":"多语气回复","prompt":"根据人物性格生成三条回复，参考草稿：{{seed_text}}","actionMode":"variants","settings":[]}"""
+        }
+
+        val result = service.generate("生成三种符合人物性格的回复")
+
+        assertTrue(result.valid, result.issues.joinToString { it.message })
+        assertEquals("0.1.0", result.draft.version)
+        assertTrue(result.draft.id.startsWith("plugin-"))
+        assertEquals(PluginBuilderActionMode.Variants, result.draft.actionMode)
+    }
+
+    @Test
+    fun `ai generation retries malformed model output`() = kotlinx.coroutines.test.runTest {
+        var calls = 0
+        val service = PluginBuilderService {
+            calls++
+            if (calls == 1) {
+                "not json"
+            } else {
+                """{"name":"场景约束","id":"","version":"0.1.0","description":"保持设定一致","template":"generation_enhancer","title":"场景约束","prompt":"保持人物性格和世界设定一致","actionMode":"suggest","settings":[]}"""
+            }
+        }
+
+        assertTrue(service.generate("保持人物不出戏").valid)
+        assertEquals(2, calls)
+    }
 
     @Test
     fun `builder normalizes chinese name and derives explained permissions`() {
@@ -62,6 +97,47 @@ class PluginBuilderServiceTest {
             val evaluation = DeclarativePluginLoader.evaluate(result.draft.id, result.manifest)
             assertTrue(evaluation.executable, "$template: ${evaluation.capabilityNotice}")
         }
+    }
+
+    @Test
+    fun `builder packages composable rules with derived permissions`() {
+        val result = builder.validate(
+            validChatDraft().copy(
+                template = PluginBuilderTemplate.GenerationEnhancer,
+                prompt = "保持人物行为自然。",
+                settings = emptyList(),
+                rules = listOf(
+                    PluginRuleDraft(
+                        title = "每五轮制造转折",
+                        event = PluginRuleEvent.BeforeGeneration,
+                        match = PluginRuleMatchDraft(everyTurns = 5, chancePercent = 30),
+                        actions = listOf(
+                            PluginRuleActionDraft(
+                                type = PluginRuleActionType.AddInstruction,
+                                instruction = "让一位神秘商人自然进入当前场景。",
+                            ),
+                        ),
+                    ),
+                    PluginRuleDraft(
+                        title = "记录拒绝次数",
+                        event = PluginRuleEvent.AfterTurn,
+                        match = PluginRuleMatchDraft(keywords = listOf("拒绝")),
+                        actions = listOf(
+                            PluginRuleActionDraft(
+                                type = PluginRuleActionType.IncrementState,
+                                key = "refusals",
+                                amount = 1,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(result.valid, result.issues.joinToString { it.message })
+        assertEquals(2, result.manifest["execution"]!!.jsonObject["rules"]!!.jsonArray.size)
+        assertTrue("chat.state.write" in result.permissions.map { it.permission })
+        assertTrue(DeclarativePluginLoader.evaluate(result.draft.id, result.manifest).rules.size == 2)
     }
 
     @Test

@@ -10,6 +10,7 @@ import okio.use
 import top.wkbin.zaomeng.backend.BackendController
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.GeneratePluginDraftRequest
 import top.wkbin.zaomeng.data.api.InspectPluginPackageRequest
 import top.wkbin.zaomeng.data.api.InstallPluginPackageRequest
 import top.wkbin.zaomeng.data.api.KtorDiagnosticsClient
@@ -150,6 +151,10 @@ class PluginRepositoryImpl(
 
     override suspend fun validatePluginDraft(draft: PluginDraft): PluginBuilderValidationDto = repositoryRequest {
         ktorPlugins.validateBuilder(ValidatePluginDraftRequest(draft))
+    }
+
+    override suspend fun generatePluginDraft(description: String): PluginBuilderValidationDto = repositoryRequest {
+        ktorPlugins.generateBuilder(GeneratePluginDraftRequest(description))
     }
 
     override suspend fun installPluginDraft(draft: PluginDraft): PluginDto = repositoryRequest {

@@ -936,8 +936,11 @@ class DialoguePayloadBuilder(
         instructionsWithGroupChat["group_chat_rule"] = speakerPlan["rule"]?.toString()?.trim().orEmpty()
         val pluginEnhancerRules = (session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap()))
             .mapNotNull { (_, value) -> value.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
-        if (pluginEnhancerRules.isNotEmpty()) {
-            instructionsWithGroupChat["plugin_enhancer_rule"] = pluginEnhancerRules.joinToString("\n")
+        val pluginRuleDirectives = (session["plugin_rule_directives"]?.jsonObject ?: JsonObject(emptyMap()))
+            .mapNotNull { (_, value) -> value.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+        val pluginDirectives = pluginEnhancerRules + pluginRuleDirectives
+        if (pluginDirectives.isNotEmpty()) {
+            instructionsWithGroupChat["plugin_enhancer_rule"] = pluginDirectives.joinToString("\n")
         }
         val responderHints = DialoguePromptRules.responderHints(
             mode, activeParticipants, speaker, normalizedMessageKind, controlledCharacterName,

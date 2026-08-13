@@ -76,11 +76,41 @@ class PluginBuilderViewModelTest {
         assertEquals(1, repository.installations)
         assertTrue(viewModel.state.value.message.contains("已安装"))
     }
+
+    @Test
+    fun `ai proposal waits for confirmation before replacing current draft`() = runTest(dispatcher) {
+        val repository = FakePluginRepository()
+        val viewModel = PluginBuilderViewModel(repository)
+        advanceUntilIdle()
+        viewModel.updateName("当前草稿")
+        viewModel.updateIdea("生成三种符合人物性格的回复")
+
+        viewModel.generateFromIdea()
+        advanceUntilIdle()
+
+        assertEquals("当前草稿", viewModel.state.value.draft.name)
+        assertEquals("AI 回复助手", viewModel.state.value.generatedProposal?.draft?.name)
+        viewModel.applyGeneratedProposal()
+        assertEquals("AI 回复助手", viewModel.state.value.draft.name)
+        assertTrue(viewModel.state.value.message.contains("AI 草稿"))
+    }
 }
 
 private class FakePluginRepository : PluginRepository {
     var validations = 0
     var installations = 0
+
+    override suspend fun generatePluginDraft(description: String): PluginBuilderValidationDto = PluginBuilderValidationDto(
+        valid = true,
+        draft = PluginDraft(
+            name = "AI 回复助手",
+            id = "ai-reply",
+            description = description,
+            title = "生成回复",
+            prompt = "根据人物性格生成三条回复",
+        ),
+        manifestJson = "{}",
+    )
 
     override suspend fun validatePluginDraft(draft: PluginDraft): PluginBuilderValidationDto {
         validations++

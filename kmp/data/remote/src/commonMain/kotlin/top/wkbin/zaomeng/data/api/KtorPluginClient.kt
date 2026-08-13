@@ -72,6 +72,12 @@ class KtorPluginClient(
         },
     )
 
+    suspend fun generateBuilder(request: GeneratePluginDraftRequest): PluginBuilderValidationDto = decode(
+        request { endpoint ->
+            http.client.post(url(endpoint, "/api/web/plugins/builder/generate")) { setBody(request) }
+        },
+    )
+
     suspend fun packageBuilder(request: PackagePluginDraftRequest): HttpResponse = request { endpoint ->
         http.client.post(url(endpoint, "/api/web/plugins/builder/package")) { setBody(request) }
     }

@@ -320,6 +320,25 @@ class PluginService(
             .generationRecipes[enhancerId.trim()]?.rule
     }
 
+    internal fun activeDeclarativeRules(): List<ActiveDeclarativeRules> {
+        val enabled = readEnabled()
+        return storage.listFiles(root)
+            .filter { storage.isDirectory(it) && !it.name.startsWith(".") && it.name in enabled }
+            .sortedBy { it.name }
+            .mapNotNull { directory ->
+                val raw = readExternalManifest(directory.name) ?: return@mapNotNull null
+                val rules = DeclarativePluginLoader.evaluate(directory.name, raw).rules
+                if (rules.isEmpty()) return@mapNotNull null
+                ActiveDeclarativeRules(
+                    pluginId = directory.name,
+                    config = getConfig(directory.name).mapValues { (_, value) ->
+                        if (value is JsonPrimitive) value.contentOrNull ?: value.toString() else value.toString()
+                    },
+                    rules = rules,
+                )
+            }
+    }
+
     private fun isKnown(pluginId: String): Boolean = isBuiltin(pluginId) || storage.isFile(root / "$pluginId/plugin.json")
 
     private fun pluginDirectory(pluginId: String): Path {
@@ -356,7 +375,13 @@ class PluginService(
                 val session = storage.loadSessionManifest(runId, sessionId)
                 val states = session["plugin_enhancer_states"]?.jsonObject ?: JsonObject(emptyMap())
                 val directives = session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap())
-                if (pluginId !in states && directives.keys.none { it.startsWith("$pluginId/") }) {
+                val ruleStates = session["plugin_rule_states"]?.jsonObject ?: JsonObject(emptyMap())
+                val ruleLastTurns = session["plugin_rule_last_turns"]?.jsonObject ?: JsonObject(emptyMap())
+                if (
+                    pluginId !in states && pluginId !in ruleStates &&
+                    directives.keys.none { it.startsWith("$pluginId/") } &&
+                    ruleLastTurns.keys.none { it.startsWith("$pluginId/") }
+                ) {
                     return@forEach
                 }
                 val updated = buildJsonObject {
@@ -370,6 +395,16 @@ class PluginService(
                             "plugin_enhancer_directives" -> put(key, buildJsonObject {
                                 directives.forEach { (directiveKey, directive) ->
                                     if (!directiveKey.startsWith("$pluginId/")) put(directiveKey, directive)
+                                }
+                            })
+                            "plugin_rule_states" -> put(key, buildJsonObject {
+                                ruleStates.forEach { (statePluginId, state) ->
+                                    if (statePluginId != pluginId) put(statePluginId, state)
+                                }
+                            })
+                            "plugin_rule_last_turns" -> put(key, buildJsonObject {
+                                ruleLastTurns.forEach { (ruleKey, turnId) ->
+                                    if (!ruleKey.startsWith("$pluginId/")) put(ruleKey, turnId)
                                 }
                             })
                             else -> put(key, value)
@@ -399,3 +434,9 @@ class PluginService(
             "第三方插件包目前只能保存，不能执行；造梦不会运行其中的 Python 或其他任意代码。"
     }
 }
+
+internal data class ActiveDeclarativeRules(
+    val pluginId: String,
+    val config: Map<String, String>,
+    val rules: List<DeclarativeRuleRecipe>,
+)

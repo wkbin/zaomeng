@@ -299,6 +299,42 @@
               </article>
             </div>
 
+            <h3 class="docs-subheading">组合玩法规则</h3>
+            <p>
+              当玩法涉及关键词、回合数、概率或会话状态时，把规则放进 <code>execution.rules</code>。同一插件可包含多条规则，每条规则也可串联多个动作；状态只属于当前会话。
+            </p>
+            <div class="code-panel">
+              <div class="code-panel-head"><span>execution.rules</span></div>
+              <pre><code>"permissions": ["chat.context.read", "generation.enhance", "model.invoke", "chat.state.write"],
+"execution": {
+  "mode": "declarative",
+  "rules": [
+    {
+      "id": "merchant-arrives",
+      "title": "神秘商人登场",
+      "event": "before_generation",
+      "match": {"everyTurns": 5, "chancePercent": 30},
+      "actions": [
+        {"type": "add_instruction", "instruction": "让一名神秘商人自然进入场景。"}
+      ]
+    },
+    {
+      "id": "remember-refusal",
+      "title": "记录拒绝",
+      "event": "after_turn",
+      "match": {"keywords": ["拒绝", "不买"]},
+      "actions": [
+        {"type": "increment_state", "key": "refusals", "amount": 1}
+      ]
+    }
+  ]
+}</code></pre>
+            </div>
+            <div class="doc-callout">
+              <span aria-hidden="true">i</span>
+              <p><strong>规则仍由 Kotlin 宿主解释执行。</strong>生成前规则可追加本轮指令；回合结束规则可设置或增减状态。同一回合重试不会重复累计，插件也不能借此运行脚本或访问任意文件。</p>
+            </div>
+
             <h3 class="docs-subheading">生成增强器示例</h3>
             <div class="code-panel">
               <div class="code-panel-head"><span>contributes + execution</span></div>
@@ -369,6 +405,7 @@
               <div><code>chat.draft.write</code><span>把结果写入用户可编辑草稿</span></div>
               <div><code>chat.cast.write</code><span>修改当前会话角色或临时 NPC</span></div>
               <div><code>generation.enhance</code><span>影响后续主对话生成规则</span></div>
+              <div><code>chat.state.write</code><span>写入当前会话内的插件规则状态</span></div>
               <div><code>run.personas.read</code><span>读取当前书卷已蒸馏人物摘要</span></div>
               <div><code>model.invoke</code><span>使用应用配置的模型能力</span></div>
               <div><code>storage.read</code><span>读取本插件独立数据区</span></div>

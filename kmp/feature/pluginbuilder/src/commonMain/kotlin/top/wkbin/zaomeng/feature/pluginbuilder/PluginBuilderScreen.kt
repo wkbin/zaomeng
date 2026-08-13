@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -58,6 +59,9 @@ import top.wkbin.zaomeng.data.api.PluginBuilderSettingDraft
 import top.wkbin.zaomeng.data.api.PluginBuilderSettingType
 import top.wkbin.zaomeng.data.api.PluginBuilderTemplate
 import top.wkbin.zaomeng.data.api.PluginBuilderValidationDto
+import top.wkbin.zaomeng.data.api.PluginRuleActionType
+import top.wkbin.zaomeng.data.api.PluginRuleDraft
+import top.wkbin.zaomeng.data.api.PluginRuleEvent
 import top.wkbin.zaomeng.platform.rememberFileExporter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +72,7 @@ fun PluginBuilderScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showManifest by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
     val fileExporter = rememberFileExporter(
         onSave = viewModel::savePendingExport,
         onCancelled = viewModel::cancelExportDestination,
@@ -83,6 +88,13 @@ fun PluginBuilderScreen(
         ManifestDialog(
             json = state.validation?.manifestJson.orEmpty(),
             onDismiss = { showManifest = false },
+        )
+    }
+    state.generatedProposal?.let { proposal ->
+        GeneratedDraftDialog(
+            proposal = proposal,
+            onApply = viewModel::applyGeneratedProposal,
+            onDismiss = viewModel::dismissGeneratedProposal,
         )
     }
 
@@ -106,20 +118,15 @@ fun PluginBuilderScreen(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 920.dp).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                AiDraftCard(
+                    idea = state.idea,
+                    generating = state.generating,
+                    onIdeaChange = viewModel::updateIdea,
+                    onGenerate = viewModel::generateFromIdea,
+                )
                 BuilderIntroCard()
 
-                SectionCard("1. 选择插件能力", "先从一种能力开始，权限会随能力自动生成。") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        TemplateChip("快捷动作", PluginBuilderTemplate.ChatAction, state.draft.template, viewModel::updateTemplate)
-                        TemplateChip("生成增强", PluginBuilderTemplate.GenerationEnhancer, state.draft.template, viewModel::updateTemplate)
-                        TemplateChip("临时 NPC", PluginBuilderTemplate.TemporaryNpc, state.draft.template, viewModel::updateTemplate)
-                    }
-                }
-
-                SectionCard("2. 基本信息", "插件 ID 会根据名称自动生成，不需要手写。") {
+                SectionCard("完善插件资料", "AI 生成后仍可自由修改；插件 ID 会根据名称自动生成。") {
                     OutlinedTextField(
                         value = state.draft.name,
                         onValueChange = viewModel::updateName,
@@ -154,7 +161,7 @@ fun PluginBuilderScreen(
                     )
                 }
 
-                SectionCard("3. 描述它要做什么", "只写自然语言；变量标签可把用户草稿或设置值带进提示词。") {
+                SectionCard("调整玩法细节", "用自然语言继续打磨玩法；变量标签可把用户草稿或设置值带进提示词。") {
                     OutlinedTextField(
                         value = state.draft.title,
                         onValueChange = viewModel::updateTitle,
@@ -162,21 +169,6 @@ fun PluginBuilderScreen(
                         label = { Text("在聊天中显示的名称") },
                         singleLine = true,
                     )
-                    if (state.draft.template == PluginBuilderTemplate.ChatAction) {
-                        Text("生成方式", style = MaterialTheme.typography.labelLarge)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = state.draft.actionMode == PluginBuilderActionMode.Suggest,
-                                onClick = { viewModel.updateActionMode(PluginBuilderActionMode.Suggest) },
-                                label = { Text("生成一条") },
-                            )
-                            FilterChip(
-                                selected = state.draft.actionMode == PluginBuilderActionMode.Variants,
-                                onClick = { viewModel.updateActionMode(PluginBuilderActionMode.Variants) },
-                                label = { Text("生成多个候选") },
-                            )
-                        }
-                    }
                     OutlinedTextField(
                         value = state.draft.prompt,
                         onValueChange = viewModel::updatePrompt,
@@ -203,6 +195,19 @@ fun PluginBuilderScreen(
                             )
                         }
                     }
+                }
+
+                AdvancedRuntimeSection(
+                    expanded = showAdvanced,
+                    template = state.draft.template,
+                    actionMode = state.draft.actionMode,
+                    onToggle = { showAdvanced = !showAdvanced },
+                    onTemplateChange = viewModel::updateTemplate,
+                    onActionModeChange = viewModel::updateActionMode,
+                )
+
+                if (state.draft.rules.isNotEmpty()) {
+                    RuleChainSection(state.draft.rules)
                 }
 
                 SettingsSection(
@@ -259,6 +264,191 @@ fun PluginBuilderScreen(
 }
 
 @Composable
+private fun AiDraftCard(
+    idea: String,
+    generating: Boolean,
+    onIdeaChange: (String) -> Unit,
+    onGenerate: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
+                Column {
+                    Text("一句话生成插件", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("先说你想怎么玩，AI 会自动设计实现方式、提示词和设置项。", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            OutlinedTextField(
+                value = idea,
+                onValueChange = onIdeaChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("我想做一个……") },
+                placeholder = { Text("例如：根据人物性格生成三条不同语气的回复供我选择") },
+                minLines = 2,
+                maxLines = 5,
+                enabled = !generating,
+            )
+            Button(onClick = onGenerate, enabled = idea.isNotBlank() && !generating) {
+                if (generating) {
+                    CircularProgressIndicator(modifier = Modifier.width(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (generating) "正在设计插件" else "AI 帮我生成")
+            }
+        }
+    }
+}
+
+@Composable
+private fun GeneratedDraftDialog(
+    proposal: PluginBuilderValidationDto,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val draft = proposal.draft
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("确认使用 AI 草稿") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(draft.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(draft.description.ifBlank { "暂无简介" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("实现方式：${draft.template.displayName()}", fontWeight = FontWeight.Medium)
+                if (draft.settings.isNotEmpty()) {
+                    Text("设置：${draft.settings.joinToString("、") { it.title }}")
+                }
+                if (draft.rules.isNotEmpty()) {
+                    Text("玩法规则：${draft.rules.joinToString("、") { it.title }}")
+                }
+                HorizontalDivider()
+                Text("生成的提示词", style = MaterialTheme.typography.labelLarge)
+                Text(draft.prompt, style = MaterialTheme.typography.bodySmall)
+                if (!proposal.valid) {
+                    Text(
+                        proposal.issues.joinToString("\n") { "• ${it.message}" },
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Text("确认后会替换当前表单内容，你仍可继续修改。", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(onClick = onApply, enabled = proposal.valid) { Text("填入工坊") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("保留当前内容") } },
+    )
+}
+
+@Composable
+private fun RuleChainSection(rules: List<PluginRuleDraft>) {
+    SectionCard("AI 玩法规则", "事件、条件和动作可以组合；运行状态只保存在当前会话。") {
+        rules.forEachIndexed { index, rule ->
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("${index + 1}. ${rule.title}", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${rule.event.displayName()} · ${rule.match.summary()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    rule.actions.forEach { action ->
+                        Text(
+                            "→ ${when (action.type) {
+                                PluginRuleActionType.AddInstruction -> "影响本轮生成：${action.instruction}"
+                                PluginRuleActionType.SetState -> "记录状态 ${action.key} = ${action.value}"
+                                PluginRuleActionType.IncrementState -> "状态 ${action.key} ${if (action.amount > 0) "+" else ""}${action.amount}"
+                            }}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+        Text(
+            "当前版本由 AI 生成规则链；高级规则编辑器会作为后续功能加入。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun PluginRuleEvent.displayName(): String = when (this) {
+    PluginRuleEvent.BeforeGeneration -> "生成前"
+    PluginRuleEvent.AfterTurn -> "回合结束后"
+}
+
+private fun top.wkbin.zaomeng.data.api.PluginRuleMatchDraft.summary(): String = buildList {
+    if (keywords.isNotEmpty()) add("包含「${keywords.joinToString(" / ")}」")
+    if (everyTurns > 0) add("每 $everyTurns 回合")
+    if (chancePercent < 100) add("$chancePercent% 概率")
+    if (stateKey.isNotBlank()) add("$stateKey = $stateEquals")
+}.joinToString("，").ifBlank { "每次触发" }
+
+private fun PluginBuilderTemplate.displayName(): String = when (this) {
+    PluginBuilderTemplate.ChatAction -> "快捷动作"
+    PluginBuilderTemplate.GenerationEnhancer -> "生成增强"
+    PluginBuilderTemplate.TemporaryNpc -> "临时 NPC"
+}
+
+@Composable
+private fun AdvancedRuntimeSection(
+    expanded: Boolean,
+    template: PluginBuilderTemplate,
+    actionMode: PluginBuilderActionMode,
+    onToggle: () -> Unit,
+    onTemplateChange: (PluginBuilderTemplate) -> Unit,
+    onActionModeChange: (PluginBuilderActionMode) -> Unit,
+) {
+    SectionCard("高级设置", "AI 已推断实现方式；通常无需调整，只有熟悉插件机制时再修改。") {
+        OutlinedButton(onClick = onToggle) {
+            Text(if (expanded) "收起高级设置" else "查看高级设置")
+        }
+        if (expanded) {
+            Text("触发方式", style = MaterialTheme.typography.labelLarge)
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TemplateChip("聊天按钮", PluginBuilderTemplate.ChatAction, template, onTemplateChange)
+                TemplateChip("持续影响生成", PluginBuilderTemplate.GenerationEnhancer, template, onTemplateChange)
+                TemplateChip("加入临时角色", PluginBuilderTemplate.TemporaryNpc, template, onTemplateChange)
+            }
+            if (template == PluginBuilderTemplate.ChatAction) {
+                Text("结果数量", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = actionMode == PluginBuilderActionMode.Suggest,
+                        onClick = { onActionModeChange(PluginBuilderActionMode.Suggest) },
+                        label = { Text("一个结果") },
+                    )
+                    FilterChip(
+                        selected = actionMode == PluginBuilderActionMode.Variants,
+                        onClick = { onActionModeChange(PluginBuilderActionMode.Variants) },
+                        label = { Text("多个候选") },
+                    )
+                }
+            }
+            Text(
+                "这些选项只是宿主内部的安全执行方式，不是创作题材或玩法模板。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun BuilderIntroCard() {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -271,9 +461,9 @@ private fun BuilderIntroCard() {
         ) {
             Icon(Icons.Outlined.Extension, contentDescription = null)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("不用写代码，也能扩展造梦", fontWeight = FontWeight.SemiBold)
+                Text("先描述玩法，再决定实现", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "填写名称和提示词，插件工坊会自动生成 ID、权限和 Plugin API 2 清单，并在导出前由真实运行时检查。",
+                    "不用先理解插件分类。AI 会把你的创意转换成安全的 Plugin API 2 草稿，并在安装前由真实运行时检查。",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -320,7 +510,7 @@ private fun SettingsSection(
     onDefaultChange: (Int, String) -> Unit,
     onOptionsChange: (Int, String) -> Unit,
 ) {
-    SectionCard("4. 可调设置（可选）", "添加后，用户可以在插件页调整这些值，并通过变量标签写入提示词。") {
+    SectionCard("可调设置（可选）", "添加后，用户可以在插件页调整这些值，并通过变量标签写入提示词。") {
         if (settings.isEmpty()) {
             Text("当前没有设置项。简单插件可以直接跳过。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -414,7 +604,7 @@ private fun SettingTypeChip(
 
 @Composable
 private fun ValidationSection(validation: PluginBuilderValidationDto?, validating: Boolean) {
-    SectionCard("5. 实时检查与权限", "最终结果由 App 内同一套声明式运行时校验。") {
+    SectionCard("实时检查与权限", "最终结果由 App 内同一套声明式运行时校验。") {
         if (validating) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.width(18.dp), strokeWidth = 2.dp)

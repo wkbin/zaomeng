@@ -711,6 +711,42 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 `operation` 允许 `suggest` 或 `variants`；模板支持 `{{seed_text}}`、`{{direction}}` 和 `{{config.<key>}}`。临时 NPC 生成器位于 `execution.temporaryNpcGenerators.<id>.direction`。生成增强器位于 `execution.generationEnhancers.<id>.rule`，启用后会作为当前会话的提示词规则注入每一轮主对话生成。
 
+API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规则不会执行插件自带代码；宿主会在对话生成前或回合提交后解释执行：
+
+```json
+{
+  "permissions": ["chat.context.read", "generation.enhance", "model.invoke", "chat.state.write"],
+  "execution": {
+    "mode": "declarative",
+    "rules": [
+      {
+        "id": "merchant-arrives",
+        "title": "神秘商人登场",
+        "event": "before_generation",
+        "match": {"everyTurns": 5, "chancePercent": 30},
+        "actions": [
+          {"type": "add_instruction", "instruction": "让一名神秘商人自然进入当前场景。"}
+        ]
+      },
+      {
+        "id": "remember-refusal",
+        "title": "记录拒绝",
+        "event": "after_turn",
+        "match": {"keywords": ["拒绝", "不买"]},
+        "actions": [
+          {"type": "increment_state", "key": "refusals", "amount": 1}
+        ]
+      }
+    ]
+  }
+}
+```
+
+- 事件：`before_generation`、`after_turn`。
+- 条件：`keywords`（命中任一）、`everyTurns`（2–100，省略表示不限）、`chancePercent`（1–100）、配对使用的 `stateKey/stateEquals`；一条规则内的非空条件同时满足才触发。
+- 动作：生成前可用 `add_instruction`；回合结束后可用 `set_state`、`increment_state`。状态按插件、按会话隔离，同一 `turn_id` 重放不会重复修改状态。
+- 规则模板支持 `{{message}}`、`{{config.<key>}}`、`{{state.<key>}}`。单插件最多 8 条规则，每条最多 6 个动作；概率由会话、回合和规则 ID 稳定计算，模型重试不会改变命中结果。
+
 插件数据配方允许 `operation` 为 `storage_get` 或 `storage_set`：
 
 ```json
@@ -763,6 +799,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
 | POST | `/api/web/plugins/builder/validate` | `{"draft": PluginDraft}` | `200 PluginBuilderValidation`；草稿不完整时仍返回 `200`，通过 `valid=false` 和 `issues` 给出实时校验结果 |
+| POST | `/api/web/plugins/builder/generate` | `{"description":"自然语言玩法描述"}` | 使用当前活动模型生成安全的声明式 `PluginDraft`，经运行时校验后返回 `200 PluginBuilderValidation`；需求为空返回 `400` |
 | POST | `/api/web/plugins/builder/package` | `{"draft": PluginDraft}` | `200 application/zip`；`Content-Disposition` 提供 `插件名-版本.zaomeng-plugin.zip`，校验失败返回 `400` |
 
 `PluginDraft` 是面向 App 可视化编辑器的稳定草稿契约，主要字段如下：

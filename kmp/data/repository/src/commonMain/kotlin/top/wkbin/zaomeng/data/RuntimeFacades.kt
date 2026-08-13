@@ -53,6 +53,7 @@ interface PluginRepository {
     suspend fun uninstallPlugin(pluginId: String): UninstallPluginResponse
     suspend fun listPluginLogs(pluginId: String): List<PluginLogDto>
     suspend fun updatePluginConfig(pluginId: String, config: JsonObject): PluginConfigResponse
+    suspend fun generatePluginDraft(description: String): PluginBuilderValidationDto
     suspend fun validatePluginDraft(draft: PluginDraft): PluginBuilderValidationDto
     suspend fun installPluginDraft(draft: PluginDraft): PluginDto
     suspend fun exportPluginDraft(draft: PluginDraft, destination: Sink): Long

@@ -1,6 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -12,12 +13,17 @@ import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.PluginBuilderActionMode
 import top.wkbin.zaomeng.data.api.PluginBuilderIssueDto
 import top.wkbin.zaomeng.data.api.PluginBuilderPermissionDto
+import top.wkbin.zaomeng.data.api.PluginRuleActionDraft
+import top.wkbin.zaomeng.data.api.PluginRuleActionType
+import top.wkbin.zaomeng.data.api.PluginRuleDraft
+import top.wkbin.zaomeng.data.api.PluginRuleEvent
 import top.wkbin.zaomeng.data.api.PluginBuilderSettingDraft
 import top.wkbin.zaomeng.data.api.PluginBuilderSettingType
 import top.wkbin.zaomeng.data.api.PluginBuilderTemplate
 import top.wkbin.zaomeng.data.api.PluginBuilderValidationDto
 import top.wkbin.zaomeng.data.api.PluginDraft
 import top.wkbin.zaomeng.data.api.suggestPluginId
+import top.wkbin.zaomeng.data.api.suggestPluginRuleId
 import top.wkbin.zaomeng.data.api.suggestPluginSettingKey
 import top.wkbin.zaomeng.platform.ZipEntryData
 import top.wkbin.zaomeng.platform.writeZipEntries
@@ -25,8 +31,38 @@ import top.wkbin.zaomeng.platform.writeZipEntries
 data class BuiltPluginPackage(val filename: String, val bytes: ByteArray)
 
 /** 把面向普通用户的草稿转换成唯一、可校验、可安装的声明式插件清单。 */
-class PluginBuilderService {
+class PluginBuilderService(
+    private val draftCompletion: (suspend (List<LlmClient.ChatMessage>) -> String)? = null,
+) {
     private val json = Json { prettyPrint = true }
+    private val generatedDraftJson = Json { ignoreUnknownKeys = false; isLenient = false }
+
+    suspend fun generate(description: String): PluginBuilderValidationDto {
+        val requirement = description.trim()
+        require(requirement.isNotBlank()) { "请先用一句话描述想制作的插件。" }
+        require(requirement.length <= MAX_GENERATION_DESCRIPTION) { "插件需求不能超过 $MAX_GENERATION_DESCRIPTION 个字符。" }
+        val complete = draftCompletion ?: error("请先在模型设置中配置并启用一个可用模型。")
+        var feedback = ""
+        var lastError = "模型没有生成可用的插件草稿。"
+        repeat(MAX_GENERATION_ATTEMPTS) {
+            val raw = complete(generationMessages(requirement, feedback))
+            val draft = runCatching { decodeGeneratedDraft(raw) }.getOrElse { error ->
+                lastError = "模型返回的不是有效插件 JSON：${error.message.orEmpty().take(160)}"
+                feedback = lastError
+                return@repeat
+            }
+            val validation = validate(
+                draft.copy(
+                    id = suggestPluginId(draft.name),
+                    version = "0.1.0",
+                ),
+            )
+            if (validation.valid) return validation
+            lastError = validation.issues.joinToString("；") { it.message }.take(600)
+            feedback = "上一次草稿未通过校验：$lastError。请完整重做 JSON。"
+        }
+        throw IllegalStateException(lastError)
+    }
 
     fun validate(source: PluginDraft): PluginBuilderValidationDto {
         val draft = normalize(source)
@@ -34,8 +70,9 @@ class PluginBuilderService {
         validateBasics(draft, issues)
         validateSettings(draft.settings, issues)
         validateVariables(draft, issues)
+        validateRules(draft, issues)
 
-        val permissions = permissionsFor(draft.template)
+        val permissions = permissionsFor(draft)
         val manifest = buildManifest(draft, permissions.map(PluginBuilderPermissionDto::permission))
         if (issues.none { it.severity == ERROR }) {
             val evaluation = DeclarativePluginLoader.evaluate(draft.id, manifest)
@@ -113,7 +150,90 @@ class PluginBuilderService {
                     options = setting.options.map(String::trim).filter(String::isNotBlank).distinct(),
                 )
             },
+            rules = source.rules.map { rule ->
+                val title = rule.title.trim()
+                rule.copy(
+                    id = rule.id.trim().ifBlank { suggestPluginRuleId(title) },
+                    title = title,
+                    match = rule.match.copy(
+                        keywords = rule.match.keywords.map(String::trim).filter(String::isNotBlank).distinct(),
+                        stateKey = rule.match.stateKey.trim(),
+                        stateEquals = rule.match.stateEquals.trim(),
+                    ),
+                    actions = rule.actions.map { action ->
+                        action.copy(
+                            instruction = action.instruction.trim(),
+                            key = action.key.trim(),
+                            value = action.value.trim(),
+                        )
+                    },
+                )
+            },
         )
+    }
+
+    private fun generationMessages(requirement: String, feedback: String): List<LlmClient.ChatMessage> {
+        val system = """
+            你是造梦 Plugin API 2 的插件设计助手。把普通用户的一句话需求转换成一个安全、声明式、无需代码的插件草稿。
+
+            只输出一个 JSON 对象，不允许 Markdown 围栏、解释、前后缀文字或额外字段。JSON 必须包含：
+            {
+              "name": "2-20 字的中文插件名",
+              "id": "留空字符串",
+              "version": "0.1.0",
+              "description": "一句话说明用途",
+              "template": "chat_action | generation_enhancer | temporary_npc",
+              "title": "聊天界面显示名",
+              "prompt": "给模型的完整自然语言指令",
+              "actionMode": "suggest | variants",
+              "settings": [
+                {"key":"英文标识","title":"中文名","type":"boolean | integer | enum","defaultValue":"字符串","options":[]}
+              ],
+              "rules": [
+                {
+                  "id":"英文规则标识",
+                  "title":"规则名称",
+                  "event":"before_generation | after_turn",
+                  "match":{"keywords":[],"everyTurns":0,"chancePercent":100,"stateKey":"","stateEquals":""},
+                  "actions":[
+                    {"type":"add_instruction | set_state | increment_state","instruction":"","key":"","value":"","amount":1}
+                  ]
+                }
+              ]
+            }
+
+            简单的按钮、持续增强或临时人物可继续使用 template；涉及回合数、概率、关键词、状态变化或多个连续效果时必须生成 rules，可同时包含多条规则和动作链。
+            before_generation 发生在本轮模型生成前，适合 add_instruction；after_turn 发生在回复保存后，适合 set_state 和 increment_state。
+            match 中多个非空条件必须同时满足。keywords 表示用户本轮文本包含任一关键词；everyTurns 为 0 或 2-100；chancePercent 为 1-100；stateKey/stateEquals 必须成对出现。
+            add_instruction 只允许用于 before_generation 且 instruction 非空；set_state 需要 key/value；increment_state 需要 key，amount 范围 -100..100 且不能为 0。
+            规则最多 8 条，每条最多 6 个动作。若 rules 非空，template 仍选择最接近的主要交互；没有额外按钮需求时优先用 generation_enhancer。
+            chat_action 的 prompt 可使用 {{seed_text}}；任何模板都可使用已声明设置对应的 {{config.key}}。不得使用其他变量。
+            设置最多 4 项，只在确有必要时添加。boolean 默认值只能是 "true" 或 "false"；integer 默认值为 0-100；enum 至少两个 options，defaultValue 必须在 options 中。
+            prompt 不得要求执行代码、访问文件、绕过权限或泄露密钥。不要声称插件拥有模板之外的能力。
+        """.trimIndent()
+        val user = buildString {
+            append("用户需求：")
+            append(requirement)
+            if (feedback.isNotBlank()) {
+                append("\n\n")
+                append(feedback)
+            }
+        }
+        return listOf(
+            LlmClient.ChatMessage(role = "system", content = system),
+            LlmClient.ChatMessage(role = "user", content = user),
+        )
+    }
+
+    private fun decodeGeneratedDraft(raw: String): PluginDraft {
+        val trimmed = raw.trim().take(MAX_GENERATED_RESPONSE)
+        val withoutFence = trimmed
+            .removePrefix("```json").removePrefix("```")
+            .removeSuffix("```").trim()
+        val start = withoutFence.indexOf('{')
+        val end = withoutFence.lastIndexOf('}')
+        require(start >= 0 && end >= start) { "响应中没有 JSON 对象" }
+        return generatedDraftJson.decodeFromString(withoutFence.substring(start, end + 1))
     }
 
     private fun validateBasics(draft: PluginDraft, issues: MutableList<PluginBuilderIssueDto>) {
@@ -190,7 +310,97 @@ class PluginBuilderService {
         if (unmatchedStart > matched) issues.error("prompt", "提示词中存在未闭合的变量标记 {{...}}。")
     }
 
-    private fun permissionsFor(template: PluginBuilderTemplate): List<PluginBuilderPermissionDto> = when (template) {
+    private fun validateRules(draft: PluginDraft, issues: MutableList<PluginBuilderIssueDto>) {
+        val rules = draft.rules
+        val settingKeys = draft.settings.map(PluginBuilderSettingDraft::key).toSet()
+        if (rules.size > MAX_RULES) issues.error("rules", "一个插件最多可以包含 $MAX_RULES 条玩法规则。")
+        val duplicateIds = rules.groupingBy(PluginRuleDraft::id).eachCount().filterValues { it > 1 }.keys
+        rules.forEachIndexed { index, rule ->
+            val field = "rules.$index"
+            if (!RULE_ID.matches(rule.id)) issues.error("$field.id", "规则 ID 只能包含英文字母、数字、连字符和下划线。")
+            if (rule.id in duplicateIds) issues.error("$field.id", "规则 ID「${rule.id}」重复。")
+            if (rule.title.isBlank()) issues.error("$field.title", "规则需要一个名称。")
+            if (rule.title.length > 64) issues.error("$field.title", "规则名称不能超过 64 个字符。")
+            if (rule.match.keywords.size > MAX_RULE_KEYWORDS) issues.error("$field.match.keywords", "每条规则最多 $MAX_RULE_KEYWORDS 个关键词。")
+            if (rule.match.keywords.any { it.length > 48 }) issues.error("$field.match.keywords", "单个关键词不能超过 48 个字符。")
+            if (rule.match.everyTurns != 0 && rule.match.everyTurns !in 2..100) {
+                issues.error("$field.match.everyTurns", "回合间隔必须为 0 或 2 到 100。")
+            }
+            if (rule.match.chancePercent !in 1..100) issues.error("$field.match.chancePercent", "触发概率必须为 1% 到 100%。")
+            if (rule.match.stateKey.isBlank() != rule.match.stateEquals.isBlank()) {
+                issues.error("$field.match.state", "状态条件的 key 和期望值必须同时填写。")
+            }
+            if (rule.match.stateKey.isNotBlank() && !STATE_KEY.matches(rule.match.stateKey)) {
+                issues.error("$field.match.stateKey", "状态 key 必须以英文字母开头，只能包含字母、数字和下划线。")
+            }
+            if (rule.actions.isEmpty()) issues.error("$field.actions", "规则至少需要一个动作。")
+            if (rule.actions.size > MAX_RULE_ACTIONS) issues.error("$field.actions", "每条规则最多 $MAX_RULE_ACTIONS 个动作。")
+            rule.actions.forEachIndexed { actionIndex, action ->
+                val actionField = "$field.actions.$actionIndex"
+                when (action.type) {
+                    PluginRuleActionType.AddInstruction -> {
+                        if (rule.event != PluginRuleEvent.BeforeGeneration) {
+                            issues.error("$actionField.type", "追加生成指令只能用于生成前事件。")
+                        }
+                        if (action.instruction.isBlank()) issues.error("$actionField.instruction", "追加生成指令不能为空。")
+                        if (action.instruction.length > MAX_RULE_INSTRUCTION) {
+                            issues.error("$actionField.instruction", "单条生成指令不能超过 $MAX_RULE_INSTRUCTION 个字符。")
+                        }
+                        validateRuleTemplate(action.instruction, "$actionField.instruction", settingKeys, issues)
+                    }
+                    PluginRuleActionType.SetState -> {
+                        if (rule.event != PluginRuleEvent.AfterTurn) {
+                            issues.error("$actionField.type", "记录状态只能用于回合结束后事件。")
+                        }
+                        validateStateAction(action, actionField, issues)
+                        if (action.value.length > 120) issues.error("$actionField.value", "状态值不能超过 120 个字符。")
+                        validateRuleTemplate(action.value, "$actionField.value", settingKeys, issues)
+                    }
+                    PluginRuleActionType.IncrementState -> {
+                        if (rule.event != PluginRuleEvent.AfterTurn) {
+                            issues.error("$actionField.type", "增减状态只能用于回合结束后事件。")
+                        }
+                        validateStateAction(action, actionField, issues)
+                        if (action.amount == 0 || action.amount !in -100..100) {
+                            issues.error("$actionField.amount", "状态增量必须在 -100 到 100 之间且不能为 0。")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun validateRuleTemplate(
+        template: String,
+        field: String,
+        settingKeys: Set<String>,
+        issues: MutableList<PluginBuilderIssueDto>,
+    ) {
+        PLACEHOLDER.findAll(template).forEach { match ->
+            val variable = match.groupValues[1].trim()
+            when {
+                variable == "message" -> Unit
+                variable.startsWith("config.") && variable.removePrefix("config.") in settingKeys -> Unit
+                variable.startsWith("state.") && STATE_KEY.matches(variable.removePrefix("state.")) -> Unit
+                else -> issues.error(field, "规则模板不支持变量 {{$variable}}。")
+            }
+        }
+        if (template.countOccurrences("{{") > PLACEHOLDER.findAll(template).count()) {
+            issues.error(field, "规则模板中存在未闭合的变量标记 {{...}}。")
+        }
+    }
+
+    private fun validateStateAction(
+        action: PluginRuleActionDraft,
+        field: String,
+        issues: MutableList<PluginBuilderIssueDto>,
+    ) {
+        if (!STATE_KEY.matches(action.key)) issues.error("$field.key", "状态 key 必须以英文字母开头，只能包含字母、数字和下划线。")
+        if (action.type == PluginRuleActionType.SetState && action.value.isBlank()) issues.error("$field.value", "写入的状态值不能为空。")
+    }
+
+    private fun permissionsFor(draft: PluginDraft): List<PluginBuilderPermissionDto> {
+        val permissions = when (draft.template) {
         PluginBuilderTemplate.ChatAction -> listOf(
             permission("chat.context.read", "读取聊天上下文", "需要理解当前场景、人物关系和最近对话。"),
             permission("chat.draft.write", "写入回复草稿", "生成内容会先放入输入框，由用户确认后发送。"),
@@ -206,6 +416,14 @@ class PluginBuilderService {
             permission("chat.cast.write", "修改当前出场角色", "把生成的临时 NPC 加入当前会话。"),
             permission("model.invoke", "调用当前模型", "使用用户已经配置的模型生成人物。"),
         )
+        }.toMutableList()
+        if (draft.rules.any { rule -> rule.actions.any { it.type == PluginRuleActionType.AddInstruction } }) {
+            permissions += permission("generation.enhance", "按规则影响生成", "满足玩法条件时，把对应指令加入本轮生成。")
+        }
+        if (draft.rules.any { rule -> rule.actions.any { it.type != PluginRuleActionType.AddInstruction } }) {
+            permissions += permission("chat.state.write", "记录会话玩法状态", "在当前会话内记录计数或状态，不影响其他会话。")
+        }
+        return permissions.distinctBy(PluginBuilderPermissionDto::permission)
     }
 
     private fun buildManifest(draft: PluginDraft, permissions: List<String>): JsonObject = buildJsonObject {
@@ -291,6 +509,44 @@ class PluginBuilderService {
                 })
             })
         }
+        if (draft.rules.isNotEmpty()) put("rules", buildJsonArray {
+            draft.rules.forEach { rule -> add(ruleJson(rule)) }
+        })
+    }
+
+    private fun ruleJson(rule: PluginRuleDraft): JsonObject = buildJsonObject {
+        put("id", rule.id)
+        put("title", rule.title)
+        put("event", when (rule.event) {
+            PluginRuleEvent.BeforeGeneration -> "before_generation"
+            PluginRuleEvent.AfterTurn -> "after_turn"
+        })
+        put("match", buildJsonObject {
+            if (rule.match.keywords.isNotEmpty()) put("keywords", buildJsonArray {
+                rule.match.keywords.forEach { add(JsonPrimitive(it)) }
+            })
+            if (rule.match.everyTurns > 0) put("everyTurns", rule.match.everyTurns)
+            if (rule.match.chancePercent < 100) put("chancePercent", rule.match.chancePercent)
+            if (rule.match.stateKey.isNotBlank()) {
+                put("stateKey", rule.match.stateKey)
+                put("stateEquals", rule.match.stateEquals)
+            }
+        })
+        put("actions", buildJsonArray {
+            rule.actions.forEach { action ->
+                add(buildJsonObject {
+                    put("type", JsonPrimitive(when (action.type) {
+                        PluginRuleActionType.AddInstruction -> "add_instruction"
+                        PluginRuleActionType.SetState -> "set_state"
+                        PluginRuleActionType.IncrementState -> "increment_state"
+                    }))
+                    if (action.instruction.isNotBlank()) put("instruction", action.instruction)
+                    if (action.key.isNotBlank()) put("key", action.key)
+                    if (action.value.isNotBlank()) put("value", action.value)
+                    if (action.type == PluginRuleActionType.IncrementState) put("amount", action.amount)
+                })
+            }
+        })
     }
 
     private fun packageFilename(draft: PluginDraft): String {
@@ -340,9 +596,21 @@ class PluginBuilderService {
         const val MAX_ENUM_OPTIONS = 12
         const val MIN_INTEGER_SETTING = 0
         const val MAX_INTEGER_SETTING = 100
+        const val MAX_GENERATION_DESCRIPTION = 1_000
+        const val MAX_GENERATED_RESPONSE = 24_000
+        const val MAX_GENERATION_ATTEMPTS = 2
+        const val MAX_RULES = 8
+        const val MAX_RULE_ACTIONS = 6
+        const val MAX_RULE_KEYWORDS = 12
+        const val MAX_RULE_INSTRUCTION = 2_000
         val SEMVER = Regex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
         val SETTING_KEY = Regex("^[A-Za-z][A-Za-z0-9_]{0,47}$")
-        val PLACEHOLDER = Regex("\\{\\{\\s*([^}]+?)\\s*}}")
+        val STATE_KEY = Regex("^[A-Za-z][A-Za-z0-9_]{0,47}$")
+        val RULE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
+        // Android's ICU regex engine treats an unescaped `}` as a syntax error.
+        // Escape both template delimiters so constructing the service cannot
+        // fail during class initialization on Android release builds.
+        val PLACEHOLDER = Regex("\\{\\{\\s*([^}]+?)\\s*\\}\\}")
         val UNSAFE_FILENAME = Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]")
     }
 }

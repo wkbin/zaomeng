@@ -38,6 +38,54 @@ enum class PluginBuilderSettingType {
 }
 
 @Serializable
+enum class PluginRuleEvent {
+    @SerialName("before_generation")
+    BeforeGeneration,
+
+    @SerialName("after_turn")
+    AfterTurn,
+}
+
+@Serializable
+enum class PluginRuleActionType {
+    @SerialName("add_instruction")
+    AddInstruction,
+
+    @SerialName("set_state")
+    SetState,
+
+    @SerialName("increment_state")
+    IncrementState,
+}
+
+@Serializable
+data class PluginRuleMatchDraft(
+    val keywords: List<String> = emptyList(),
+    val everyTurns: Int = 0,
+    val chancePercent: Int = 100,
+    val stateKey: String = "",
+    val stateEquals: String = "",
+)
+
+@Serializable
+data class PluginRuleActionDraft(
+    val type: PluginRuleActionType = PluginRuleActionType.AddInstruction,
+    val instruction: String = "",
+    val key: String = "",
+    val value: String = "",
+    val amount: Int = 1,
+)
+
+@Serializable
+data class PluginRuleDraft(
+    val id: String = "",
+    val title: String = "",
+    val event: PluginRuleEvent = PluginRuleEvent.BeforeGeneration,
+    val match: PluginRuleMatchDraft = PluginRuleMatchDraft(),
+    val actions: List<PluginRuleActionDraft> = emptyList(),
+)
+
+@Serializable
 data class PluginBuilderSettingDraft(
     val key: String = "",
     val title: String = "",
@@ -57,6 +105,7 @@ data class PluginDraft(
     val prompt: String = "",
     val actionMode: PluginBuilderActionMode = PluginBuilderActionMode.Suggest,
     val settings: List<PluginBuilderSettingDraft> = emptyList(),
+    val rules: List<PluginRuleDraft> = emptyList(),
 )
 
 @Serializable
@@ -64,6 +113,9 @@ data class ValidatePluginDraftRequest(val draft: PluginDraft)
 
 @Serializable
 data class PackagePluginDraftRequest(val draft: PluginDraft)
+
+@Serializable
+data class GeneratePluginDraftRequest(val description: String = "")
 
 @Serializable
 data class PluginBuilderIssueDto(
@@ -101,6 +153,11 @@ fun suggestPluginSettingKey(title: String): String = suggestAsciiIdentifier(titl
     .takeIf(String::isNotBlank)
     ?.take(48)
     ?: "option_${stableNameHash(title.ifBlank { "option" })}"
+
+fun suggestPluginRuleId(title: String): String = suggestAsciiIdentifier(title, separator = '-')
+    .takeIf(String::isNotBlank)
+    ?.take(48)
+    ?: "rule-${stableNameHash(title.ifBlank { "rule" })}"
 
 private fun suggestAsciiIdentifier(value: String, separator: Char): String = buildString {
     var pendingSeparator = false

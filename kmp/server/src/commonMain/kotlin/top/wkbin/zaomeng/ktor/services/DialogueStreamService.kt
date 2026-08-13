@@ -59,9 +59,9 @@ class DialogueStreamService(
         val promptBuilder = DialoguePromptBuilder(promptLoader)
         val runManifest = storageService.readRunManifest(runId)
             ?: throw NoSuchElementException("Run not found: $runId")
-        val sessionManifestJson = storageService.loadSessionManifest(runId, sessionId)
-        val manifestsLoadedAt = nowEpochMillis()
         val turnId = operationId.ifBlank { randomUuid() }
+        val sessionManifestJson = dialogue.prepareSessionForGeneration(runId, sessionId, turnId, message)
+        val manifestsLoadedAt = nowEpochMillis()
         val payload = payloadBuilder.buildTurnPayload(
             runManifest = runManifest,
             session = sessionManifestJson,

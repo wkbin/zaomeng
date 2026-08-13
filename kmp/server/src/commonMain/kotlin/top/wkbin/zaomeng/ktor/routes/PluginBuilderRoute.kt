@@ -14,10 +14,23 @@ import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import top.wkbin.zaomeng.data.api.PackagePluginDraftRequest
+import top.wkbin.zaomeng.data.api.GeneratePluginDraftRequest
 import top.wkbin.zaomeng.data.api.ValidatePluginDraftRequest
 import top.wkbin.zaomeng.ktor.services.PluginBuilderService
 
 fun Route.pluginBuilderRoutes(service: PluginBuilderService) {
+    post("/api/web/plugins/builder/generate") {
+        try {
+            val request = call.receive<GeneratePluginDraftRequest>()
+            call.respond(service.generate(request.description))
+        } catch (error: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "插件需求不完整。")))
+        } catch (error: Exception) {
+            call.application.log.error("Plugin builder generation failed", error)
+            call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (error.message ?: "生成插件草稿失败。")))
+        }
+    }
+
     post("/api/web/plugins/builder/validate") {
         val request = call.receive<ValidatePluginDraftRequest>()
         call.respond(service.validate(request.draft))

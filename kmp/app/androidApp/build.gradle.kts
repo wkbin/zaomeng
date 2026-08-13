@@ -82,8 +82,12 @@ android {
 }
 
 dependencies {
-            implementation(project(":app:shared"))
-            implementation(project(":data:remote"))
+    implementation(project(":app:shared"))
+    implementation(project(":data:remote"))
+    // Compose resources from transitive KMP libraries are merged into the
+    // consumer's resource namespace by AGP. Keep the owning module as a direct
+    // dependency so its generated resource path remains available at runtime.
+    implementation(project(":ui:shared"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

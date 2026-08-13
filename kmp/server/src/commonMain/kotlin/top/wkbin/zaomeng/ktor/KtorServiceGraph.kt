@@ -21,7 +21,9 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val llm = LlmClient(modelApiKeys, storage)
     val worldMemory = WorldMemoryService(storage)
     val originalKnowledge = OriginalKnowledgeService(storage)
-    val dialogue = DialogueService(storage, llm, promptLoader, worldMemory)
+    val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
+    val pluginRules = PluginRuleEngine(storage, plugins)
+    val dialogue = DialogueService(storage, llm, promptLoader, worldMemory, pluginRules)
     val dialogueStream = DialogueStreamService(storage, llm, promptLoader, dialogue)
     val suggestions = SuggestionsService(storage, llm, promptLoader)
     val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader)
@@ -42,10 +44,16 @@ class KtorServiceGraph(platform: ServerPlatform) {
         runPackages,
         distillExecutor,
     )
-    val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
     val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins)
     val pluginOperations = PluginOperationsService(storage, plugins, pluginHost)
-    val pluginBuilder = PluginBuilderService()
+    val pluginBuilder = PluginBuilderService { messages ->
+        llm.chatCompletion(
+            messages = messages,
+            temperature = 0.2,
+            maxTokens = 1_600,
+            requireJsonObject = true,
+        ).choices.firstOrNull()?.message?.content.orEmpty()
+    }
 
     init {
         // Distillation jobs are process-local coroutines. If the backend was restarted,

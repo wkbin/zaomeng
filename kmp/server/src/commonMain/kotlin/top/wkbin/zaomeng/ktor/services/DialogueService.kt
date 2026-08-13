@@ -43,6 +43,7 @@ class DialogueService(
     private val llmClient: LlmClient? = null,
     private val promptLoader: PromptLoader? = null,
     private val worldMemory: WorldMemoryService? = null,
+    private val pluginRuleEngine: PluginRuleEngine? = null,
 ) {
     private val longTermMemory = LongTermMemoryService(storageService)
     private val originalKnowledge = OriginalKnowledgeService(storageService)
@@ -167,7 +168,8 @@ class DialogueService(
         PlatformLog.d(TAG, "Replying to dialogue turn: run=$runId, session=$sessionId")
 
         // 1. Load session manifest（一次读取；DTO 与 JsonObject 复用同一份，避免重复读文件）
-        val sessionManifestJson = storageService.loadSessionManifest(runId, sessionId)
+        val turnId = operationId.ifBlank { randomUuid() }
+        val sessionManifestJson = prepareSessionForGeneration(runId, sessionId, turnId, message)
         val sessionManifest = json.decodeFromJsonElement<DialogueManifest>(sessionManifestJson)
         val participants = sessionManifest.participants
 
@@ -183,7 +185,6 @@ class DialogueService(
         val promptBuilder = DialoguePromptBuilder(promptLoader)
         val runManifest = storageService.readRunManifest(runId)
             ?: throw NoSuchElementException("Run not found: $runId")
-        val turnId = operationId.ifBlank { randomUuid() }
         val payload = payloadBuilder.buildTurnPayload(
             runManifest = runManifest,
             session = sessionManifestJson,
@@ -271,6 +272,16 @@ class DialogueService(
         )
     }
 
+    internal fun prepareSessionForGeneration(
+        runId: String,
+        sessionId: String,
+        turnId: String,
+        message: String,
+    ): JsonObject {
+        val stored = storageService.loadSessionManifest(runId, sessionId)
+        return pluginRuleEngine?.beforeGeneration(runId, sessionId, turnId, message, stored) ?: stored
+    }
+
     /**
      * Load session manifest.
      */
@@ -321,7 +332,7 @@ class DialogueService(
         val updated = sessionMutationLock(runId, sessionId).withLock {
             val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
             saveTurn(runId, sessionId, turnId, message, messageKind, responses, evidence)
-            updateSessionManifest(
+            val committed = updateSessionManifest(
                 runId = runId,
                 sessionId = sessionId,
                 newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
@@ -335,6 +346,8 @@ class DialogueService(
                 manifest = sessionManifest,
                 deriveState = false,
             )
+            pluginRuleEngine?.afterTurn(runId, sessionId, turnId, message, responses)
+            if (pluginRuleEngine == null) committed else storageService.loadSessionManifest(runId, sessionId)
         }
         enqueueBackgroundPostTurn(
             runId = runId,

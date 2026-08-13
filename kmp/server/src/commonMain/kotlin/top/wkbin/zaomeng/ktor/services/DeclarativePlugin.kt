@@ -190,6 +190,35 @@ internal data class DeclarativeGenerationRecipe(
     val rule: String,
 )
 
+internal enum class DeclarativeRuleEvent(val wireName: String) {
+    BeforeGeneration("before_generation"),
+    AfterTurn("after_turn"),
+}
+
+internal data class DeclarativeRuleMatch(
+    val keywords: List<String>,
+    val everyTurns: Int,
+    val chancePercent: Int,
+    val stateKey: String,
+    val stateEquals: String,
+)
+
+internal data class DeclarativeRuleAction(
+    val type: String,
+    val instruction: String,
+    val key: String,
+    val value: String,
+    val amount: Int,
+)
+
+internal data class DeclarativeRuleRecipe(
+    val id: String,
+    val title: String,
+    val event: DeclarativeRuleEvent,
+    val match: DeclarativeRuleMatch,
+    val actions: List<DeclarativeRuleAction>,
+)
+
 internal data class DeclarativePluginEvaluation(
     val plugin: DeclarativePlugin?,
     val executable: Boolean,
@@ -197,6 +226,7 @@ internal data class DeclarativePluginEvaluation(
     val executionMode: String,
     val capabilityNotice: String,
     val generationRecipes: Map<String, DeclarativeGenerationRecipe> = emptyMap(),
+    val rules: List<DeclarativeRuleRecipe> = emptyList(),
 )
 
 internal object DeclarativePluginLoader {
@@ -229,7 +259,26 @@ internal object DeclarativePluginLoader {
         val chatRecipes = parseChatRecipes(manifest, execution)
         val npcRecipes = parseNpcRecipes(manifest, execution)
         val generationRecipes = parseGenerationRecipes(manifest, execution)
-        val supported = chatRecipes.isNotEmpty() || npcRecipes.isNotEmpty() || generationRecipes.isNotEmpty()
+        val declaredRuleElement = execution["rules"]
+        if (declaredRuleElement != null && declaredRuleElement !is JsonArray) {
+            return DeclarativePluginEvaluation(
+                plugin = null,
+                executable = false,
+                executionMode = "declarative-invalid",
+                capabilityNotice = "声明式 execution.rules 必须是规则数组。",
+            )
+        }
+        val declaredRules = declaredRuleElement.orEmpty()
+        val rules = parseRules(manifest, declaredRules)
+        if (rules.size != declaredRules.size) {
+            return DeclarativePluginEvaluation(
+                plugin = null,
+                executable = false,
+                executionMode = "declarative-invalid",
+                capabilityNotice = "声明式 execution.rules 中存在无效事件、条件、动作或缺少对应权限。",
+            )
+        }
+        val supported = chatRecipes.isNotEmpty() || npcRecipes.isNotEmpty() || generationRecipes.isNotEmpty() || rules.isNotEmpty()
         if (!supported) {
             return DeclarativePluginEvaluation(
                 plugin = null,
@@ -264,6 +313,7 @@ internal object DeclarativePluginLoader {
             executionMode = "declarative-kotlin",
             capabilityNotice = "由声明式插件运行时执行，不加载或运行插件携带的任意代码。",
             generationRecipes = generationRecipes,
+            rules = rules,
         )
     }
 
@@ -412,6 +462,73 @@ internal object DeclarativePluginLoader {
         }.toMap()
     }
 
+    private fun parseRules(
+        manifest: PluginManifest,
+        elements: List<JsonElement>,
+    ): List<DeclarativeRuleRecipe> {
+        if (elements.size > 8) return emptyList()
+        val parsed = elements.mapNotNull { element ->
+            val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val id = item["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (!RULE_ID.matches(id)) return@mapNotNull null
+            val event = when (item["event"]?.jsonPrimitive?.contentOrNull) {
+                DeclarativeRuleEvent.BeforeGeneration.wireName -> DeclarativeRuleEvent.BeforeGeneration
+                DeclarativeRuleEvent.AfterTurn.wireName -> DeclarativeRuleEvent.AfterTurn
+                else -> return@mapNotNull null
+            }
+            val matchElement = item["match"]
+            if (matchElement != null && matchElement !is JsonObject) return@mapNotNull null
+            val matchObject = matchElement ?: JsonObject(emptyMap())
+            val keywordElement = matchObject["keywords"]
+            if (keywordElement != null && keywordElement !is JsonArray) return@mapNotNull null
+            val keywords = keywordElement.orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                .distinct()
+            val everyTurns = matchObject["everyTurns"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            val chancePercent = matchObject["chancePercent"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 100
+            val stateKey = matchObject["stateKey"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val stateEquals = matchObject["stateEquals"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (
+                keywords.size > 12 || keywords.any { it.length > 48 } ||
+                (everyTurns != 0 && everyTurns !in 2..100) || chancePercent !in 1..100 ||
+                (stateKey.isBlank() != stateEquals.isBlank()) ||
+                (stateKey.isNotBlank() && !STATE_KEY.matches(stateKey))
+            ) return@mapNotNull null
+            val actionElement = item["actions"]
+            if (actionElement !is JsonArray) return@mapNotNull null
+            val actions = actionElement.mapNotNull actionLoop@ { rawAction ->
+                val action = runCatching { rawAction.jsonObject }.getOrNull() ?: return@actionLoop null
+                val type = action["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val instruction = action["instruction"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val key = action["key"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val value = action["value"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val amount = action["amount"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 1
+                val valid = when (type) {
+                    "add_instruction" -> event == DeclarativeRuleEvent.BeforeGeneration &&
+                        instruction.isNotBlank() && instruction.length <= 2_000 &&
+                        "generation.enhance" in manifest.permissions
+                    "set_state" -> event == DeclarativeRuleEvent.AfterTurn && STATE_KEY.matches(key) &&
+                        value.isNotBlank() && value.length <= 120 && "chat.state.write" in manifest.permissions
+                    "increment_state" -> event == DeclarativeRuleEvent.AfterTurn && STATE_KEY.matches(key) &&
+                        amount != 0 && amount in -100..100 && "chat.state.write" in manifest.permissions
+                    else -> false
+                }
+                if (!valid) return@actionLoop null
+                DeclarativeRuleAction(type, instruction, key, value, amount)
+            }
+            val declaredActions = actionElement
+            if (declaredActions.isEmpty() || declaredActions.size > 6 || actions.size != declaredActions.size) return@mapNotNull null
+            DeclarativeRuleRecipe(
+                id = id,
+                title = item["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { id },
+                event = event,
+                match = DeclarativeRuleMatch(keywords, everyTurns, chancePercent, stateKey, stateEquals),
+                actions = actions,
+            )
+        }
+        return parsed.takeIf { it.map(DeclarativeRuleRecipe::id).distinct().size == it.size }.orEmpty()
+    }
+
     private fun parseSettings(value: JsonElement?): List<PluginSettingDescriptor> {
         val array = value?.jsonArray ?: return emptyList()
         return array.mapNotNull { element ->
@@ -440,10 +557,13 @@ internal object DeclarativePluginLoader {
     private fun stringArray(value: kotlinx.serialization.json.JsonElement?): List<String> =
         value?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
 
+    private val RULE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
+    private val STATE_KEY = Regex("^[A-Za-z][A-Za-z0-9_]{0,47}$")
+
 }
 
-private val declarativePlaceholder = Regex("\\{\\{\\s*([^}]+?)\\s*}}")
-private val declarativeStoragePlaceholder = Regex("\\{\\{\\s*storage\\.([^}]+?)\\s*}}")
+private val declarativePlaceholder = Regex("\\{\\{\\s*([^}]+?)\\s*\\}\\}")
+private val declarativeStoragePlaceholder = Regex("\\{\\{\\s*storage\\.([^}]+?)\\s*\\}\\}")
 
 private fun renderTemplate(
     template: String,

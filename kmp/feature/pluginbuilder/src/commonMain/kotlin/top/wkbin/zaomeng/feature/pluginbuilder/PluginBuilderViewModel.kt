@@ -23,6 +23,9 @@ import top.wkbin.zaomeng.data.api.suggestPluginSettingKey
 
 data class PluginBuilderUiState(
     val draft: PluginDraft = PluginDraft(prompt = defaultPrompt(PluginBuilderTemplate.ChatAction)),
+    val idea: String = "",
+    val generating: Boolean = false,
+    val generatedProposal: PluginBuilderValidationDto? = null,
     val validation: PluginBuilderValidationDto? = null,
     val validating: Boolean = false,
     val working: Boolean = false,
@@ -43,6 +46,44 @@ class PluginBuilderViewModel(
 
     init {
         scheduleValidation(immediate = true)
+    }
+
+    fun updateIdea(value: String) {
+        mutableState.update { it.copy(idea = value.take(1_000), error = "") }
+    }
+
+    fun generateFromIdea() {
+        val description = state.value.idea.trim()
+        if (description.isBlank() || state.value.generating || state.value.working) return
+        viewModelScope.launch {
+            mutableState.update { it.copy(generating = true, generatedProposal = null, message = "", error = "") }
+            try {
+                val proposal = repository.generatePluginDraft(description)
+                mutableState.update { it.copy(generating = false, generatedProposal = proposal) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                mutableState.update { it.copy(generating = false, error = error.message ?: "生成插件草稿失败。") }
+            }
+        }
+    }
+
+    fun applyGeneratedProposal() {
+        val proposal = state.value.generatedProposal ?: return
+        validationJob?.cancel()
+        mutableState.update {
+            it.copy(
+                draft = proposal.draft,
+                validation = proposal,
+                generatedProposal = null,
+                message = "AI 草稿已填入，你可以继续修改后安装或导出。",
+                error = "",
+            )
+        }
+    }
+
+    fun dismissGeneratedProposal() {
+        mutableState.update { it.copy(generatedProposal = null) }
     }
 
     fun updateName(value: String) = updateDraft { current ->
