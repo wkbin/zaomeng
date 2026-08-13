@@ -2,7 +2,7 @@
 
 这是旧 Python/Web 插件 API v1 的最小模板。修改 `plugin.json` 中的反向域名 ID、名称和版本，再实现 `main.py` 中的动作即可。
 
-> 当前 KMP 应用可以检查和保存第三方插件包，但不包含 Python 执行环境，无法执行此模板的 `main.py`。KMP 内置插件应通过 `kmp/plugins-api` 和 `kmp/builtin-plugins` 实现。
+> 当前 KMP 应用可以检查和保存此模板，但不会执行 `main.py`。要在 KMP 外置插件中执行，请使用 [`../declarative-plugin-template`](../declarative-plugin-template)，或通过 `kmp/plugins-api` 与 `kmp/builtin-plugins` 实现内置插件。
 
 在仓库根目录打包：
 

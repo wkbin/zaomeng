@@ -496,6 +496,7 @@ class DialoguePromptBuilder(
         stableSystemParts.add(instructions["response_style"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["scene_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(hostAction["output_rule"]?.toString()?.trim().orEmpty())
+        stableSystemParts.add(instructions["plugin_enhancer_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(promptLoader.getTurnSystemRule("small_action_rule"))
         stableSystemParts.add(promptLoader.getTurnSystemRule("json_only_rule"))
         stableSystemParts.add(promptLoader.getTurnSystemRule("one_response_per_speaker_rule"))

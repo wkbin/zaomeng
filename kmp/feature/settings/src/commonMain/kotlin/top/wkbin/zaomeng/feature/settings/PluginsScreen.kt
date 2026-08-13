@@ -270,7 +270,13 @@ private fun PluginCard(
                     ) {
                         Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (plugin.source == "official") "官方 · 可执行" else "第三方 · 仅保存",
+                            if (plugin.source == "official") {
+                                "官方 · 可执行"
+                            } else if (plugin.executable) {
+                                "第三方 · 声明式"
+                            } else {
+                                "第三方 · 仅保存"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = if (plugin.source == "official") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                         )
@@ -510,10 +516,15 @@ private fun PluginPermissionDialog(
                     Text("此插件未申请权限。")
                 } else {
                     Text("申请的权限：")
-                    plugin.permissions.forEach { Text("• ${it.permissionLabel()}") }
+                    plugin.permissions.forEach { Text("• ${it.permissionLabel()}${it.permissionRiskLabel()}") }
                 }
-                Text("当前版本只保存这个第三方包，不会执行其中的 Python 或其他代码。")
-                Text("后续声明式协议只允许插件描述提示词动作、设置与经授权的宿主能力。")
+                Text(
+                    if (plugin.executable) {
+                        "此插件使用声明式运行时，可执行其声明的聊天动作；不会运行 Python 或其他任意代码。"
+                    } else {
+                        "当前版本只保存这个第三方包，不会执行其中的 Python 或其他代码。"
+                    },
+                )
                 if (inspection.blockedReason.isNotBlank()) {
                     Text(inspection.blockedReason, color = MaterialTheme.colorScheme.error)
                 }
@@ -554,12 +565,19 @@ private fun StatusCard(message: String, error: Boolean) {
 
 private fun String.permissionLabel(): String = when (this) {
     "chat.context.read" -> "读取聊天上下文"
-    "chat.cast.write" -> "向当前会话加入临时角色"
+    "chat.cast.write" -> "修改当前会话角色"
     "chat.draft.write" -> "写入聊天草稿"
     "generation.enhance" -> "增强回复生成"
+    "run.personas.read" -> "读取当前书卷的已蒸馏人物"
     "model.invoke" -> "调用模型"
     "storage.read" -> "读取插件存储"
     "storage.write" -> "写入插件存储"
     "network.access" -> "访问网络"
     else -> this
+}
+
+private fun String.permissionRiskLabel(): String = when (this) {
+    "chat.cast.write", "model.invoke", "run.personas.read" -> " · 敏感"
+    "storage.read", "storage.write", "network.access" -> " · 高风险"
+    else -> ""
 }

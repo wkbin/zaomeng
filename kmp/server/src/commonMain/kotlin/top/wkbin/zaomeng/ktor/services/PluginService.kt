@@ -43,9 +43,8 @@ class PluginService(
     /**
      * 构造单个插件项。
      *
-     * 第三方 ZIP 目前只作为待迁移资源保存；宿主没有任意代码运行时，因此绝不能把
-     * enabled.json 中的历史残留解释成“可执行”。未来声明式协议有独立执行模式后，
-     * 再由协议校验器把 executable 置为 true。
+     * 旧第三方 ZIP 只作为待迁移资源保存；声明式插件由 DeclarativePluginLoader 校验后
+     * 才标记为 executable，enabled.json 中的历史残留不会被误解释成可执行。
      */
     private fun itemFor(pluginId: String, enabled: Set<String>, useDefaults: Boolean = false): JsonObject? {
         val builtin = findBuiltin(pluginId)
@@ -54,17 +53,67 @@ class PluginService(
         if (!storage.exists(manifest)) return null
         return try {
             val value = json.parseToJsonElement(storage.readText(manifest)).jsonObject
-            buildJsonObject {
-                value.forEach { (key, item) -> put(key, item) }
-                put("id", value["id"]?.jsonPrimitive?.contentOrNull ?: pluginId)
-                put("enabled", false)
-                put("status", "stored")
-                put("source", "third-party")
-                put("executable", false)
-                put("executionMode", "unsupported")
-                put("capabilityNotice", THIRD_PARTY_STORED_NOTICE)
-            }
+            externalItem(pluginId, value, enabled)
         } catch (_: Exception) { null }
+    }
+
+    private fun externalItem(pluginId: String, value: JsonObject, enabled: Set<String>): JsonObject {
+        val evaluation = DeclarativePluginLoader.evaluate(pluginId, value)
+        val isEnabled = evaluation.executable && pluginId in enabled
+        return buildJsonObject {
+            value.forEach { (key, item) ->
+                if (key == "execution") return@forEach
+                if (key == "contributes" && evaluation.plugin != null) return@forEach
+                put(key, item)
+            }
+            put("id", value["id"]?.jsonPrimitive?.contentOrNull ?: pluginId)
+            put("enabled", isEnabled)
+            put("status", when {
+                isEnabled -> "enabled"
+                evaluation.executable -> "disabled"
+                else -> "stored"
+            })
+            put("source", "third-party")
+            put("config", getConfig(pluginId))
+            put("defaultEnabled", value["defaultEnabled"]?.jsonPrimitive?.booleanOrNull ?: false)
+            evaluation.plugin?.manifest?.let { manifest ->
+                put("contributes", contributesJson(manifest))
+            }
+            put("executable", evaluation.executable)
+            put("executionMode", evaluation.executionMode)
+            put("capabilityNotice", evaluation.capabilityNotice)
+        }
+    }
+
+    private fun contributesJson(manifest: top.wkbin.zaomeng.plugins.api.PluginManifest): JsonObject = buildJsonObject {
+        put("chatActions", buildJsonArray {
+            manifest.contributes.chatActions.forEach { action ->
+                add(buildJsonObject {
+                    put("id", action.id)
+                    put("title", action.title)
+                    put("icon", action.icon)
+                    put("placement", action.placement)
+                })
+            }
+        })
+        put("generationEnhancers", buildJsonArray {
+            manifest.contributes.generationEnhancers.forEach { enhancer ->
+                add(buildJsonObject {
+                    put("id", enhancer.id)
+                    put("title", enhancer.title)
+                    put("icon", enhancer.icon)
+                })
+            }
+        })
+        put("temporaryNpcGenerators", buildJsonArray {
+            manifest.contributes.temporaryNpcGenerators.forEach { generator ->
+                add(buildJsonObject {
+                    put("id", generator.id)
+                    put("title", generator.title)
+                    put("icon", generator.icon)
+                })
+            }
+        })
     }
 
     private fun builtinItem(plugin: Plugin, enabled: Set<String>, useDefaults: Boolean = false): JsonObject {
@@ -126,8 +175,12 @@ class PluginService(
             throw IllegalArgumentException("Invalid plugin id")
         }
         if (!isKnown(normalized)) throw NoSuchElementException("Plugin not found: $normalized")
-        if (!isBuiltin(normalized) && value) {
-            throw IllegalArgumentException(THIRD_PARTY_STORED_NOTICE)
+        if (!isBuiltin(normalized) && value && !isExecutableExternal(normalized)) {
+            val notice = readExternalManifest(normalized)
+                ?.let { DeclarativePluginLoader.evaluate(normalized, it).capabilityNotice }
+                .orEmpty()
+                .ifBlank { THIRD_PARTY_STORED_NOTICE }
+            throw IllegalArgumentException(notice)
         }
         // 首次显式变更前把默认开启的内置插件一起落盘：
         // 否则状态文件里只有当前这一个插件，其它默认插件会全部变成关闭。
@@ -157,6 +210,20 @@ class PluginService(
         storage.mkdirs(directory)
         storage.writeTextAtomically(directory / "config.json", json.encodeToString(JsonObject.serializer(), config))
         return config
+    }
+
+    fun readData(pluginId: String, key: String): String? {
+        val directory = pluginDirectory(pluginId) / "data"
+        val safeKey = PathSafety.validateStorageId(key, "plugin data key")
+        val file = directory / "$safeKey.txt"
+        return if (storage.isFile(file)) storage.readText(file) else null
+    }
+
+    fun writeData(pluginId: String, key: String, value: String) {
+        val directory = pluginDirectory(pluginId) / "data"
+        val safeKey = PathSafety.validateStorageId(key, "plugin data key")
+        storage.mkdirs(directory)
+        storage.writeTextAtomically(directory / "$safeKey.txt", value)
     }
 
     /** 读取插件日志（jsonl，最多返回最近 200 条）。 */
@@ -207,6 +274,28 @@ class PluginService(
 
     fun findBuiltin(pluginId: String): Plugin? = builtins.firstOrNull { it.manifest.id == pluginId.trim() }
 
+    fun findPlugin(pluginId: String): Plugin? {
+        val normalized = pluginId.trim()
+        findBuiltin(normalized)?.let { return it }
+        if (!PathSafety.STORAGE_ID_PATTERN.matches(normalized)) return null
+        val raw = readExternalManifest(normalized) ?: return null
+        return DeclarativePluginLoader.evaluate(normalized, raw).plugin
+    }
+
+    fun isExecutableExternal(pluginId: String): Boolean =
+        PathSafety.STORAGE_ID_PATTERN.matches(pluginId.trim()) &&
+            readExternalManifest(pluginId.trim())?.let {
+                DeclarativePluginLoader.evaluate(pluginId.trim(), it).executable
+            } == true
+
+    fun generationEnhancerRule(pluginId: String, enhancerId: String): String? {
+        val normalized = pluginId.trim()
+        if (isBuiltin(normalized) || !PathSafety.STORAGE_ID_PATTERN.matches(normalized)) return null
+        val raw = readExternalManifest(normalized) ?: return null
+        return DeclarativePluginLoader.evaluate(normalized, raw)
+            .generationRecipes[enhancerId.trim()]?.rule
+    }
+
     private fun isKnown(pluginId: String): Boolean = isBuiltin(pluginId) || storage.isFile(root / "$pluginId/plugin.json")
 
     private fun pluginDirectory(pluginId: String): Path {
@@ -235,6 +324,15 @@ class PluginService(
         } else {
             parsed
         }
+    }
+
+    private fun readExternalManifest(pluginId: String): JsonObject? {
+        if (!PathSafety.STORAGE_ID_PATTERN.matches(pluginId.trim())) return null
+        val manifest = root / "$pluginId/plugin.json"
+        if (!storage.isFile(manifest)) return null
+        return runCatching {
+            json.parseToJsonElement(storage.readText(manifest)).jsonObject
+        }.getOrNull()
     }
 
     private companion object {

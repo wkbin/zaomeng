@@ -77,6 +77,8 @@ data class ChatActionResult(
     val suggestion: String = "",
     val suggestions: List<SuggestionOption> = emptyList(),
     val notice: String = "",
+    val character: String = "",
+    val session: JsonObject = JsonObject(emptyMap()),
 )
 
 data class NpcGeneratorRequest(
@@ -93,6 +95,16 @@ data class NpcGeneratorResult(
     val notice: String = "",
 )
 
+data class PluginPersonaSummary(
+    val name: String,
+    val preview: String = "",
+)
+
+data class PluginReplyAsCharacterResult(
+    val character: String,
+    val text: String,
+)
+
 // ---------------------------------------------------------------------------
 // 宿主（由 server 实现并注入；提供插件需要的模型能力，对齐 Python ZaomengPluginHost）
 // ---------------------------------------------------------------------------
@@ -106,6 +118,39 @@ interface PluginHost {
 
     /** 临时 NPC 生成：按方向生成 NPC 并写入会话 temporary_npcs，返回 NPC 对象（键值均为字符串）。 */
     suspend fun invokeNpc(runId: String, sessionId: String, direction: String): JsonObject
+
+    /** 读取插件自己的受限数据区。key 只允许安全标识符，路径不能逃逸插件目录。 */
+    suspend fun readPluginData(pluginId: String, key: String): String? = null
+
+    /** 写入插件自己的受限数据区。value 为普通字符串，由插件负责编码。 */
+    suspend fun writePluginData(pluginId: String, key: String, value: String) = Unit
+
+    /** 受 network.access 权限约束的公开 HTTP 请求，返回响应文本。 */
+    suspend fun invokeHttp(
+        method: String,
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        body: String = "",
+    ): String? = null
+
+    /** 列出当前 run 已蒸馏人物及其简短预览。 */
+    suspend fun listRunPersonas(runId: String): List<PluginPersonaSummary> = emptyList()
+
+    /** 从全部已蒸馏人物中选择一名并生成以该角色口吻回复的草稿。 */
+    suspend fun invokeReplyAsCharacter(
+        runId: String,
+        sessionId: String,
+        seedText: String,
+        direction: String,
+    ): PluginReplyAsCharacterResult? = null
+
+    /** 禁言或解除禁言当前会话中的指定人物。返回更新后的 session manifest。 */
+    suspend fun setSessionCharacterMuted(
+        runId: String,
+        sessionId: String,
+        character: String,
+        muted: Boolean,
+    ): JsonObject? = null
 
     /** 插件日志（写入该插件 plugin-logs.jsonl）。 */
     fun log(pluginId: String, level: String, message: String)

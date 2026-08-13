@@ -174,9 +174,17 @@ class PluginsViewModel(
                         packageInspection = null,
                         plugins = plugins.sortedPlugins(),
                         message = if (inspection.operation == "update") {
-                            "已保存「${installed.name}」v${installed.version}；当前版本不会执行第三方代码。"
+                            if (installed.executable) {
+                                "已更新「${installed.name}」v${installed.version}，可以在插件列表中启用。"
+                            } else {
+                                "已保存「${installed.name}」v${installed.version}；当前版本不会执行第三方代码。"
+                            }
                         } else {
-                            "已保存「${installed.name}」；当前版本不会执行第三方代码。"
+                            if (installed.executable) {
+                                "已安装「${installed.name}」，可以在插件列表中启用。"
+                            } else {
+                                "已保存「${installed.name}」；当前版本不会执行第三方代码。"
+                            }
                         },
                     )
                 }

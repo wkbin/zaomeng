@@ -340,6 +340,8 @@ data class PluginChatActionResponse(
     val suggestion: String = "",
     val suggestions: List<PluginSuggestionOptionDto> = emptyList(),
     val notice: String = "",
+    val character: String = "",
+    val session: DialogueSessionDto = DialogueSessionDto(),
 )
 
 @Serializable
@@ -446,4 +448,3 @@ data class UpdateDialogueRelationLockRequest(
 
 @Serializable
 data class DeleteStatusDto(val status: String = "")
-

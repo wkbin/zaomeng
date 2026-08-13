@@ -1341,6 +1341,7 @@ class ChatViewModel(
                 seedText = current.draft,
             )
             updateState {
+                val refreshedSession = result.session.takeIf { it.sessionId.isNotBlank() }
                 val options = result.suggestions
                     .filter { option -> option.suggestion.isNotBlank() }
                     .map { option ->
@@ -1351,7 +1352,20 @@ class ChatViewModel(
                             messageKind = current.messageKind,
                         )
                     }
-                if (options.isNotEmpty()) {
+                if (refreshedSession != null) {
+                    it.copy(
+                        session = refreshedSession,
+                        draft = result.suggestion,
+                        messageKind = if (result.character.isNotBlank()) "dialogue" else it.messageKind,
+                        notice = result.notice.ifBlank {
+                            if (result.character.isNotBlank()) {
+                                "已选择「${result.character}」的回复。"
+                            } else {
+                                "「${action.title}」已更新当前会话。"
+                            }
+                        },
+                    )
+                } else if (options.isNotEmpty()) {
                     it.copy(
                         toolOptionsTitle = action.title,
                         toolOptions = options,
@@ -1359,7 +1373,12 @@ class ChatViewModel(
                 } else {
                     it.copy(
                         draft = result.suggestion,
-                        notice = "「${action.title}」已将结果放入输入框。",
+                        messageKind = if (result.character.isNotBlank()) "dialogue" else it.messageKind,
+                        notice = if (result.character.isNotBlank()) {
+                            "已选择「${result.character}」的回复，可直接发送。"
+                        } else {
+                            "「${action.title}」已将结果放入输入框。"
+                        },
                     )
                 }
             }

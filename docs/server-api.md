@@ -676,6 +676,86 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 插件描述中的 `apiVersion`、`defaultEnabled`、`executionMode`、`capabilityNotice` 以及 `contributes.chatActions/generationEnhancers/temporaryNpcGenerators` 使用 `camelCase`，这是插件公共契约的一部分。
 
+当前 KMP 宿主支持两类第三方插件：
+
+- `execution.mode = "declarative"`：外置插件不携带可执行代码，只声明聊天动作和临时 NPC 生成器如何调用宿主能力。宿主会校验每个贡献点都有对应配方，并以 `executable=true`、`executionMode="declarative-kotlin"` 返回。
+- 未提供 `execution` 的旧 `entry=main.py` 包：仍可检查和保存，但 `executable=false`、`executionMode="unsupported"`，不会运行其中的 Python 或其他任意代码。
+
+声明式插件最小示例：
+
+```json
+{
+  "id": "com.example.quick-reply",
+  "name": "快捷接话",
+  "version": "1.0.0",
+  "apiVersion": "2",
+  "permissions": ["chat.context.read", "chat.draft.write", "model.invoke"],
+  "contributes": {
+    "chatActions": [
+      {"id": "quick-reply", "title": "快捷接话", "placement": "composer", "icon": "sparkles"}
+    ]
+  },
+  "execution": {
+    "mode": "declarative",
+    "chatActions": {
+      "quick-reply": {
+        "operation": "suggest",
+        "direction": "结合当前场景生成下一句，语气为{{config.tone}}，草稿：{{seed_text}}"
+      }
+    }
+  }
+}
+```
+
+`operation` 允许 `suggest` 或 `variants`；模板支持 `{{seed_text}}`、`{{direction}}` 和 `{{config.<key>}}`。临时 NPC 生成器位于 `execution.temporaryNpcGenerators.<id>.direction`。生成增强器位于 `execution.generationEnhancers.<id>.rule`，启用后会作为当前会话的提示词规则注入每一轮主对话生成。
+
+插件数据配方允许 `operation` 为 `storage_get` 或 `storage_set`：
+
+```json
+{
+  "operation": "storage_set",
+  "key": "notes",
+  "value": "{{seed_text}}"
+}
+```
+
+`key` 必须匹配 `^[A-Za-z0-9_-]+$`，文件写入 `plugins/<id>/data/<key>.txt`。`suggest`、`variants` 和 NPC 配方中还可以使用 `{{storage.<key>}}` 读取插件数据；使用前需要声明 `storage.read`，写入需要 `storage.write`。
+
+网络配方允许 `operation` 为 `http_get` 或 `http_post`：
+
+```json
+{
+  "operation": "http_post",
+  "url": "https://example.com/api",
+  "headers": {"Content-Type": "application/json"},
+  "body": "{{seed_text}}"
+}
+```
+
+网络请求只允许 `http` / `https` URL，并且要求声明 `network.access`。响应文本会作为插件聊天动作的建议文本返回。
+
+代角色回复配方允许 `operation = "reply_as_character"`，需要声明 `run.personas.read`：
+
+```json
+{
+  "operation": "reply_as_character",
+  "direction": "选择最符合当前情境的人物替用户回复"
+}
+```
+
+宿主会列出当前 run 的已蒸馏人物，生成回复并返回 `character` 与 `suggestion`。客户端把 `character` 放入输入框并切换为对白模式；当前阶段仍由用户确认发送。
+
+会话角色禁言配方允许 `operation = "mute_character"` 或 `"unmute_character"`，需要 `chat.cast.write`：
+
+```json
+{
+  "operation": "mute_character",
+  "character": "{{seed_text}}"
+}
+```
+
+宿主把 `muted_characters` 写入 session，对话生成时会从允许回复集合中排除被禁言角色。插件动作响应会携带更新后的 `session`。
+
 ### 10.2 插件包检查与安装
 
 | 方法 | 路径 | 请求 | 成功响应 |

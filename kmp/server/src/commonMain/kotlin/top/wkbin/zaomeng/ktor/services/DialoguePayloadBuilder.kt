@@ -725,6 +725,8 @@ class DialoguePayloadBuilder(
         includeInnerThoughts: Boolean = false,
     ): Map<String, Any?> {
         val participants = stringList(jsonValueToAny(session["participants"]))
+        val mutedCharacters = stringList(jsonValueToAny(session["muted_characters"]))
+        val unmutedParticipants = participants.filterNot { it in mutedCharacters }
         val mode = session["mode"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "observe" }
         val controlledCharacterName = if (mode == "act") {
             session["controlled_character"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -767,11 +769,11 @@ class DialoguePayloadBuilder(
         val eventSignals = loadEventSignals(session)
         val snapshots = loadCharacterSnapshots(session)
         val presentParticipants = (sceneProgress["present_participants"] as? List<*>)
-            ?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+            ?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() && it !in mutedCharacters } ?: emptyList()
 
         // 在场参与人：有 scene_progress 时以在场名单为准（对齐 Python service.py 的 active_participants）
         val activeParticipants = selectDialogueActiveParticipants(
-            participants = participants,
+            participants = unmutedParticipants,
             presentParticipants = presentParticipants,
             mode = mode,
             inputSpeaker = speaker,
@@ -932,6 +934,11 @@ class DialoguePayloadBuilder(
         )
         val instructionsWithGroupChat = instructions.toMutableMap()
         instructionsWithGroupChat["group_chat_rule"] = speakerPlan["rule"]?.toString()?.trim().orEmpty()
+        val pluginEnhancerRules = (session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap()))
+            .mapNotNull { (_, value) -> value.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+        if (pluginEnhancerRules.isNotEmpty()) {
+            instructionsWithGroupChat["plugin_enhancer_rule"] = pluginEnhancerRules.joinToString("\n")
+        }
         val responderHints = DialoguePromptRules.responderHints(
             mode, activeParticipants, speaker, normalizedMessageKind, controlledCharacterName,
         )

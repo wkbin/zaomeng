@@ -1,10 +1,22 @@
 package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.*
+import io.ktor.client.HttpClient
+import io.ktor.client.request.header
+import io.ktor.client.request.request
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpMethod
+import io.ktor.http.contentType
 import top.wkbin.zaomeng.plugins.api.PluginHost
+import top.wkbin.zaomeng.plugins.api.PluginPersonaSummary
+import top.wkbin.zaomeng.plugins.api.PluginReplyAsCharacterResult
 import top.wkbin.zaomeng.plugins.api.SuggestionOption
+import top.wkbin.zaomeng.platform.createHttpClientEngine
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
+import top.wkbin.zaomeng.platform.SimpleLock
 
 /**
  * 插件宿主（对齐 Python ZaomengPluginHost）：把插件需要的模型能力绑定到 Ktor 现有服务。
@@ -18,6 +30,13 @@ class PluginHostImpl(
     private val pluginService: PluginService,
 ) : PluginHost {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val httpClient by lazy {
+        HttpClient(createHttpClientEngine()) {
+            expectSuccess = false
+        }
+    }
+    private val sessionActionLocks = mutableMapOf<String, SimpleLock>()
+    private val sessionActionLocksGuard = SimpleLock()
 
     override suspend fun invokeSuggestion(runId: String, sessionId: String, seedText: String, direction: String): String {
         val result = dialogueAdvanced.suggestDialogue(runId, sessionId, seedText, direction)
@@ -33,6 +52,123 @@ class PluginHostImpl(
     override suspend fun invokeNpc(runId: String, sessionId: String, direction: String): JsonObject {
         val npc = generateNpcObject(runId, sessionId, direction)
         return addTemporaryNpc(runId, sessionId, npc)
+    }
+
+    override suspend fun readPluginData(pluginId: String, key: String): String? =
+        pluginService.readData(pluginId, key)
+
+    override suspend fun writePluginData(pluginId: String, key: String, value: String) {
+        pluginService.writeData(pluginId, key, value)
+    }
+
+    override suspend fun invokeHttp(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+    ): String? {
+        val normalizedMethod = method.trim().uppercase()
+        if (normalizedMethod !in setOf("GET", "POST", "PUT", "PATCH", "DELETE")) {
+            throw IllegalArgumentException("不支持的插件网络方法：$normalizedMethod")
+        }
+        val normalizedUrl = url.trim()
+        if (!normalizedUrl.startsWith("https://") && !normalizedUrl.startsWith("http://")) {
+            throw IllegalArgumentException("插件网络请求只允许 http/https URL。")
+        }
+        val response = httpClient.request(normalizedUrl) {
+            this.method = HttpMethod.parse(normalizedMethod)
+            headers.forEach { (key, value) -> header(key, value) }
+            if (body.isNotBlank()) {
+                contentType(ContentType.Text.Plain)
+                setBody(body)
+            }
+        }
+        return response.bodyAsText()
+    }
+
+    override suspend fun listRunPersonas(runId: String): List<PluginPersonaSummary> {
+        val manifest = storage.readRunManifest(runId)
+            ?: throw NoSuchElementException("Run not found: $runId")
+        val characters = manifest["artifact_index"]?.jsonObject?.get("characters")?.jsonArray.orEmpty()
+        return characters.mapNotNull { element ->
+            val item = element.jsonObject
+            val name = item["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isBlank()) return@mapNotNull null
+            val preview = item["preview"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: item["core_identity"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: ""
+            PluginPersonaSummary(name = name, preview = preview.take(240))
+        }
+    }
+
+    override suspend fun invokeReplyAsCharacter(
+        runId: String,
+        sessionId: String,
+        seedText: String,
+        direction: String,
+    ): PluginReplyAsCharacterResult? {
+        val personas = listRunPersonas(runId)
+        if (personas.isEmpty()) return null
+        val names = personas.joinToString("、") { it.name }
+        val selectionDirection = buildString {
+            append("从以下已蒸馏人物中选择最合适的一名，替用户回复：")
+            append(names)
+            append("。")
+            if (direction.isNotBlank()) {
+                append("附加要求：")
+                append(direction)
+            }
+            append("最终只输出该角色的自然回复文本，不要解释选择过程。")
+        }
+        val suggestion = dialogueAdvanced.suggestDialogue(
+            runId = runId,
+            sessionId = sessionId,
+            seedText = seedText,
+            direction = selectionDirection,
+        )["suggestion"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (suggestion.isBlank()) return null
+        // 用轻量关键词命中选择角色；不匹配时仍返回文本，由客户端展示为普通草稿。
+        val character = personas.firstOrNull { persona ->
+            persona.name.isNotBlank() && suggestion.contains(persona.name)
+        }?.name.orEmpty()
+        return PluginReplyAsCharacterResult(character = character, text = suggestion)
+    }
+
+    override suspend fun setSessionCharacterMuted(
+        runId: String,
+        sessionId: String,
+        character: String,
+        muted: Boolean,
+    ): JsonObject? {
+        val normalized = character.trim()
+        if (normalized.isBlank()) throw IllegalArgumentException("请指定需要禁言的人物。")
+        val lock = sessionActionLocksGuard.withLock {
+            sessionActionLocks.getOrPut("$runId:$sessionId") { SimpleLock() }
+        }
+        return lock.withLock {
+            val manifestFile = storage.getDialogueSessionManifestFile(runId, sessionId)
+            val session = storage.loadSessionManifest(runId, sessionId)
+            val participants = (session["participants"]?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }
+            if (participants.none { it == normalized }) {
+                throw IllegalArgumentException("「$normalized」不在当前会话参与者中。")
+            }
+            val mode = session["mode"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val controlled = session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (muted && mode == "act" && normalized == controlled) {
+                throw IllegalArgumentException("不能禁言当前受控角色「$normalized」。")
+            }
+            val mutedSet = (session["muted_characters"]?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }.toMutableSet()
+            if (muted) mutedSet += normalized else mutedSet -= normalized
+            val updated = buildJsonObject {
+                session.forEach { (key, value) -> if (key != "muted_characters") put(key, value) }
+                put("muted_characters", buildJsonArray { mutedSet.sorted().forEach { add(JsonPrimitive(it)) } })
+                put("updated_at", JsonPrimitive(nowIsoString()))
+            }
+            storage.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), updated))
+            updated
+        }
     }
 
     override fun log(pluginId: String, level: String, message: String) {

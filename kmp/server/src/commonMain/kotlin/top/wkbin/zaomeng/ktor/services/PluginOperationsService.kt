@@ -27,8 +27,7 @@ import top.wkbin.zaomeng.platform.readZipEntries
  * 对应 Python src/web/service_facades/plugins.py 的：
  * inspect / install 两阶段插件包安装，以及对话中插件动作。
  *
- * 注意：第三方包仅保存供未来声明式协议迁移，不进入启用态，也不执行其中的任意代码。
- * 当前可执行插件全部来自编译进应用的 builtin-plugins 模块。
+ * 第三方包不运行任意代码：声明式插件通过 execution 配方调用宿主能力；旧 main.py 包只保存，不进入启用态。
  */
 class PluginOperationsService(
     private val storage: StorageService,
@@ -72,9 +71,10 @@ class PluginOperationsService(
             }
             val fileCount = countFiles(tmpRoot)
             val extractedBytes = totalFileBytes(tmpRoot)
+            val evaluation = DeclarativePluginLoader.evaluate(id, manifest)
             return buildJsonObject {
                 put("token", token)
-                put("plugin", buildPluginDto(id, manifest))
+                put("plugin", buildPluginDto(id, manifest, evaluation))
                 put("operation", if (currentVersion.isNotBlank()) "update" else "install")
                 put("blocked_reason", "")
                 put("current_version", currentVersion)
@@ -115,19 +115,21 @@ class PluginOperationsService(
         }
         // 第三方包只保存，主动清除旧版本可能留下的 enabled 状态。
         pluginService.setEnabled(id, false)
-        val dto = buildPluginDto(id, manifest)
+        val evaluation = DeclarativePluginLoader.evaluate(id, manifest)
+        val dto = buildPluginDto(id, manifest, evaluation)
         return buildJsonObject {
             dto.forEach { (key, value) -> put(key, value) }
             put("version", version)
             put("enabled", false)
-            put("status", "stored")
+            put("status", if (evaluation.executable) "disabled" else "stored")
         }
     }
 
     /** 设置生成增强器状态（会话内存储）。对应 Python set_generation_enhancer_state。 */
     fun setEnhancerState(runId: String, sessionId: String, pluginId: String, enhancerId: String, enabled: Boolean): JsonObject {
-        require(pluginService.isBuiltin(pluginId)) {
-            "第三方插件包目前只能保存，不能启用生成增强器。"
+        val enhancerRule = pluginService.generationEnhancerRule(pluginId, enhancerId)
+        require(pluginService.isBuiltin(pluginId) || enhancerRule != null) {
+            "插件「$pluginId」没有可执行的声明式生成增强器配方。"
         }
         val session = loadSession(runId, sessionId)
         val existing = session["plugin_enhancer_states"]?.jsonObject ?: JsonObject(emptyMap())
@@ -140,20 +142,31 @@ class PluginOperationsService(
             existing.forEach { (key, value) -> if (key != pluginId) put(key, value) }
             put(pluginId, updatedPluginStates)
         }
+        val existingDirectives = session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap())
+        val directiveKey = "$pluginId/$enhancerId"
+        val updatedDirectives = buildJsonObject {
+            existingDirectives.forEach { (key, value) ->
+                if (key != directiveKey) put(key, value)
+            }
+            if (enabled && enhancerRule != null) {
+                put(directiveKey, JsonPrimitive(enhancerRule))
+            }
+        }
         val file = storage.getDialogueSessionManifestFile(runId, sessionId)
         val updated = buildJsonObject {
             session.forEach { (key, value) -> put(key, value) }
             put("plugin_enhancer_states", updatedStates)
+            put("plugin_enhancer_directives", updatedDirectives)
             put("updated_at", nowIsoString())
         }
         storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), updated))
         return updated
     }
 
-    /** 插件聊天动作：内置插件直接分发（对齐 Python invoke_plugin_chat_action）；第三方插件需 Python 运行时。 */
+    /** 插件聊天动作：内置插件或声明式外置插件通过 PluginHost 执行。 */
     suspend fun invokeChatAction(runId: String, sessionId: String, pluginId: String, actionId: String, seedText: String, direction: String): JsonObject {
-        val plugin = pluginService.findBuiltin(pluginId)
-            ?: throw IllegalArgumentException("插件「$pluginId」不是内置插件，执行需要 Python 运行时，当前 Ktor 后端暂不支持。")
+        val plugin = pluginService.findPlugin(pluginId)
+            ?: throw IllegalArgumentException("插件「$pluginId」不存在或不可执行。")
         val pluginHost = requireNotNull(host) { "插件宿主未配置" }
         val request = ChatActionRequest(
             runId = runId,
@@ -174,13 +187,15 @@ class PluginOperationsService(
                 }
             })
             put("notice", JsonPrimitive(result.notice))
+            put("character", JsonPrimitive(result.character))
+            put("session", result.session)
         }
     }
 
-    /** 临时 NPC 生成：内置插件分发并写入会话（对齐 Python invoke_plugin_temporary_npc_generator）。 */
+    /** 临时 NPC 生成：内置插件或声明式外置插件通过 PluginHost 执行并写入会话。 */
     suspend fun invokeNpcGenerator(runId: String, sessionId: String, pluginId: String, generatorId: String, direction: String): JsonObject {
-        val plugin = pluginService.findBuiltin(pluginId)
-            ?: throw IllegalArgumentException("插件「$pluginId」不是内置插件，执行需要 Python 运行时，当前 Ktor 后端暂不支持。")
+        val plugin = pluginService.findPlugin(pluginId)
+            ?: throw IllegalArgumentException("插件「$pluginId」不存在或不可执行。")
         val pluginHost = requireNotNull(host) { "插件宿主未配置" }
         val request = NpcGeneratorRequest(
             runId = runId,
@@ -280,7 +295,11 @@ class PluginOperationsService(
         return bytes to count
     }
 
-    private fun buildPluginDto(id: String, manifest: JsonObject): JsonObject = buildJsonObject {
+    private fun buildPluginDto(
+        id: String,
+        manifest: JsonObject,
+        evaluation: DeclarativePluginEvaluation = DeclarativePluginLoader.evaluate(id, manifest),
+    ): JsonObject = buildJsonObject {
         put("id", id)
         put("name", manifest["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: id)
         put("version", manifest["version"]?.jsonPrimitive?.contentOrNull.orEmpty())
@@ -292,11 +311,11 @@ class PluginOperationsService(
         put("contributes", manifest["contributes"]?.jsonObject ?: JsonObject(emptyMap()))
         put("defaultEnabled", manifest["defaultEnabled"]?.jsonPrimitive?.booleanOrNull ?: true)
         put("enabled", false)
-        put("status", "stored")
+        put("status", if (evaluation.executable) "disabled" else "stored")
         put("error", "")
         put("source", "third-party")
-        put("executable", false)
-        put("executionMode", "unsupported")
-        put("capabilityNotice", "第三方插件包目前只能保存，不能执行；造梦不会运行其中的 Python 或其他任意代码。")
+        put("executable", evaluation.executable)
+        put("executionMode", evaluation.executionMode)
+        put("capabilityNotice", evaluation.capabilityNotice)
     }
 }

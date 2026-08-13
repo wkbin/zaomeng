@@ -116,6 +116,50 @@ class PluginServiceTest {
         }
     }
 
+    @Test
+    fun `declarative third party package can be enabled and listed as executable`() {
+        val dir = createTempDirectory("zaomeng-declarative-plugin")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val pluginDir = dir.toString().toPath() / "plugins" / "declarative-plugin"
+            storage.mkdirs(pluginDir)
+            storage.writeTextAtomically(
+                pluginDir / "plugin.json",
+                """
+                {
+                  "id":"declarative-plugin",
+                  "name":"声明式插件",
+                  "version":"1.0.0",
+                  "permissions":["chat.context.read","chat.draft.write","generation.enhance","model.invoke"],
+                  "contributes":{
+                    "chatActions":[{"id":"act","title":"动作"}],
+                    "generationEnhancers":[{"id":"inner-voice","title":"内心声音"}]
+                  },
+                  "execution":{
+                    "mode":"declarative",
+                    "chatActions":{"act":{"operation":"suggest","direction":"生成草稿：{{seed_text}}"}},
+                    "generationEnhancers":{"inner-voice":{"rule":"为每个发言角色增加一句简短内心独白"}}
+                  }
+                }
+                """.trimIndent(),
+            )
+            val service = PluginService(storage, BuiltinPlugins.all)
+
+            val enabled = service.setEnabled("declarative-plugin", true)
+
+            assertEquals(true, enabled["enabled"]!!.jsonPrimitive.content.toBoolean())
+            assertEquals(true, enabled["executable"]!!.jsonPrimitive.content.toBoolean())
+            assertEquals("declarative-kotlin", enabled["executionMode"]!!.jsonPrimitive.content)
+            assertEquals("enabled", enabled["status"]!!.jsonPrimitive.content)
+            assertEquals(
+                "为每个发言角色增加一句简短内心独白",
+                service.generationEnhancerRule("declarative-plugin", "inner-voice"),
+            )
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     private fun itemsOf(service: PluginService) =
         service.list()["items"]!!.jsonArray
 

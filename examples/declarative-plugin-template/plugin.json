@@ -1,0 +1,40 @@
+{
+  "id": "com.example.declarative-quick-reply",
+  "name": "声明式快捷接话",
+  "version": "0.1.0",
+  "apiVersion": "2",
+  "description": "演示外置声明式插件如何调用 KMP 宿主生成聊天草稿。",
+  "defaultEnabled": false,
+  "permissions": [
+    "chat.context.read",
+    "chat.draft.write",
+    "model.invoke"
+  ],
+  "settings": [
+    {
+      "key": "tone",
+      "title": "语气",
+      "type": "string",
+      "default": "克制"
+    }
+  ],
+  "contributes": {
+    "chatActions": [
+      {
+        "id": "quick-reply",
+        "title": "快捷接话",
+        "placement": "composer",
+        "icon": "sparkles"
+      }
+    ]
+  },
+  "execution": {
+    "mode": "declarative",
+    "chatActions": {
+      "quick-reply": {
+        "operation": "suggest",
+        "direction": "结合当前场景、人物关系与最近对话，生成一段可直接发送的下一句。语气保持{{config.tone}}。用户草稿：{{seed_text}}"
+      }
+    }
+  }
+}
