@@ -31,10 +31,17 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Stamp static asset version
+        shell: bash
+        run: |
+          cp -R website _site
+          find _site -type f -name '*.html' -print0 \
+            | xargs -0 sed -i "s/__BUILD_VERSION__/${GITHUB_SHA}/g"
+
       - name: Upload website
         uses: actions/upload-pages-artifact@v5
         with:
-          path: website
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
