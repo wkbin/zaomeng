@@ -681,6 +681,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 - `execution.mode = "declarative"`：外置插件不携带可执行代码，只声明聊天动作和临时 NPC 生成器如何调用宿主能力。宿主会校验每个贡献点都有对应配方，并以 `executable=true`、`executionMode="declarative-kotlin"` 返回。
 - 未提供 `execution` 的旧 `entry=main.py` 包：仍可检查和保存，但 `executable=false`、`executionMode="unsupported"`，不会运行其中的 Python 或其他任意代码。
 
+当前宿主 API 版本为 `2`，兼容声明式插件 API `1` 和 `2`。其它版本在检查阶段返回 `compatible=false` 和具体的 `blockedReason`，服务端拒绝安装；缺省 `apiVersion` 按兼容 API `1` 处理。
+
 声明式插件最小示例：
 
 ```json
@@ -732,7 +734,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 }
 ```
 
-网络请求只允许 `http` / `https` URL，并且要求声明 `network.access`。响应文本会作为插件聊天动作的建议文本返回。
+网络请求要求声明 `network.access`，且只允许不含用户凭据的 HTTPS URL。宿主拒绝显式 localhost、私有/链路本地/保留 IP 和常见内部域名，禁止重定向以及 `Host`、`Content-Length` 等逐跳/路由请求头，设置 30 秒超时，并把响应限制为 1 MiB。响应文本会作为插件聊天动作的建议文本返回。
 
 代角色回复配方允许 `operation = "reply_as_character"`，需要声明 `run.personas.read`：
 
@@ -775,6 +777,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 {"confirm_permissions":true,"allow_update":false}
 ```
 
+服务端强制校验 `confirm_permissions=true`。更新采用备份后替换的方式，保留原插件的 `config.json`、`data/` 和 `plugin-logs.jsonl`；替换失败时恢复旧目录。安装或更新完成后插件保持关闭，需要用户再次显式启用。
+
 ### 10.3 会话内插件动作
 
 | 方法 | 路径 | 请求 | 成功响应 |
@@ -782,6 +786,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/actions/{action_id}` | `{"seed_text":"...","direction":"..."}` | `200` 建议或动作结果 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/npc-generators/{generator_id}` | `{"direction":"..."}` | `200` 更新后的会话、NPC 和提示 |
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/enhancers/{enhancer_id}/state` | `{"enabled":true}` | `200` 更新后的 enhancer 状态/会话 |
+
+三个执行端点都会在服务端校验插件处于启用状态，并确认请求的 action、NPC generator 或 enhancer 已在该插件清单中声明；仅依赖客户端隐藏入口不构成授权。
 
 ## 11. 核心响应对象
 

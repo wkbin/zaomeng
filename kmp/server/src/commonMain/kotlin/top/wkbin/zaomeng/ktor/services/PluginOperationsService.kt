@@ -76,10 +76,10 @@ class PluginOperationsService(
                 put("token", token)
                 put("plugin", buildPluginDto(id, manifest, evaluation))
                 put("operation", if (currentVersion.isNotBlank()) "update" else "install")
-                put("blocked_reason", "")
+                put("blocked_reason", if (evaluation.compatible) "" else evaluation.capabilityNotice)
                 put("current_version", currentVersion)
-                put("compatible", true)
-                put("host_api_version", "1")
+                put("compatible", evaluation.compatible)
+                put("host_api_version", DeclarativePluginLoader.HOST_API_VERSION)
                 put("file_count", fileCount)
                 put("extracted_bytes", extractedBytes)
                 put("staging_dir", tmpRoot.toString())
@@ -101,21 +101,46 @@ class PluginOperationsService(
         val id = manifest["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val version = manifest["version"]?.jsonPrimitive?.contentOrNull.orEmpty()
         if (id.isEmpty()) throw IllegalArgumentException("plugin.json 缺少 id 字段。")
+        if (!PathSafety.STORAGE_ID_PATTERN.matches(id)) throw IllegalArgumentException("插件 id 不合法：$id")
+        require(confirmPermissions) { "安装前必须显式确认插件申请的权限。" }
+        val evaluation = DeclarativePluginLoader.evaluate(id, manifest)
+        require(evaluation.compatible) { evaluation.capabilityNotice }
         val pluginsRoot = storage.getStorageRoot() / "plugins"
         storage.mkdirs(pluginsRoot)
         val target = pluginsRoot / id
-        if (storage.exists(target)) {
-            if (!allowUpdate) throw IllegalArgumentException("同名插件已安装，如确认升级请勾选允许更新。")
-            storage.deleteRecursively(target)
+        val updating = storage.exists(target)
+        if (updating && !allowUpdate) {
+            throw IllegalArgumentException("同名插件已安装，如确认升级请勾选允许更新。")
         }
-        if (!storage.rename(staging, target)) {
-            // Windows/跨盘回退：复制后删除
-            copyRecursively(staging, target)
-            storage.deleteRecursively(staging)
+        val packageRoot = pluginJson.parent ?: staging
+        val backup = storage.getStorageRoot() / "plugin-staging/.update-backups/$normalizedToken/$id"
+        var backupCreated = false
+        try {
+            if (updating) {
+                storage.mkdirs(backup.parent!!)
+                if (!storage.rename(target, backup)) {
+                    copyRecursively(target, backup)
+                    storage.deleteRecursively(target)
+                }
+                backupCreated = true
+            }
+            if (!storage.rename(packageRoot, target)) {
+                copyRecursively(packageRoot, target)
+            }
+            if (backupCreated) preservePluginState(backup, target)
+            // 安装或升级后保持关闭，必须由用户再次显式启用。
+            pluginService.setEnabled(id, false)
+        } catch (error: Throwable) {
+            // 更新时只有在完整备份已经建立后，才能删除可能不完整的新目录。
+            // 若创建备份本身失败，原目录仍是唯一可信副本，必须原样保留。
+            if ((!updating || backupCreated) && storage.exists(target)) storage.deleteRecursively(target)
+            if (backupCreated && storage.exists(backup)) {
+                if (!storage.rename(backup, target)) copyRecursively(backup, target)
+            }
+            throw error
         }
-        // 第三方包只保存，主动清除旧版本可能留下的 enabled 状态。
-        pluginService.setEnabled(id, false)
-        val evaluation = DeclarativePluginLoader.evaluate(id, manifest)
+        if (storage.exists(staging)) storage.deleteRecursively(staging)
+        if (backupCreated && storage.exists(backup)) storage.deleteRecursively(backup)
         val dto = buildPluginDto(id, manifest, evaluation)
         return buildJsonObject {
             dto.forEach { (key, value) -> put(key, value) }
@@ -127,6 +152,10 @@ class PluginOperationsService(
 
     /** 设置生成增强器状态（会话内存储）。对应 Python set_generation_enhancer_state。 */
     fun setEnhancerState(runId: String, sessionId: String, pluginId: String, enhancerId: String, enabled: Boolean): JsonObject {
+        val plugin = pluginService.requireEnabledPlugin(pluginId)
+        require(plugin.manifest.contributes.generationEnhancers.any { it.id == enhancerId }) {
+            "插件「$pluginId」未声明生成增强器「$enhancerId」。"
+        }
         val enhancerRule = pluginService.generationEnhancerRule(pluginId, enhancerId)
         require(pluginService.isBuiltin(pluginId) || enhancerRule != null) {
             "插件「$pluginId」没有可执行的声明式生成增强器配方。"
@@ -165,8 +194,10 @@ class PluginOperationsService(
 
     /** 插件聊天动作：内置插件或声明式外置插件通过 PluginHost 执行。 */
     suspend fun invokeChatAction(runId: String, sessionId: String, pluginId: String, actionId: String, seedText: String, direction: String): JsonObject {
-        val plugin = pluginService.findPlugin(pluginId)
-            ?: throw IllegalArgumentException("插件「$pluginId」不存在或不可执行。")
+        val plugin = pluginService.requireEnabledPlugin(pluginId)
+        require(plugin.manifest.contributes.chatActions.any { it.id == actionId }) {
+            "插件「$pluginId」未声明聊天动作「$actionId」。"
+        }
         val pluginHost = requireNotNull(host) { "插件宿主未配置" }
         val request = ChatActionRequest(
             runId = runId,
@@ -194,8 +225,10 @@ class PluginOperationsService(
 
     /** 临时 NPC 生成：内置插件或声明式外置插件通过 PluginHost 执行并写入会话。 */
     suspend fun invokeNpcGenerator(runId: String, sessionId: String, pluginId: String, generatorId: String, direction: String): JsonObject {
-        val plugin = pluginService.findPlugin(pluginId)
-            ?: throw IllegalArgumentException("插件「$pluginId」不存在或不可执行。")
+        val plugin = pluginService.requireEnabledPlugin(pluginId)
+        require(plugin.manifest.contributes.temporaryNpcGenerators.any { it.id == generatorId }) {
+            "插件「$pluginId」未声明临时 NPC 生成器「$generatorId」。"
+        }
         val pluginHost = requireNotNull(host) { "插件宿主未配置" }
         val request = NpcGeneratorRequest(
             runId = runId,
@@ -261,6 +294,19 @@ class PluginOperationsService(
                 copyRecursively(child, dest)
             } else {
                 storage.writeBytes(dest, storage.readBytes(child))
+            }
+        }
+    }
+
+    private fun preservePluginState(backup: Path, target: Path) {
+        listOf("config.json", "data", "plugin-logs.jsonl").forEach { name ->
+            val source = backup / name
+            if (!storage.exists(source)) return@forEach
+            val destination = target / name
+            if (storage.isDirectory(source)) {
+                copyRecursively(source, destination)
+            } else {
+                storage.writeBytes(destination, storage.readBytes(source))
             }
         }
     }

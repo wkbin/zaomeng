@@ -190,6 +190,7 @@ class PluginService(
             builtins.filter { it.manifest.defaultEnabled }.map { it.manifest.id }.toMutableSet()
         }
         if (value) enabled += normalized else enabled -= normalized
+        if (!value) clearSessionEnhancers(normalized)
         storage.mkdirs(root)
         storage.writeTextAtomically(stateFile, json.encodeToString(JsonObject.serializer(), buildJsonObject {
             put("enabled", buildJsonArray { enabled.sorted().forEach { add(JsonPrimitive(it)) } })
@@ -261,7 +262,12 @@ class PluginService(
         val trash = storage.getStorageRoot() / "plugin-trash"
         storage.mkdirs(trash)
         val target = trash / "$normalized-${nowEpochMillis()}"
-        if (!storage.rename(directory, target)) throw IllegalStateException("Unable to uninstall plugin")
+        val wasEnabled = isEnabled(normalized)
+        setEnabled(normalized, false)
+        if (!storage.rename(directory, target)) {
+            if (wasEnabled) setEnabled(normalized, true)
+            throw IllegalStateException("Unable to uninstall plugin")
+        }
         return buildJsonObject {
             put("status", "uninstalled")
             put("plugin_id", normalized)
@@ -280,6 +286,24 @@ class PluginService(
         if (!PathSafety.STORAGE_ID_PATTERN.matches(normalized)) return null
         val raw = readExternalManifest(normalized) ?: return null
         return DeclarativePluginLoader.evaluate(normalized, raw).plugin
+    }
+
+    fun isEnabled(pluginId: String): Boolean {
+        val normalized = pluginId.trim()
+        val enabled = readEnabled()
+        return if (storage.isFile(stateFile)) {
+            normalized in enabled
+        } else {
+            findBuiltin(normalized)?.manifest?.defaultEnabled == true
+        }
+    }
+
+    fun requireEnabledPlugin(pluginId: String): Plugin {
+        val normalized = pluginId.trim()
+        val plugin = findPlugin(normalized)
+            ?: throw IllegalArgumentException("插件「$normalized」不存在、不可执行或与当前宿主不兼容。")
+        require(isEnabled(normalized)) { "插件「$normalized」未启用。" }
+        return plugin
     }
 
     fun isExecutableExternal(pluginId: String): Boolean =
@@ -323,6 +347,41 @@ class PluginService(
             parsed + builtins.filter { it.manifest.defaultEnabled }.map { it.manifest.id }
         } else {
             parsed
+        }
+    }
+
+    private fun clearSessionEnhancers(pluginId: String) {
+        storage.listRunIds().forEach { runId ->
+            storage.listDialogueSessionIds(runId).forEach { sessionId ->
+                val session = storage.loadSessionManifest(runId, sessionId)
+                val states = session["plugin_enhancer_states"]?.jsonObject ?: JsonObject(emptyMap())
+                val directives = session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap())
+                if (pluginId !in states && directives.keys.none { it.startsWith("$pluginId/") }) {
+                    return@forEach
+                }
+                val updated = buildJsonObject {
+                    session.forEach { (key, value) ->
+                        when (key) {
+                            "plugin_enhancer_states" -> put(key, buildJsonObject {
+                                states.forEach { (statePluginId, state) ->
+                                    if (statePluginId != pluginId) put(statePluginId, state)
+                                }
+                            })
+                            "plugin_enhancer_directives" -> put(key, buildJsonObject {
+                                directives.forEach { (directiveKey, directive) ->
+                                    if (!directiveKey.startsWith("$pluginId/")) put(directiveKey, directive)
+                                }
+                            })
+                            else -> put(key, value)
+                        }
+                    }
+                    put("updated_at", nowIsoString())
+                }
+                storage.writeTextAtomically(
+                    storage.getDialogueSessionManifestFile(runId, sessionId),
+                    json.encodeToString(JsonObject.serializer(), updated),
+                )
+            }
         }
     }
 

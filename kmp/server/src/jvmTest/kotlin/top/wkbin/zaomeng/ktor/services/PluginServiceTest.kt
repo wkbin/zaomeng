@@ -4,6 +4,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.put
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins
 import kotlin.io.path.createTempDirectory
@@ -155,6 +157,47 @@ class PluginServiceTest {
                 "为每个发言角色增加一句简短内心独白",
                 service.generationEnhancerRule("declarative-plugin", "inner-voice"),
             )
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `disabling plugin removes active enhancer directives from sessions`() {
+        val dir = createTempDirectory("zaomeng-plugin-enhancer-disable")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val pluginDir = dir.toString().toPath() / "plugins" / "enhancer-plugin"
+            storage.mkdirs(pluginDir)
+            storage.writeTextAtomically(
+                pluginDir / "plugin.json",
+                """
+                {
+                  "id":"enhancer-plugin",
+                  "name":"增强插件",
+                  "apiVersion":"1",
+                  "permissions":["chat.context.read","generation.enhance","model.invoke"],
+                  "contributes":{"generationEnhancers":[{"id":"rule","title":"规则"}]},
+                  "execution":{"mode":"declarative","generationEnhancers":{"rule":{"rule":"增强规则"}}}
+                }
+                """.trimIndent(),
+            )
+            storage.writeRunManifest("run-1", kotlinx.serialization.json.buildJsonObject { put("id", "run-1") })
+            val sessionFile = storage.getDialogueSessionManifestFile("run-1", "session-1")
+            storage.mkdirs(sessionFile.parent!!)
+            storage.writeTextAtomically(
+                sessionFile,
+                """{"id":"session-1","plugin_enhancer_states":{"enhancer-plugin":{"rule":true}},"plugin_enhancer_directives":{"enhancer-plugin/rule":"增强规则","other/rule":"保留"}}""",
+            )
+            val service = PluginService(storage, BuiltinPlugins.all)
+            service.setEnabled("enhancer-plugin", true)
+
+            service.setEnabled("enhancer-plugin", false)
+
+            val session = Json.parseToJsonElement(storage.readText(sessionFile)).jsonObject
+            assertFalse("enhancer-plugin" in session["plugin_enhancer_states"]!!.jsonObject)
+            assertFalse("enhancer-plugin/rule" in session["plugin_enhancer_directives"]!!.jsonObject)
+            assertTrue("other/rule" in session["plugin_enhancer_directives"]!!.jsonObject)
         } finally {
             dir.toFile().deleteRecursively()
         }

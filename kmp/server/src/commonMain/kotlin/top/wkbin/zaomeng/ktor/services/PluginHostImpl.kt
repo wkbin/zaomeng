@@ -2,13 +2,17 @@ package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.*
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
+import io.ktor.http.Url
 import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
+import kotlinx.io.readByteArray
 import top.wkbin.zaomeng.plugins.api.PluginHost
 import top.wkbin.zaomeng.plugins.api.PluginPersonaSummary
 import top.wkbin.zaomeng.plugins.api.PluginReplyAsCharacterResult
@@ -33,6 +37,12 @@ class PluginHostImpl(
     private val httpClient by lazy {
         HttpClient(createHttpClientEngine()) {
             expectSuccess = false
+            followRedirects = false
+            install(HttpTimeout) {
+                connectTimeoutMillis = 5_000
+                requestTimeoutMillis = 30_000
+                socketTimeoutMillis = 30_000
+            }
         }
     }
     private val sessionActionLocks = mutableMapOf<String, SimpleLock>()
@@ -71,19 +81,25 @@ class PluginHostImpl(
         if (normalizedMethod !in setOf("GET", "POST", "PUT", "PATCH", "DELETE")) {
             throw IllegalArgumentException("不支持的插件网络方法：$normalizedMethod")
         }
-        val normalizedUrl = url.trim()
-        if (!normalizedUrl.startsWith("https://") && !normalizedUrl.startsWith("http://")) {
-            throw IllegalArgumentException("插件网络请求只允许 http/https URL。")
-        }
+        val normalizedUrl = validatePluginHttpUrl(url)
+        val safeHeaders = sanitizePluginHttpHeaders(headers)
         val response = httpClient.request(normalizedUrl) {
             this.method = HttpMethod.parse(normalizedMethod)
-            headers.forEach { (key, value) -> header(key, value) }
+            safeHeaders.forEach { (key, value) -> header(key, value) }
             if (body.isNotBlank()) {
-                contentType(ContentType.Text.Plain)
+                if (safeHeaders.keys.none { it.equals("Content-Type", ignoreCase = true) }) {
+                    contentType(ContentType.Text.Plain)
+                }
                 setBody(body)
             }
         }
-        return response.bodyAsText()
+        val bytes = response.bodyAsChannel()
+            .readRemaining(MAX_PLUGIN_HTTP_RESPONSE_BYTES + 1L)
+            .readByteArray()
+        require(bytes.size <= MAX_PLUGIN_HTTP_RESPONSE_BYTES) {
+            "插件网络响应超过 ${MAX_PLUGIN_HTTP_RESPONSE_BYTES / 1024} KiB 限制。"
+        }
+        return bytes.decodeToString()
     }
 
     override suspend fun listRunPersonas(runId: String): List<PluginPersonaSummary> {
@@ -290,4 +306,50 @@ class PluginHostImpl(
         }
         return t
     }
+}
+
+internal const val MAX_PLUGIN_HTTP_RESPONSE_BYTES = 1024 * 1024
+
+internal fun validatePluginHttpUrl(rawUrl: String): String {
+    val normalized = rawUrl.trim()
+    val parsed = runCatching { Url(normalized) }
+        .getOrElse { throw IllegalArgumentException("插件网络请求 URL 无效。", it) }
+    require(parsed.protocol.name == "https") { "插件网络请求只允许 HTTPS URL。" }
+    require(parsed.user.isNullOrBlank() && parsed.password.isNullOrBlank()) { "插件网络请求 URL 不允许包含用户凭据。" }
+    require(!isForbiddenPluginHttpHost(parsed.host)) { "插件网络请求不允许访问本机、局域网或保留地址。" }
+    return parsed.toString()
+}
+
+internal fun sanitizePluginHttpHeaders(headers: Map<String, String>): Map<String, String> {
+    val forbidden = setOf("host", "connection", "content-length", "transfer-encoding", "proxy-authorization")
+    return headers.mapKeys { (key, _) -> key.trim() }.onEach { (key, value) ->
+        require(key.isNotBlank() && key.lowercase() !in forbidden) { "插件网络请求包含不允许的请求头：$key" }
+        require('\r' !in key && '\n' !in key && '\r' !in value && '\n' !in value) {
+            "插件网络请求头不能包含换行符。"
+        }
+    }
+}
+
+private fun isForbiddenPluginHttpHost(rawHost: String): Boolean {
+    val host = rawHost.trim().trimEnd('.').lowercase()
+    if (host.isBlank()) return true
+    if (
+        host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+        host.endsWith(".internal") || host.endsWith(".home.arpa") || host == "metadata.google.internal"
+    ) return true
+    if ('.' !in host) return true
+    // KMP commonMain 无法可靠做跨平台 DNS 解析；IPv6 字面量全部拒绝，避免本地/链路地址绕过。
+    if (':' in host) return true
+    val octets = host.split('.').map { it.toIntOrNull() }
+    if (octets.size != 4 || octets.any { it == null || it !in 0..255 }) {
+        return host.all { it.isDigit() || it == '.' }
+    }
+    val a = octets[0]!!
+    val b = octets[1]!!
+    return a == 0 || a == 10 || a == 127 || a >= 224 ||
+        (a == 100 && b in 64..127) ||
+        (a == 169 && b == 254) ||
+        (a == 172 && b in 16..31) ||
+        (a == 192 && b == 168) ||
+        (a == 198 && b in 18..19)
 }

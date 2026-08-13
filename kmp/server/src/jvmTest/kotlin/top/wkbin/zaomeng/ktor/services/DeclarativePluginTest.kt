@@ -45,6 +45,31 @@ class DeclarativePluginTest {
     }
 
     @Test
+    fun incompatibleApiVersionIsRejected() {
+        val raw = json.parseToJsonElement(
+            """
+            {
+              "id": "com.example.future",
+              "name": "未来插件",
+              "apiVersion": "3",
+              "permissions": ["chat.context.read", "chat.draft.write", "model.invoke"],
+              "contributes": {"chatActions": [{"id": "act", "title": "动作"}]},
+              "execution": {
+                "mode": "declarative",
+                "chatActions": {"act": {"operation": "suggest", "direction": "继续"}}
+              }
+            }
+            """.trimIndent(),
+        ).jsonObject
+
+        val evaluation = DeclarativePluginLoader.evaluate("com.example.future", raw)
+
+        assertFalse(evaluation.compatible)
+        assertFalse(evaluation.executable)
+        assertEquals("incompatible", evaluation.executionMode)
+    }
+
+    @Test
     fun declarativeChatActionRendersConfigAndCallsHost() = runBlocking {
         val raw = json.parseToJsonElement(
             """

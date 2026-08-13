@@ -193,13 +193,27 @@ internal data class DeclarativeGenerationRecipe(
 internal data class DeclarativePluginEvaluation(
     val plugin: DeclarativePlugin?,
     val executable: Boolean,
+    val compatible: Boolean = true,
     val executionMode: String,
     val capabilityNotice: String,
     val generationRecipes: Map<String, DeclarativeGenerationRecipe> = emptyMap(),
 )
 
 internal object DeclarativePluginLoader {
+    const val HOST_API_VERSION = "2"
+    private val supportedApiVersions = setOf("1", HOST_API_VERSION)
+
     fun evaluate(pluginId: String, raw: JsonObject): DeclarativePluginEvaluation {
+        val apiVersion = raw["apiVersion"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "1" }
+        if (apiVersion !in supportedApiVersions) {
+            return DeclarativePluginEvaluation(
+                plugin = null,
+                executable = false,
+                compatible = false,
+                executionMode = "incompatible",
+                capabilityNotice = "插件 API $apiVersion 与当前宿主 API $HOST_API_VERSION 不兼容。",
+            )
+        }
         val execution = raw["execution"]?.jsonObject
         val mode = execution?.get("mode")?.jsonPrimitive?.contentOrNull?.trim()?.lowercase().orEmpty()
         if (execution == null || mode != "declarative") {
@@ -259,7 +273,8 @@ internal object DeclarativePluginLoader {
             id = pluginId,
             name = raw["name"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { pluginId } ?: pluginId,
             version = raw["version"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "1.0.0" },
-            apiVersion = raw["apiVersion"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            apiVersion = raw["apiVersion"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                .ifBlank { "1" },
             description = raw["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             permissions = stringArray(raw["permissions"]),
             settings = parseSettings(raw["settings"]),
