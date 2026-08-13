@@ -31,6 +31,9 @@ data object ChatDisplaySettingsDestination : NavKey
 data object PluginsDestination : NavKey
 
 @Serializable
+data object PluginBuilderDestination : NavKey
+
+@Serializable
 data object AppearanceSettingsDestination : NavKey
 
 @Serializable

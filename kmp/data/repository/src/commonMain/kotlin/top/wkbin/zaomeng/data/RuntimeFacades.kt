@@ -14,6 +14,8 @@ import top.wkbin.zaomeng.data.api.PluginConfigResponse
 import top.wkbin.zaomeng.data.api.PluginDto
 import top.wkbin.zaomeng.data.api.PluginLogDto
 import top.wkbin.zaomeng.data.api.PluginPackageInspectionDto
+import top.wkbin.zaomeng.data.api.PluginBuilderValidationDto
+import top.wkbin.zaomeng.data.api.PluginDraft
 import top.wkbin.zaomeng.data.api.PluginTemporaryNpcGeneratorResponse
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
 import top.wkbin.zaomeng.data.api.TestModelSettingsRequest
@@ -51,6 +53,9 @@ interface PluginRepository {
     suspend fun uninstallPlugin(pluginId: String): UninstallPluginResponse
     suspend fun listPluginLogs(pluginId: String): List<PluginLogDto>
     suspend fun updatePluginConfig(pluginId: String, config: JsonObject): PluginConfigResponse
+    suspend fun validatePluginDraft(draft: PluginDraft): PluginBuilderValidationDto
+    suspend fun installPluginDraft(draft: PluginDraft): PluginDto
+    suspend fun exportPluginDraft(draft: PluginDraft, destination: Sink): Long
 
     suspend fun invokePluginChatAction(
         runId: String,

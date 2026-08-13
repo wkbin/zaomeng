@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
@@ -47,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import org.koin.compose.viewmodel.koinViewModel
 import kotlinx.coroutines.launch
 import top.wkbin.zaomeng.platform.rememberZipFilePicker
@@ -66,6 +69,7 @@ fun PluginsScreen(
     viewModel: PluginsViewModel = koinViewModel(),
     filesDir: Path,
     onBack: () -> Unit,
+    onOpenBuilder: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -77,12 +81,13 @@ fun PluginsScreen(
                 .onFailure(viewModel::reportPackageReadError)
         }
     }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
 
     if (sourceChooserOpen) {
         AlertDialog(
             onDismissRequest = { sourceChooserOpen = false },
-            title = { Text("保存第三方插件包") },
-            text = { Text("选择一个 ZIP 插件包。当前版本只保存清单与资源，不会执行包内代码。") },
+            title = { Text("安装第三方插件包") },
+            text = { Text("选择一个 ZIP 插件包。Plugin API 2 声明式插件可以在确认权限后安全运行；包内任意代码不会被执行。") },
             confirmButton = {
                 Button(onClick = {
                     sourceChooserOpen = false
@@ -148,6 +153,9 @@ fun PluginsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenBuilder) {
+                        Icon(Icons.Outlined.Add, contentDescription = "制作插件")
+                    }
                     IconButton(
                         onClick = { sourceChooserOpen = true },
                         enabled = !state.packageBusy && state.busyPluginId.isBlank(),
@@ -155,7 +163,7 @@ fun PluginsScreen(
                         if (state.packageBusy) {
                             CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Outlined.InstallMobile, contentDescription = "保存第三方插件包")
+                            Icon(Icons.Outlined.InstallMobile, contentDescription = "安装第三方插件包")
                         }
                     }
                     IconButton(
@@ -186,7 +194,7 @@ fun PluginsScreen(
                 horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    PluginIntroductionCard()
+                    PluginIntroductionCard(onOpenBuilder)
                 }
                 if (state.error.isNotBlank()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.error, error = true) }
@@ -197,7 +205,7 @@ fun PluginsScreen(
                 if (state.plugins.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            "当前没有发现插件。把插件放入运行目录后点击右上角刷新。",
+                            "当前没有发现插件。可以从 ZIP 安装，或打开插件工坊制作一个。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -220,7 +228,7 @@ fun PluginsScreen(
 }
 
 @Composable
-private fun PluginIntroductionCard() {
+private fun PluginIntroductionCard(onOpenBuilder: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
         shape = RoundedCornerShape(14.dp),
@@ -234,10 +242,11 @@ private fun PluginIntroductionCard() {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("扩展造梦能力", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "官方内置插件可为聊天增加动作，并由 Kotlin 宿主安全执行。第三方 ZIP 当前只能保存，不能运行；后续仅支持经过能力授权的声明式插件协议。",
+                    "官方插件和 Plugin API 2 声明式插件都由 Kotlin 宿主安全执行。你也可以在插件工坊里只写自然语言提示词，制作并导出自己的插件。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
+                Button(onClick = onOpenBuilder) { Text("制作插件") }
             }
         }
     }

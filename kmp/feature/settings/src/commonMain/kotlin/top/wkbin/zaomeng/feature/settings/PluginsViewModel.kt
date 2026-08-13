@@ -38,9 +38,14 @@ class PluginsViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(PluginsUiState())
     val state: StateFlow<PluginsUiState> = mutableState.asStateFlow()
+    private var resumeCount = 0
 
     init {
         load()
+    }
+
+    fun onResume() {
+        if (resumeCount++ > 0) load(refresh = true)
     }
 
     fun load(refresh: Boolean = false) {

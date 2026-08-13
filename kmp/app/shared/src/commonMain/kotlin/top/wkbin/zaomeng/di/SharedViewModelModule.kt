@@ -11,6 +11,7 @@ import top.wkbin.zaomeng.feature.importbook.ImportBookViewModel
 import top.wkbin.zaomeng.feature.library.OnlineLibraryViewModel
 import top.wkbin.zaomeng.feature.originalknowledge.OriginalKnowledgeViewModel
 import top.wkbin.zaomeng.feature.persona.PersonaViewModel
+import top.wkbin.zaomeng.feature.pluginbuilder.PluginBuilderViewModel
 import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.relations.RelationsViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
@@ -38,6 +39,7 @@ internal fun sharedViewModelModule(platform: AppPlatform) = module {
     viewModel { SettingsViewModel(get(), get()) }
     viewModel { ModelProfilesViewModel(get()) }
     viewModel { PluginsViewModel(get()) }
+    viewModel { PluginBuilderViewModel(get()) }
     viewModel { parameters -> ModelProfileEditorViewModel(get(), parameters.get()) }
     viewModel { CardLibraryViewModel(get()) }
     viewModel { CrossoverViewModel(get()) }

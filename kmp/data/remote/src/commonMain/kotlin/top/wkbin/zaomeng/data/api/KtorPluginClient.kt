@@ -66,6 +66,16 @@ class KtorPluginClient(
         },
     )
 
+    suspend fun validateBuilder(request: ValidatePluginDraftRequest): PluginBuilderValidationDto = decode(
+        request { endpoint ->
+            http.client.post(url(endpoint, "/api/web/plugins/builder/validate")) { setBody(request) }
+        },
+    )
+
+    suspend fun packageBuilder(request: PackagePluginDraftRequest): HttpResponse = request { endpoint ->
+        http.client.post(url(endpoint, "/api/web/plugins/builder/package")) { setBody(request) }
+    }
+
     suspend fun chatAction(
         runId: String,
         sessionId: String,

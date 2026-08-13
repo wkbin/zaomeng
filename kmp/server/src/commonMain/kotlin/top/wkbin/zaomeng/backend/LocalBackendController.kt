@@ -26,6 +26,7 @@ import top.wkbin.zaomeng.ktor.routes.dialogueStreamRoutes
 import top.wkbin.zaomeng.ktor.routes.healthRoute
 import top.wkbin.zaomeng.ktor.routes.personaRoutes
 import top.wkbin.zaomeng.ktor.routes.originalKnowledgeRoutes
+import top.wkbin.zaomeng.ktor.routes.pluginBuilderRoutes
 import top.wkbin.zaomeng.ktor.routes.pluginOperationsRoutes
 import top.wkbin.zaomeng.ktor.routes.pluginRoutes
 import top.wkbin.zaomeng.ktor.routes.relationsRoutes
@@ -122,6 +123,7 @@ class LocalBackendController(
                     originalKnowledgeRoutes(services.originalKnowledge, storage)
                     pluginRoutes(services.plugins)
                     pluginOperationsRoutes(services.pluginOperations)
+                    pluginBuilderRoutes(services.pluginBuilder)
                 }
             }
             server.start(wait = false)

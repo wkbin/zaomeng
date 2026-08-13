@@ -758,7 +758,46 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 宿主把 `muted_characters` 写入 session，对话生成时会从允许回复集合中排除被禁言角色。插件动作响应会携带更新后的 `session`。
 
-### 10.2 插件包检查与安装
+### 10.2 插件工坊校验与打包
+
+| 方法 | 路径 | 请求 | 成功响应 |
+|---|---|---|---|
+| POST | `/api/web/plugins/builder/validate` | `{"draft": PluginDraft}` | `200 PluginBuilderValidation`；草稿不完整时仍返回 `200`，通过 `valid=false` 和 `issues` 给出实时校验结果 |
+| POST | `/api/web/plugins/builder/package` | `{"draft": PluginDraft}` | `200 application/zip`；`Content-Disposition` 提供 `插件名-版本.zaomeng-plugin.zip`，校验失败返回 `400` |
+
+`PluginDraft` 是面向 App 可视化编辑器的稳定草稿契约，主要字段如下：
+
+```json
+{
+  "draft": {
+    "name": "温柔接话",
+    "id": "plugin-a1b2c3d4",
+    "version": "0.1.0",
+    "description": "生成温柔自然的回复草稿",
+    "template": "chat_action",
+    "title": "温柔接话",
+    "prompt": "结合当前场景生成下一句。语气：{{config.tone}}。草稿：{{seed_text}}",
+    "actionMode": "suggest",
+    "settings": [
+      {
+        "key": "tone",
+        "title": "语气",
+        "type": "enum",
+        "defaultValue": "温柔",
+        "options": ["温柔", "克制", "直接"]
+      }
+    ]
+  }
+}
+```
+
+`template` 支持 `chat_action`、`generation_enhancer`、`temporary_npc`；聊天动作的 `actionMode` 支持 `suggest` 和 `variants`。设置类型支持 `boolean`、`integer`、`enum`。
+
+校验服务会规范化 ID 和字段、自动推导 `permissions` 及其用户可见原因、检查变量引用与设置冲突、生成最终 `manifest/manifestJson`，最后复用实际的 `DeclarativePluginLoader` 判定清单是否可执行。客户端不应自行声明权限或把本地表单校验当成最终有效性判定。
+
+打包接口会再次执行相同校验，只为有效草稿生成包含 `plugin.json`、`README.md` 的 ZIP；存在设置项时还会写入带默认值的 `config.json`，保证安装后无需先手动保存配置即可试用。生成包可直接复用 10.3 的 inspect/install 两阶段流程；打包和安装都不会运行插件携带的任意代码。
+
+### 10.3 插件包检查与安装
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
@@ -779,7 +818,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 服务端强制校验 `confirm_permissions=true`。更新采用备份后替换的方式，保留原插件的 `config.json`、`data/` 和 `plugin-logs.jsonl`；替换失败时恢复旧目录。安装或更新完成后插件保持关闭，需要用户再次显式启用。
 
-### 10.3 会话内插件动作
+### 10.4 会话内插件动作
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|

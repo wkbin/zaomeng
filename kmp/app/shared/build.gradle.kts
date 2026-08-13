@@ -64,6 +64,7 @@ kotlin {
             implementation(project(":feature:library"))
             implementation(project(":feature:originalknowledge"))
             implementation(project(":feature:persona"))
+            implementation(project(":feature:pluginbuilder"))
             implementation(project(":feature:redistill"))
             implementation(project(":feature:relations"))
             implementation(project(":feature:rundetail"))

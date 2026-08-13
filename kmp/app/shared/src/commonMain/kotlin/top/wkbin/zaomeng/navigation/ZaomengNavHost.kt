@@ -47,6 +47,7 @@ import top.wkbin.zaomeng.feature.settings.ModelProfileEditorViewModel
 import top.wkbin.zaomeng.feature.settings.ModelProfilesViewModel
 import top.wkbin.zaomeng.feature.settings.ModelSettingsScreen
 import top.wkbin.zaomeng.feature.settings.PluginsScreen
+import top.wkbin.zaomeng.feature.pluginbuilder.PluginBuilderScreen
 import top.wkbin.zaomeng.feature.settings.SettingsViewModel
 import top.wkbin.zaomeng.feature.settings.SettingsHomeScreen
 import top.wkbin.zaomeng.feature.settings.StartupRecoverySettingsScreen
@@ -205,7 +206,14 @@ fun ZaomengNavHost(
                 )
             }
             entry(PluginsDestination) {
-                PluginsScreen(filesDir = platform.filesDir, onBack = popBack)
+                PluginsScreen(
+                    filesDir = platform.filesDir,
+                    onBack = popBack,
+                    onOpenBuilder = { backStack.add(PluginBuilderDestination) },
+                )
+            }
+            entry(PluginBuilderDestination) {
+                PluginBuilderScreen(onBack = popBack)
             }
             entry(AppSupportSettingsDestination) {
                 val viewModel: SettingsViewModel = koinViewModel()

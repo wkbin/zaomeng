@@ -45,6 +45,7 @@ class KtorServiceGraph(platform: ServerPlatform) {
     val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
     val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins)
     val pluginOperations = PluginOperationsService(storage, plugins, pluginHost)
+    val pluginBuilder = PluginBuilderService()
 
     init {
         // Distillation jobs are process-local coroutines. If the backend was restarted,
