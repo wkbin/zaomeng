@@ -687,7 +687,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 ```json
 {
-  "id": "com.example.quick-reply",
+  "id": "example-quick-reply",
   "name": "快捷接话",
   "version": "1.0.0",
   "apiVersion": "2",

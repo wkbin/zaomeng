@@ -6,4 +6,6 @@
 - `direction` 是给模型的提示词模板；
 - 模板支持 `{{seed_text}}`、`{{direction}}` 和 `{{config.<key>}}`。
 
-当前声明式运行时支持 `chatActions` 与 `temporaryNpcGenerators`。旧版 `entry=main.py` 插件仍只能保存，不会执行任意代码。
+当前声明式运行时支持 `chatActions`、`generationEnhancers` 与 `temporaryNpcGenerators`。设置项支持 `boolean`、`integer` 和 `enum`。旧版 `entry=main.py` 插件仍只能保存，不会执行任意代码。
+
+完整字段、权限、打包与调试说明见[官网插件开发教程](https://wkbin.github.io/zaomeng/plugin-development.html)。

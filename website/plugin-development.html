@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#100d16" />
+    <meta
+      name="description"
+      content="造梦插件开发教程：使用安全的声明式插件 API，为多角色对话添加聊天动作、生成增强器和临时 NPC。"
+    />
+    <meta name="keywords" content="造梦, 插件开发, 声明式插件, KMP, 多角色对话" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="造梦" />
+    <meta property="og:title" content="插件开发教程｜造梦" />
+    <meta
+      property="og:description"
+      content="从 plugin.json 到安装调试，完整了解造梦声明式插件 API 2。"
+    />
+    <meta property="og:url" content="https://wkbin.github.io/zaomeng/plugin-development.html" />
+    <meta property="og:image" content="https://wkbin.github.io/zaomeng/assets/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="assets/logo.webp" type="image/webp" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>插件开发教程｜造梦</title>
+  </head>
+  <body class="docs-page">
+    <a class="skip-link" href="#main">跳到教程正文</a>
+
+    <div class="page-noise" aria-hidden="true"></div>
+    <div class="dream-orb dream-orb-one" aria-hidden="true"></div>
+    <div class="dream-orb dream-orb-two" aria-hidden="true"></div>
+
+    <header class="site-header is-scrolled" data-header>
+      <div class="shell nav-shell">
+        <a class="brand" href="index.html" aria-label="返回造梦首页">
+          <span class="brand-mark"><img src="assets/logo.webp" alt="" /></span>
+          <span>造梦</span>
+        </a>
+
+        <button class="menu-button" type="button" aria-expanded="false" aria-controls="main-nav">
+          <span></span><span></span><span></span>
+          <span class="sr-only">打开导航</span>
+        </button>
+
+        <nav class="main-nav" id="main-nav" aria-label="教程导航">
+          <a href="#quick-start">快速开始</a>
+          <a href="#manifest">清单</a>
+          <a href="#contributions">贡献点</a>
+          <a href="#permissions">权限</a>
+          <a href="#package">打包调试</a>
+          <a class="nav-github" href="https://github.com/wkbin/zaomeng" target="_blank" rel="noreferrer">
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="docs-hero">
+        <div class="shell docs-hero-grid">
+          <div>
+            <nav class="docs-breadcrumb" aria-label="面包屑">
+              <a href="index.html">首页</a><span aria-hidden="true">/</span><span>插件开发</span>
+            </nav>
+            <div class="eyebrow reveal">
+              <span class="eyebrow-dot"></span>
+              Declarative Plugin API 2
+            </div>
+            <h1 class="reveal reveal-delay-1">给故事增加能力，<br /><em>不交出系统边界。</em></h1>
+            <p class="docs-hero-lead reveal reveal-delay-2">
+              造梦外置插件使用声明式 JSON 描述能力，由 Kotlin 宿主执行经过审核的操作。无需编译代码，也不会运行插件包里的 Python、JAR 或脚本。
+            </p>
+            <div class="hero-actions reveal reveal-delay-3">
+              <a class="button button-primary" href="#quick-start">写第一个插件 <span aria-hidden="true">↓</span></a>
+              <a
+                class="button button-secondary"
+                href="https://github.com/wkbin/zaomeng/tree/main/examples/declarative-plugin-template"
+              >
+                查看完整模板 <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </div>
+
+          <aside class="docs-version-card reveal reveal-delay-2" aria-label="插件 API 状态">
+            <span class="docs-version-label">当前宿主</span>
+            <strong>API 2</strong>
+            <dl>
+              <div><dt>兼容</dt><dd>API 1 / 2</dd></div>
+              <div><dt>运行时</dt><dd>声明式 Kotlin</dd></div>
+              <div><dt>任意代码</dt><dd>不执行</dd></div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+
+      <div class="shell docs-layout">
+        <aside class="docs-toc" aria-label="本页目录">
+          <p>本页目录</p>
+          <a href="#choose-model">选择开发方式</a>
+          <a href="#quick-start">五分钟快速开始</a>
+          <a href="#manifest">plugin.json</a>
+          <a href="#templates">模板变量与设置</a>
+          <a href="#contributions">三类贡献点</a>
+          <a href="#operations">聊天操作</a>
+          <a href="#permissions">权限模型</a>
+          <a href="#package">打包、安装与调试</a>
+          <a href="#security">安全边界</a>
+          <a href="#checklist">发布检查表</a>
+        </aside>
+
+        <div class="docs-content">
+          <section class="doc-section" id="choose-model">
+            <p class="section-kicker">先选对扩展方式</p>
+            <h2>绝大多数第三方插件，都应该从声明式开始。</h2>
+            <div class="plugin-model-grid">
+              <article class="plugin-model-card is-recommended">
+                <span>推荐</span>
+                <h3>外置声明式插件</h3>
+                <p>只需一个 <code>plugin.json</code>，适合增加聊天动作、生成规则、临时 NPC、插件存储和受限网络请求。</p>
+                <small>可独立打包安装 · 无需重新编译应用</small>
+              </article>
+              <article class="plugin-model-card">
+                <span>进阶</span>
+                <h3>内置 Kotlin 插件</h3>
+                <p>需要新宿主能力或复杂业务编排时，在 <code>kmp/plugins-api</code> 实现稳定契约，并随应用一起发布。</p>
+                <small>需要修改源码 · 接受项目代码审查</small>
+              </article>
+              <article class="plugin-model-card is-muted">
+                <span>兼容保留</span>
+                <h3>旧 main.py 插件</h3>
+                <p>应用可以检查和保存旧包，但不会执行其中的 Python 或其它任意代码。</p>
+                <small>请迁移到声明式插件</small>
+              </article>
+            </div>
+          </section>
+
+          <section class="doc-section" id="quick-start">
+            <p class="section-kicker">五分钟快速开始</p>
+            <h2>创建一个“快捷接话”插件。</h2>
+            <p class="docs-lead">
+              新建目录 <code>my-quick-reply/</code>，在里面放置以下 <code>plugin.json</code>。这个插件会读取当前聊天上下文，调用用户已经配置的模型，并把结果作为可编辑草稿返回。
+            </p>
+
+            <div class="code-panel">
+              <div class="code-panel-head">
+                <span>my-quick-reply/plugin.json</span>
+                <button type="button" data-copy='{
+  "id": "example-quick-reply",
+  "name": "快捷接话",
+  "version": "0.1.0",
+  "apiVersion": "2",
+  "description": "结合当前场景生成一句可编辑的回复草稿。",
+  "defaultEnabled": false,
+  "permissions": [
+    "chat.context.read",
+    "chat.draft.write",
+    "model.invoke"
+  ],
+  "settings": [
+    {
+      "key": "tone",
+      "title": "语气",
+      "type": "enum",
+      "default": "克制",
+      "options": ["克制", "温柔", "直接"]
+    }
+  ],
+  "contributes": {
+    "chatActions": [
+      {
+        "id": "quick-reply",
+        "title": "快捷接话",
+        "placement": "composer",
+        "icon": "sparkles"
+      }
+    ]
+  },
+  "execution": {
+    "mode": "declarative",
+    "chatActions": {
+      "quick-reply": {
+        "operation": "suggest",
+        "direction": "结合当前场景生成下一句。语气：{{config.tone}}。草稿：{{seed_text}}"
+      }
+    }
+  }
+}'>复制</button>
+              </div>
+              <pre><code>{
+  "id": "example-quick-reply",
+  "name": "快捷接话",
+  "version": "0.1.0",
+  "apiVersion": "2",
+  "description": "结合当前场景生成一句可编辑的回复草稿。",
+  "defaultEnabled": false,
+  "permissions": [
+    "chat.context.read",
+    "chat.draft.write",
+    "model.invoke"
+  ],
+  "settings": [
+    {
+      "key": "tone",
+      "title": "语气",
+      "type": "enum",
+      "default": "克制",
+      "options": ["克制", "温柔", "直接"]
+    }
+  ],
+  "contributes": {
+    "chatActions": [
+      {
+        "id": "quick-reply",
+        "title": "快捷接话",
+        "placement": "composer",
+        "icon": "sparkles"
+      }
+    ]
+  },
+  "execution": {
+    "mode": "declarative",
+    "chatActions": {
+      "quick-reply": {
+        "operation": "suggest",
+        "direction": "结合当前场景生成下一句。语气：{{config.tone}}。草稿：{{seed_text}}"
+      }
+    }
+  }
+}</code></pre>
+            </div>
+
+            <ol class="doc-steps">
+              <li><span>1</span><div><strong>压缩目录内容</strong><p>ZIP 根目录或 ZIP 内第一层目录必须包含 <code>plugin.json</code>。</p></div></li>
+              <li><span>2</span><div><strong>在应用中检查</strong><p>打开“设置 → 插件”，选择 ZIP；确认名称、API 版本和权限。</p></div></li>
+              <li><span>3</span><div><strong>安装并启用</strong><p>安装后插件默认保持关闭。手动启用，再进入聊天的插件菜单。</p></div></li>
+              <li><span>4</span><div><strong>点击“快捷接话”</strong><p>生成结果只写入草稿，由用户确认后发送。</p></div></li>
+            </ol>
+          </section>
+
+          <section class="doc-section" id="manifest">
+            <p class="section-kicker">清单格式</p>
+            <h2>plugin.json 是插件唯一的入口。</h2>
+            <div class="doc-table-wrap">
+              <table class="doc-table">
+                <thead><tr><th>字段</th><th>是否必填</th><th>说明</th></tr></thead>
+                <tbody>
+                  <tr><td><code>id</code></td><td>是</td><td>稳定且唯一；只能包含字母、数字、下划线和连字符，例如 <code>acme-quick-reply</code>。</td></tr>
+                  <tr><td><code>name</code></td><td>是</td><td>插件管理和聊天菜单中显示的名称。</td></tr>
+                  <tr><td><code>version</code></td><td>建议</td><td>插件版本，例如 <code>0.1.0</code>。</td></tr>
+                  <tr><td><code>apiVersion</code></td><td>建议</td><td>新插件写 <code>2</code>；当前宿主兼容 1/2，缺省按 1 处理。</td></tr>
+                  <tr><td><code>description</code></td><td>否</td><td>解释用途、数据范围和用户可见效果。</td></tr>
+                  <tr><td><code>defaultEnabled</code></td><td>否</td><td>第三方包安装后仍保持关闭，需用户显式启用。</td></tr>
+                  <tr><td><code>permissions</code></td><td>按能力</td><td>最小权限集合；缺少所需权限的配方不会进入可执行态。</td></tr>
+                  <tr><td><code>settings</code></td><td>否</td><td>由宿主渲染的 <code>boolean</code>、<code>integer</code> 或 <code>enum</code> 设置。</td></tr>
+                  <tr><td><code>contributes</code></td><td>是</td><td>向 UI 声明动作、生成增强器或临时 NPC 生成器。</td></tr>
+                  <tr><td><code>execution</code></td><td>是</td><td><code>mode</code> 必须为 <code>declarative</code>，并为每个贡献点提供同 ID 配方。</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="doc-callout">
+              <span aria-hidden="true">i</span>
+              <p><strong>贡献与执行必须成对。</strong> 在 <code>contributes.chatActions</code> 声明了 <code>quick-reply</code>，就必须在 <code>execution.chatActions.quick-reply</code> 提供配方；ID 不一致会使插件不可执行。</p>
+            </div>
+          </section>
+
+          <section class="doc-section" id="templates">
+            <p class="section-kicker">模板与设置</p>
+            <h2>用宿主管理的变量组合行为。</h2>
+            <div class="template-grid">
+              <div><code>{{seed_text}}</code><span>当前输入框里的草稿</span></div>
+              <div><code>{{direction}}</code><span>动作调用时附带的方向</span></div>
+              <div><code>{{config.tone}}</code><span>插件设置中的 <code>tone</code></span></div>
+              <div><code>{{storage.notes}}</code><span>插件独立数据区的 <code>notes</code></span></div>
+            </div>
+            <p>
+              设置值由宿主保存到插件自己的配置区，并通过 <code>{{config.&lt;key&gt;}}</code> 注入模板。不要把 API Key 或长期密钥放入普通设置；当前外置插件没有密钥保险箱能力。
+            </p>
+          </section>
+
+          <section class="doc-section" id="contributions">
+            <p class="section-kicker">贡献点</p>
+            <h2>三种方式进入对话。</h2>
+            <div class="contribution-grid">
+              <article>
+                <span class="contribution-index">01</span>
+                <h3>chatActions</h3>
+                <p>显示在聊天输入区插件菜单中。适合生成草稿、候选回复、存取插件数据、网络查询和角色控制。</p>
+              </article>
+              <article>
+                <span class="contribution-index">02</span>
+                <h3>generationEnhancers</h3>
+                <p>按会话开关，把规则注入后续主对话生成。关闭或停用插件后，宿主会清除残留规则。</p>
+              </article>
+              <article>
+                <span class="contribution-index">03</span>
+                <h3>temporaryNpcGenerators</h3>
+                <p>结合当前场景生成临时角色，并由宿主安全写入当前会话的参与者与入场消息。</p>
+              </article>
+            </div>
+
+            <h3 class="docs-subheading">生成增强器示例</h3>
+            <div class="code-panel">
+              <div class="code-panel-head"><span>contributes + execution</span></div>
+              <pre><code>"permissions": ["chat.context.read", "generation.enhance", "model.invoke"],
+"contributes": {
+  "generationEnhancers": [
+    {"id": "short-lines", "title": "短句模式", "icon": "short_text"}
+  ]
+},
+"execution": {
+  "mode": "declarative",
+  "generationEnhancers": {
+    "short-lines": {
+      "rule": "每名角色每次最多说两句，保留自然停顿，不要压缩关键信息。"
+    }
+  }
+}</code></pre>
+            </div>
+
+            <h3 class="docs-subheading">临时 NPC 示例</h3>
+            <div class="code-panel">
+              <div class="code-panel-head"><span>contributes + execution</span></div>
+              <pre><code>"permissions": ["chat.context.read", "chat.cast.write", "model.invoke"],
+"contributes": {
+  "temporaryNpcGenerators": [
+    {"id": "visitor", "title": "引入来客", "icon": "person_add"}
+  ]
+},
+"execution": {
+  "mode": "declarative",
+  "temporaryNpcGenerators": {
+    "visitor": {
+      "direction": "生成一名与当前冲突有关、动机明确但不过度抢戏的来客。",
+      "notice": "一名新人物进入了场景。"
+    }
+  }
+}</code></pre>
+            </div>
+          </section>
+
+          <section class="doc-section" id="operations">
+            <p class="section-kicker">聊天动作操作</p>
+            <h2>选择最小、最明确的宿主操作。</h2>
+            <div class="doc-table-wrap">
+              <table class="doc-table operations-table">
+                <thead><tr><th>operation</th><th>关键字段</th><th>主要权限</th><th>结果</th></tr></thead>
+                <tbody>
+                  <tr><td><code>suggest</code></td><td><code>direction</code></td><td>上下文、草稿、模型</td><td>一段建议草稿</td></tr>
+                  <tr><td><code>variants</code></td><td><code>direction</code></td><td>上下文、草稿、模型</td><td>多个候选回复</td></tr>
+                  <tr><td><code>storage_get</code></td><td><code>key</code></td><td><code>storage.read</code></td><td>读取插件文本数据</td></tr>
+                  <tr><td><code>storage_set</code></td><td><code>key</code>、<code>value</code></td><td><code>storage.write</code></td><td>写入插件文本数据</td></tr>
+                  <tr><td><code>http_get</code></td><td><code>url</code>、<code>headers</code></td><td><code>network.access</code></td><td>响应文本写入草稿</td></tr>
+                  <tr><td><code>http_post</code></td><td>加 <code>body</code></td><td><code>network.access</code></td><td>响应文本写入草稿</td></tr>
+                  <tr><td><code>reply_as_character</code></td><td><code>direction</code></td><td>人物、上下文、草稿、模型</td><td>选择角色并生成草稿</td></tr>
+                  <tr><td><code>mute_character</code></td><td><code>character</code></td><td><code>chat.cast.write</code></td><td>当前会话角色禁言</td></tr>
+                  <tr><td><code>unmute_character</code></td><td><code>character</code></td><td><code>chat.cast.write</code></td><td>解除角色禁言</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="docs-footnote">未知操作、空的必填字段、缺失权限或未在清单中声明的 action ID 都会被宿主拒绝。</p>
+          </section>
+
+          <section class="doc-section" id="permissions">
+            <p class="section-kicker">权限模型</p>
+            <h2>只声明配方实际需要的能力。</h2>
+            <div class="permission-grid">
+              <div><code>chat.context.read</code><span>读取当前聊天的有界上下文</span></div>
+              <div><code>chat.draft.write</code><span>把结果写入用户可编辑草稿</span></div>
+              <div><code>chat.cast.write</code><span>修改当前会话角色或临时 NPC</span></div>
+              <div><code>generation.enhance</code><span>影响后续主对话生成规则</span></div>
+              <div><code>run.personas.read</code><span>读取当前书卷已蒸馏人物摘要</span></div>
+              <div><code>model.invoke</code><span>使用应用配置的模型能力</span></div>
+              <div><code>storage.read</code><span>读取本插件独立数据区</span></div>
+              <div><code>storage.write</code><span>写入本插件独立数据区</span></div>
+              <div><code>network.access</code><span>通过宿主发起受限 HTTPS 请求</span></div>
+            </div>
+            <div class="doc-callout doc-callout-warning">
+              <span aria-hidden="true">!</span>
+              <p><strong>权限不是装饰字段。</strong> 安装时用户必须确认权限，运行时宿主会再次核对插件启用状态、贡献点 ID 和所需权限。不要为了“以后可能用到”申请额外能力。</p>
+            </div>
+          </section>
+
+          <section class="doc-section" id="package">
+            <p class="section-kicker">打包、安装与调试</p>
+            <h2>一个 ZIP，就是一个可分发插件。</h2>
+            <div class="package-grid">
+              <div>
+                <h3>Windows PowerShell</h3>
+                <div class="command-box command-box-docs">
+                  <code>Compress-Archive -Path .\my-quick-reply\* -DestinationPath .\my-quick-reply.zip</code>
+                  <button type="button" data-copy="Compress-Archive -Path .\my-quick-reply\* -DestinationPath .\my-quick-reply.zip">复制</button>
+                </div>
+              </div>
+              <div>
+                <h3>macOS / Linux</h3>
+                <div class="command-box command-box-docs">
+                  <code>(cd my-quick-reply &amp;&amp; zip -r ../my-quick-reply.zip .)</code>
+                  <button type="button" data-copy="(cd my-quick-reply &amp;&amp; zip -r ../my-quick-reply.zip .)">复制</button>
+                </div>
+              </div>
+            </div>
+            <ul class="check-list docs-check-list">
+              <li>ZIP 不超过 10 MiB，文件数不超过 500，解压后总量不超过 100 MiB。</li>
+              <li>不包含绝对路径、<code>..</code> 路径穿越或符号链接。</li>
+              <li>更新同 ID 插件时，应用保留原来的配置、数据和日志；更新后需重新启用。</li>
+              <li>在“设置 → 插件 → 日志与详情”查看宿主状态和最近日志。</li>
+              <li>若显示“仅保存”，检查 <code>execution.mode</code>、API 版本、权限和贡献点配方是否完整。</li>
+            </ul>
+          </section>
+
+          <section class="doc-section" id="security">
+            <p class="section-kicker">安全边界</p>
+            <h2>插件得到能力，不得到应用进程。</h2>
+            <div class="security-list">
+              <article><strong>不执行任意代码</strong><p>外置 ZIP 中的 Python、JAR、原生库和脚本不会被加载。</p></article>
+              <article><strong>存储按插件隔离</strong><p>数据键只能使用安全标识符，不能逃逸插件自己的目录。</p></article>
+              <article><strong>网络由宿主代理</strong><p>仅 HTTPS；拒绝显式本地和私有地址、用户凭据 URL、重定向与危险请求头；30 秒超时，响应上限 1 MiB。</p></article>
+              <article><strong>模型密钥不可见</strong><p>插件只能请求宿主执行指定模型任务，不能读取用户 API Key。</p></article>
+              <article><strong>会话写入受控</strong><p>角色和 NPC 变更由宿主校验并原子写入，插件不能直接操作 Room 或会话文件。</p></article>
+              <article><strong>禁用立即生效</strong><p>执行端点会检查启用态，禁用时同时移除会话中的生成增强规则。</p></article>
+            </div>
+          </section>
+
+          <section class="doc-section" id="checklist">
+            <p class="section-kicker">发布前</p>
+            <h2>最后检查一次。</h2>
+            <ol class="release-checklist">
+              <li><span>01</span><p><strong>ID 与版本稳定</strong>插件 ID 使用独特、可识别的安全标识，升级只变更 <code>version</code>。</p></li>
+              <li><span>02</span><p><strong>API 明确</strong>新插件写 <code>"apiVersion": "2"</code>。</p></li>
+              <li><span>03</span><p><strong>最小权限</strong>逐个对照操作表，不申请配方未使用的权限。</p></li>
+              <li><span>04</span><p><strong>ID 全部对齐</strong><code>contributes</code> 中每个 ID 都有同名 <code>execution</code> 配方。</p></li>
+              <li><span>05</span><p><strong>失败可读</strong>为可能返回空结果的动作设置清楚的 <code>empty_notice</code>。</p></li>
+              <li><span>06</span><p><strong>真机验证</strong>完成检查、安装、启用、执行、禁用、升级和卸载完整流程。</p></li>
+            </ol>
+
+            <div class="docs-next-card">
+              <div>
+                <span class="feature-label">准备开始</span>
+                <h3>从官方声明式模板复制一份。</h3>
+                <p>模板与宿主实现同仓维护，遇到边界问题可以直接提交 Issue。</p>
+              </div>
+              <div class="community-actions">
+                <a class="button button-primary" href="https://github.com/wkbin/zaomeng/tree/main/examples/declarative-plugin-template">
+                  打开模板 <span aria-hidden="true">↗</span>
+                </a>
+                <a class="button button-secondary" href="https://github.com/wkbin/zaomeng/issues">
+                  反馈问题 <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer docs-footer">
+      <div class="shell footer-grid">
+        <a class="brand footer-brand" href="index.html">
+          <span class="brand-mark"><img src="assets/logo.webp" alt="" /></span>
+          <span>造梦</span>
+        </a>
+        <p>让故事里的人，再开口说话。</p>
+        <div class="footer-links">
+          <a href="index.html">官网首页</a>
+          <a href="https://github.com/wkbin/zaomeng">GitHub</a>
+          <a href="https://github.com/wkbin/zaomeng/blob/main/docs/server-api.md">服务端 API</a>
+        </div>
+      </div>
+      <div class="shell footer-bottom">
+        <span>© <span data-year></span> 造梦 · Built in the open.</span>
+        <a href="#main">回到顶部 ↑</a>
+      </div>
+    </footer>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>

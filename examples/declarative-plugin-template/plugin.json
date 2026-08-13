@@ -1,5 +1,5 @@
 {
-  "id": "com.example.declarative-quick-reply",
+  "id": "example-declarative-quick-reply",
   "name": "声明式快捷接话",
   "version": "0.1.0",
   "apiVersion": "2",
@@ -14,8 +14,9 @@
     {
       "key": "tone",
       "title": "语气",
-      "type": "string",
-      "default": "克制"
+      "type": "enum",
+      "default": "克制",
+      "options": ["克制", "温柔", "直接"]
     }
   ],
   "contributes": {
