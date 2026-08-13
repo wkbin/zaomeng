@@ -155,6 +155,7 @@ private val messageKindOptions = listOf(
     MessageKindOption("dialogue", "对话"),
     MessageKindOption("narration", "旁白"),
     MessageKindOption("plot", "导演"),
+    MessageKindOption("fourth_wall", "第四面墙"),
 )
 
 private data class DirectorActionOption(val value: String, val label: String)
@@ -164,6 +165,7 @@ private val directorActionOptions = listOf(
     DirectorActionOption("slow_emotion", "放慢情绪"),
     DirectorActionOption("conflict", "加强冲突"),
     DirectorActionOption("viewpoint", "切换视角"),
+    DirectorActionOption("fourth_wall", "第四面墙"),
 )
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
@@ -588,7 +590,7 @@ private fun DirectorDialog(
     var action by rememberSaveable { mutableStateOf("advance") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("剧情导演") },
+        title = { Text(if (action == "fourth_wall") "第四面墙" else "剧情导演") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 directorActionOptions.chunked(2).forEach { actions ->
@@ -610,8 +612,8 @@ private fun DirectorDialog(
                     value = goal,
                     onValueChange = { goal = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("这一幕希望怎样发展") },
-                    placeholder = { Text("例如：让两人因为旧事发生正面冲突") },
+                    label = { Text(if (action == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展") },
+                    placeholder = { Text(if (action == "fourth_wall") "例如：让他们和好，否则我删掉这段记忆" else "例如：让两人因为旧事发生正面冲突") },
                     minLines = 3,
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -1191,7 +1193,7 @@ private fun PendingUserMessageBubble(
     onRecover: () -> Unit,
     requiresRecovery: Boolean,
 ) {
-    if (pending.messageKind == "plot") {
+    if (pending.messageKind == "plot" || pending.messageKind == "fourth_wall") {
         PendingDirectorInstructionCard(
             pending = pending,
             onRetry = onRetry,
@@ -1415,7 +1417,7 @@ private fun PendingDirectorInstructionCard(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "导演指令",
+                        if (pending.messageKind == "fourth_wall") "作者指令" else "导演指令",
                         modifier = Modifier.padding(start = 5.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1730,7 +1732,7 @@ private fun TranscriptBubble(
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = verticalPadding)) {
                         if (isUser) Text(
-                            text = "你 · ${item.speaker}",
+                            text = if (item.speaker == "作者") "作者" else "你 · ${item.speaker}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                             fontWeight = FontWeight.SemiBold,
@@ -2202,6 +2204,14 @@ private fun ChatComposer(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (state.messageKind == "fourth_wall") {
+            Text(
+                "角色可以直接回应、违抗或与你谈判。",
+                modifier = Modifier.padding(bottom = 6.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Row(verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(
@@ -2242,6 +2252,7 @@ private fun ChatComposer(
                         when (state.messageKind) {
                             "narration" -> "描述一个场景变化…"
                             "plot" -> "交代希望下一拍怎样发展…"
+                            "fourth_wall" -> "以作者身份直接对角色下令…"
                             else -> "写下你想说的话…"
                         },
                     )

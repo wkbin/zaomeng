@@ -78,6 +78,7 @@ private val directorActions = listOf(
     DirectorAction("slow_emotion", "放慢情绪"),
     DirectorAction("conflict", "加强冲突"),
     DirectorAction("viewpoint", "切换视角"),
+    DirectorAction("fourth_wall", "第四面墙"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -141,7 +142,7 @@ fun ChatToolsSheet(
     if (directorDialog) {
         AlertDialog(
             onDismissRequest = { directorDialog = false },
-            title = { Text("剧情导演") },
+            title = { Text(if (directorAction == "fourth_wall") "第四面墙" else "剧情导演") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     directorActions.chunked(2).forEach { actions ->
@@ -163,8 +164,8 @@ fun ChatToolsSheet(
                         value = directorGoal,
                         onValueChange = { directorGoal = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("这一幕希望怎样发展") },
-                        placeholder = { Text("例如：让两人因为旧事发生正面冲突") },
+                        label = { Text(if (directorAction == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展") },
+                        placeholder = { Text(if (directorAction == "fourth_wall") "例如：让他们和好，否则我删掉这段记忆" else "例如：让两人因为旧事发生正面冲突") },
                         minLines = 3,
                         maxLines = 6,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),

@@ -317,6 +317,7 @@ Authorization: Bearer <token>
 ```
 
 - `message` 必填。
+- `message_kind` 允许 `dialogue`、`narration`、`plot`、`fourth_wall`。`fourth_wall` 表示作者从故事之外直接向角色下指令，角色可以回应、质疑、谈判、抵抗或拒绝。
 - `include_model_reasoning` 仅流式服务使用；非流式路由当前不会向业务服务传递该字段。
 - `include_transcript=false` 时返回轻量会话（不含完整 transcript，但含 `transcript_count`）；为 `true` 时返回带完整 transcript 的会话。
 
@@ -423,6 +424,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 ```json
 {"goal":"让两人发现共同线索","action":"advance","option_count":3}
 ```
+
+`action` 允许 `advance`、`slow_emotion`、`conflict`、`viewpoint`、`fourth_wall`。`fourth_wall` 响应中的 `message_kind` 为 `fourth_wall`，选项会额外包含可选的 `resistance` 与 `price` 字段。
 
 切换场景请求：
 

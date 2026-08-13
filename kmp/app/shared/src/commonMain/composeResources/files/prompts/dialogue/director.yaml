@@ -10,6 +10,15 @@ system_prompt: |
 
 option_count_instruction: "返回恰好 {option_count} 个方案。title 用 4-10 个中文字符，其他字段各用一句话。"
 
+fourth_wall_instruction: |
+  这是第四面墙模式：用户是作者，正在从故事之外向角色下指令。
+  角色可以服从，也可以质疑、拒绝、谈判、提出条件，甚至直接反问作者。
+  beat 必须是角色的回应方式，而不是一个客观场景事件；direction 必须是写给后续模型的作者指令。
+  resistance 是可能拒绝的角色及理由；price 是角色可能提出的交换条件，没有时省略。
+
+fourth_wall_output_format: |
+  只返回合法 JSON：{"options":[{"title":"拒绝和好","focus":"人物意志","beat":"她直视作者，表示这个安排违背她的底线","direction":"让角色拒绝作者的和好安排，并解释自己为何不肯退让","expected_effect":"暴露人物自主意志","risk":"可能偏离作者目标","resistance":"她不愿原谅对方","price":"要求作者先删去那段被逼道歉的记忆"}]}。
+
 output_format: |
   只返回合法 JSON：{"options":[{"title":"误会松动","focus":"情绪","beat":"甲注意到乙一直攥着旧信却没有质问","direction":"用一个克制动作让甲意识到乙仍在等待解释","expected_effect":"为和解制造可信入口","risk":"推进过快会削弱此前冲突"}]}。
 

@@ -35,4 +35,33 @@ class ChatToolOptionsTest {
         assertTrue(option.description.contains("秘密关系被公开"))
         assertTrue(option.description.contains("冲突升级过快"))
     }
+
+    @Test
+    fun fourthWallOptionsKeepResistancePriceAndMessageKind() {
+        val payload = json.parseToJsonElement(
+            """
+            {
+              "message_kind": "fourth_wall",
+              "options": [
+                {
+                  "title": "拒绝和好",
+                  "focus": "人物意志",
+                  "beat": "她直视作者，表示这个安排违背她的底线",
+                  "direction": "让角色拒绝作者的和好安排",
+                  "expected_effect": "暴露人物自主意志",
+                  "risk": "可能偏离作者目标",
+                  "resistance": "她不愿原谅对方",
+                  "price": "要求作者先删去那段被逼道歉的记忆"
+                }
+              ]
+            }
+            """.trimIndent(),
+        ).jsonObject
+
+        val option = payload.extractDirectorOptions().single()
+
+        assertEquals("fourth_wall", option.messageKind)
+        assertTrue(option.description.contains("抵抗：她不愿原谅对方"))
+        assertTrue(option.description.contains("代价：要求作者先删去那段被逼道歉的记忆"))
+    }
 }

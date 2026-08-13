@@ -58,4 +58,17 @@ class DialogueSpeakerContractTest {
             assertFalse("may react" in rule.lowercase())
         }
     }
+
+    @Test
+    fun `fourth wall rules allow author negotiation while keeping speaker contract`() {
+        val modeRule = DialoguePromptRules.modeRule("observe", "fourth_wall")
+        val speakerRule = DialoguePromptRules.speakerRule("observe", emptyMap(), "fourth_wall")
+        val styleRule = DialoguePromptRules.responseStyleRule("observe", "fourth_wall")
+
+        assertTrue("author" in modeRule.lowercase())
+        assertTrue("resist" in modeRule.lowercase() || "refuse" in modeRule.lowercase())
+        assertTrue("author" in speakerRule.lowercase())
+        assertTrue("refuse" in styleRule.lowercase())
+        assertEquals("fourth_wall", DialoguePromptRules.normalizeMessageKind("author"))
+    }
 }

@@ -8,7 +8,7 @@ package top.wkbin.zaomeng.ktor.services
 object DialoguePromptRules {
 
     private fun isSceneMessageKind(messageKind: String): Boolean =
-        messageKind.trim() in setOf("narration", "plot")
+        messageKind.trim() in setOf("narration", "plot", "fourth_wall")
 
     fun trimSummaryText(value: Any?, limit: Int): String {
         val text = value?.toString()?.split(Regex("\\s+"))?.joinToString(" ")?.trim() ?: ""
@@ -18,6 +18,11 @@ object DialoguePromptRules {
     }
 
     fun modeRule(mode: String, messageKind: String = "dialogue", controlledCharacter: String = ""): String {
+        if (messageKind.trim() == "fourth_wall") {
+            return "The user is the author speaking from outside the story. " +
+                "Characters may accept, question, resist, bargain, or refuse; they may acknowledge the story itself and address the author directly. " +
+                "They must remain recognizably in character."
+        }
         if (isSceneMessageKind(messageKind)) {
             val controlled = controlledCharacter.trim()
             if (mode == "act" && controlled.isNotEmpty()) {
@@ -40,6 +45,10 @@ object DialoguePromptRules {
     }
 
     fun speakerRule(mode: String, session: Map<String, Any?>, messageKind: String = "dialogue"): String {
+        if (messageKind.trim() == "fourth_wall") {
+            return "Treat the user message as an author directive from outside the story. " +
+                "Characters may break the fourth wall and answer the author directly, but must stay in character."
+        }
         if (isSceneMessageKind(messageKind)) {
             return "Treat the user message as an in-world scene cue or director beat, not as a cast member's spoken line."
         }
@@ -62,6 +71,11 @@ object DialoguePromptRules {
         messageKind: String = "dialogue",
         controlledCharacter: String = "",
     ): String {
+        if (messageKind.trim() == "fourth_wall") {
+            return "Reply in the speaking character's own voice. " +
+                "A character may directly address the author, argue, ask why, bargain for a price, or refuse; " +
+                "do not force every character to obey. Use scene narration only when a physical action truly needs to happen."
+        }
         if (isSceneMessageKind(messageKind)) {
             val base = "The cue is scene-driving. Let the cast react with concrete action/emotion changes; " +
                 "use 场景提示 or 旁白 only for true scene beats such as entrances, exits, environment changes, or transitions; " +
@@ -313,6 +327,10 @@ object DialoguePromptRules {
         controlledCharacter: String = "",
     ): String {
         val clean = participants.map { it.trim() }.filter { it.isNotEmpty() }
+        if (messageKind.trim() == "fourth_wall") {
+            return "The author is speaking directly to the cast from outside the story. " +
+                "Let ${clean.joinToString(", ").ifBlank { "the characters" }} answer in character, and allow resistance, negotiation, or refusal."
+        }
         if (isSceneMessageKind(messageKind)) {
             val controlled = controlledCharacter.trim()
             if (mode == "act" && controlled.isNotEmpty()) {
@@ -368,6 +386,7 @@ object DialoguePromptRules {
 
     fun normalizeMessageKind(messageKind: String): String {
         val kind = messageKind.trim().lowercase()
+        if (kind in setOf("fourth_wall", "author", "break_fourth_wall", "author_directive")) return "fourth_wall"
         if (kind in setOf("plot", "plot_push", "advance")) return "plot"
         if (kind in setOf("narration", "scene", "scene_prompt", "director")) return "narration"
         return "dialogue"

@@ -772,6 +772,7 @@ class DialoguePromptBuilder(
         val systemPrompt = promptLoader.getDialogueDirectorPrompt(
             optionCount = optionCount,
             retry = retryOnEmpty,
+            action = (payload["director_action"]?.toString()?.trim().orEmpty().ifBlank { "advance" }),
         )
         val inputPayload = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val userPayload = mapOf(

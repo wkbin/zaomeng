@@ -732,7 +732,9 @@ class DialoguePayloadBuilder(
             ""
         }
         val normalizedMessageKind = DialoguePromptRules.normalizeMessageKind(messageKind)
-        val speaker = speakerOverride.trim().ifEmpty {
+        val speaker = if (normalizedMessageKind == "fourth_wall") {
+            "作者"
+        } else speakerOverride.trim().ifEmpty {
             if (mode == "act") {
                 controlledCharacterName
             } else if (mode == "insert") {
@@ -857,23 +859,33 @@ class DialoguePayloadBuilder(
         )
 
         val responseLimitHint = run {
-            var limit = if (normalizedMessageKind == "plot") 3 else 2
+            var limit = if (normalizedMessageKind == "plot" || normalizedMessageKind == "fourth_wall") 3 else 2
             val required = mentionTargets.size + (if (normalizedMessageKind == "plot") 1 else 0)
             if (required > 0) limit = maxOf(limit, required)
             limit
         }
-        val responseCountRule = if (normalizedMessageKind == "plot") {
-            val characterReplyLimit = maxOf(0, responseLimitHint - 1)
-            "Return exactly one concrete scene-level beat first as 场景提示 or 旁白" +
-                (if (characterReplyLimit > 0) ", followed by 1-$characterReplyLimit present-character reactions." else ".")
-        } else {
-            "Return 1-$responseLimitHint in-world replies. " +
-                "Let only characters who are currently present respond; do not force every participant to speak each turn."
+        val responseCountRule = when (normalizedMessageKind) {
+            "plot" -> {
+                val characterReplyLimit = maxOf(0, responseLimitHint - 1)
+                "Return exactly one concrete scene-level beat first as 场景提示 or 旁白" +
+                    (if (characterReplyLimit > 0) ", followed by 1-$characterReplyLimit present-character reactions." else ".")
+            }
+            "fourth_wall" -> {
+                "Return 1-$responseLimitHint in-character replies. " +
+                    "Each character may accept, question, bargain, resist, or refuse; they may address 作者 directly."
+            }
+            else -> {
+                "Return 1-$responseLimitHint in-world replies. " +
+                    "Let only characters who are currently present respond; do not force every participant to speak each turn."
+            }
         }
         val instructions = mapOf(
             "mode" to mode,
             "generation_goal" to (
-                if (normalizedMessageKind == "plot") {
+                if (normalizedMessageKind == "fourth_wall") {
+                    "Let the cast respond to the author as living characters, not as obedient plot pieces. " +
+                        "A response may obey, push back, negotiate, question the author, or refuse."
+                } else if (normalizedMessageKind == "plot") {
                     "Materially advance the story while keeping every reply faithful to the persona bundle, relationship context, and scene mode."
                 } else {
                     "Keep every reply faithful to the persona bundle, relationship context, and scene mode."
@@ -925,8 +937,8 @@ class DialoguePayloadBuilder(
         )
         val mergedResponderHints = applyPlanToHints(responderHints, speakerPlan)
 
-        val expectedResponses: List<Any?> = if (normalizedMessageKind == "plot") {
-            listOf(
+        val expectedResponses: List<Any?> = when (normalizedMessageKind) {
+            "plot" -> listOf(
                 mapOf("speaker" to "场景提示", "message" to "A concrete event or state change happening now."),
                 mapOf(
                     "speaker" to "CharacterName",
@@ -934,8 +946,14 @@ class DialoguePayloadBuilder(
                     "inner_thought" to (if (includeInnerThoughts) "What the character thinks but does not say." else null),
                 ).filterValues { it != null },
             )
-        } else {
-            listOf(
+            "fourth_wall" -> listOf(
+                mapOf(
+                    "speaker" to "CharacterName",
+                    "message" to "An in-character reply that may obey, question, bargain, resist, or refuse the author.",
+                    "inner_thought" to (if (includeInnerThoughts) "What the character thinks but does not say." else null),
+                ).filterValues { it != null },
+            )
+            else -> listOf(
                 mapOf(
                     "speaker" to "CharacterName",
                     "message" to "...",
@@ -945,7 +963,11 @@ class DialoguePayloadBuilder(
         }
         val expectedOutput = mapOf("responses" to expectedResponses)
         val outputRule = (
-            if (normalizedMessageKind == "plot") {
+            if (normalizedMessageKind == "fourth_wall") {
+                "Return only in-character replies that may address the author directly. " +
+                    "Do not force obedience; resistance, questions, bargaining, and refusal are valid. " +
+                    "Do not add a standalone scene beat unless a concrete physical action is required. "
+            } else if (normalizedMessageKind == "plot") {
                 "Return the required scene-level beat first, then in-world character reactions. " +
                     "The scene beat must materially change the situation; do not use it for a minor gesture or a summary of existing dialogue. "
             } else {
@@ -1094,7 +1116,7 @@ class DialoguePayloadBuilder(
         val normalizedGoal = DialoguePromptRules.trimSummaryText(goal.trim(), 240)
         if (normalizedGoal.isEmpty()) throw IllegalArgumentException("请先填写导演目标。")
         val normalizedAction = action.trim().lowercase()
-        if (normalizedAction !in setOf("advance", "slow_emotion", "conflict", "viewpoint")) {
+        if (normalizedAction !in setOf("advance", "slow_emotion", "conflict", "viewpoint", "fourth_wall")) {
             throw IllegalArgumentException("不支持的导演操作。")
         }
         val payload = buildSuggestionPayload(runManifest, session).toMutableMap()

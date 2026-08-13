@@ -57,13 +57,22 @@ class PromptLoader(private val source: PromptSource) {
     /**
      * Get dialogue director prompt.
      */
-    fun getDialogueDirectorPrompt(optionCount: Int = 3, retry: Boolean = false): String {
+    fun getDialogueDirectorPrompt(
+        optionCount: Int = 3,
+        retry: Boolean = false,
+        action: String = "advance",
+    ): String {
         val config = loadPromptConfig("dialogue", "director")
         val parts = mutableListOf(
             config.getString("system_prompt"),
             config.getString("option_count_instruction").replace("{option_count}", optionCount.toString()),
-            config.getString("output_format")
         )
+        if (action.trim().lowercase() == "fourth_wall") {
+            config["fourth_wall_instruction"]?.let { parts.add(it.toString()) }
+            parts.add(config.getString("fourth_wall_output_format"))
+        } else {
+            parts.add(config.getString("output_format"))
+        }
         if (retry) {
             parts.add(config.getString("retry_instruction"))
         }

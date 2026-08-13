@@ -328,6 +328,7 @@ class DialogueService(
                 turnId = turnId,
                 userMessage = message,
                 suppressUserMessage = suppressTranscriptMessage,
+                messageKind = messageKind,
                 responses = responses,
                 evidence = evidence,
                 mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
@@ -597,6 +598,7 @@ class DialogueService(
         turnId: String,
         userMessage: String,
         suppressUserMessage: Boolean,
+        messageKind: String,
         responses: List<DialogueResponse>,
         evidence: List<OriginalKnowledgeEntryDto>,
         mode: String = "observe",
@@ -610,7 +612,7 @@ class DialogueService(
         val combinedTranscript = buildJsonArray {
             transcript.forEach(::add)
             if (!suppressUserMessage) add(buildJsonObject {
-                put("speaker", "我")
+                put("speaker", if (messageKind == "fourth_wall") "作者" else "我")
                 put("message", userMessage)
                 put("role", "user")
                 put("turn_id", turnId)

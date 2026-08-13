@@ -619,6 +619,7 @@ class DialogueAdvancedService(
         optionCount: Int,
     ): JsonObject {
         require(goal.isNotBlank() && goal.length <= 240) { "goal 需为 1-240 字" }
+        val normalizedAction = action.trim().lowercase().ifBlank { "advance" }
         val session = requireSession(runId, sessionId)
         val count = optionCount.coerceIn(2, 4)
         val client = requireNotNull(llm) { "LLM 客户端未配置" }
@@ -629,7 +630,7 @@ class DialogueAdvancedService(
             runManifest = runManifest,
             session = session,
             goal = goal,
-            action = action,
+            action = normalizedAction,
             optionCount = count,
         )
         val messages = DialoguePromptBuilder(loader).buildDialogueDirectorLlmMessages(
@@ -645,6 +646,7 @@ class DialogueAdvancedService(
         val parsed = parseJsonObject(content)
         val options = parsed["options"]?.jsonArray ?: return buildJsonObject { put("options", JsonArray(emptyList())) }
         return buildJsonObject {
+            put("message_kind", if (normalizedAction == "fourth_wall") "fourth_wall" else "plot")
             put("options", buildJsonArray { options.take(count).forEach(::add) })
         }
     }

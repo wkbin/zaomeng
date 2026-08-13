@@ -1403,7 +1403,7 @@ class ChatViewModel(
             ).extractDirectorOptions()
             updateState {
                 it.copy(
-                    toolOptionsTitle = "剧情导演方案",
+                    toolOptionsTitle = if (action == "fourth_wall") "第四面墙方案" else "剧情导演方案",
                     toolOptions = options,
                     notice = if (options.isEmpty()) "这次没有生成可用方案。" else "",
                 )
@@ -1884,7 +1884,7 @@ class ChatViewModel(
     }
 
     private companion object {
-        val messageKinds = setOf("dialogue", "narration", "plot")
+        val messageKinds = setOf("dialogue", "narration", "plot", "fourth_wall")
         const val CONTINUOUS_OBSERVE_DELAY_MS = 480L
         const val INITIAL_TRANSCRIPT_PAGE = 100
         const val EARLIER_TRANSCRIPT_PAGE = 100
@@ -1928,6 +1928,7 @@ internal fun JsonObject.extractDirectorOptions(): List<ChatToolOption> = this["o
     ?.let { runCatching { it.jsonArray }.getOrNull() }
     ?.mapNotNull { element ->
         val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+        val messageKind = stringValue("message_kind").ifBlank { "plot" }
         val title = item.stringValue("title")
         val beat = item.stringValue("beat")
         val direction = item.stringValue("direction")
@@ -1936,12 +1937,14 @@ internal fun JsonObject.extractDirectorOptions(): List<ChatToolOption> = this["o
             item.stringValue("focus").takeIf(String::isNotBlank)?.let { add("焦点：$it") }
             item.stringValue("expected_effect").takeIf(String::isNotBlank)?.let { add("效果：$it") }
             item.stringValue("risk").takeIf(String::isNotBlank)?.let { add("风险：$it") }
+            item.stringValue("resistance").takeIf(String::isNotBlank)?.let { add("抵抗：$it") }
+            item.stringValue("price").takeIf(String::isNotBlank)?.let { add("代价：$it") }
         }
         ChatToolOption(
             label = title,
             value = listOf(beat, direction).distinct().joinToString("；"),
             description = details.joinToString(" · "),
-            messageKind = "plot",
+            messageKind = messageKind,
         )
     }
     .orEmpty()
