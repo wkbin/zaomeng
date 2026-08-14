@@ -734,9 +734,18 @@ class DialoguePayloadBuilder(
             ""
         }
         val normalizedMessageKind = DialoguePromptRules.normalizeMessageKind(messageKind)
+        val requestedSpeakerOverride = speakerOverride.trim()
+        val knownPersonaNames = runManifest["artifact_index"]?.jsonObject
+            ?.get("characters")?.jsonArray.orEmpty()
+            .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim() }
+            .filter(String::isNotBlank)
+        val canonicalSpeakerOverride = requestedSpeakerOverride.takeIf(String::isNotBlank)?.let { requested ->
+            knownPersonaNames.firstOrNull { it.equals(requested, ignoreCase = true) }
+                ?: throw IllegalArgumentException("未知的代发人物：$requested")
+        }.orEmpty()
         val speaker = if (normalizedMessageKind == "fourth_wall") {
             "作者"
-        } else speakerOverride.trim().ifEmpty {
+        } else canonicalSpeakerOverride.ifEmpty {
             if (mode == "act") {
                 controlledCharacterName
             } else if (mode == "insert") {
@@ -795,7 +804,7 @@ class DialoguePayloadBuilder(
             val persona = async(platformIoDispatcher) {
                 buildPersonaContexts(
                     runManifest = runManifest,
-                    participants = participants,
+                    participants = (participants + canonicalSpeakerOverride).filter(String::isNotBlank).distinct(),
                     activeParticipants = activeParticipants,
                     mode = mode,
                     controlledCharacter = controlledCharacterName,
@@ -1043,12 +1052,14 @@ class DialoguePayloadBuilder(
         session: JsonObject,
         seedText: String = "",
         direction: String = "",
+        speakerOverride: String = "",
     ): Map<String, Any?> {
         val payload = buildTurnPayload(
             runManifest = runManifest,
             session = session,
             turnId = "suggest-${randomUuid().replace("-", "").take(8)}",
             message = seedText,
+            speakerOverride = speakerOverride,
         ).toMutableMap()
         val mode = payload["mode"]?.toString()?.trim().orEmpty().ifBlank { "observe" }
         val speaker = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.get("speaker")?.toString()?.trim().orEmpty()
@@ -1063,17 +1074,52 @@ class DialoguePayloadBuilder(
         val personaContexts = ((payload["persona_contexts"] as? List<*>) ?: emptyList<Any?>())
             .mapNotNull { (it as? Map<*, *>)?.mapKeys { key -> key.toString() } }
         val sessionMap = jsonMap(session)
-        payload["user_persona"] = DialoguePromptRules.buildUserSuggestionPersona(
-            mode, sessionMap, personaContexts, sceneProgress, sessionSummary,
-        )
+        val requestedSpeaker = speakerOverride.trim()
+        payload["user_persona"] = if (requestedSpeaker.isNotEmpty()) {
+            val matched = personaContexts.firstOrNull {
+                it["name"]?.toString()?.equals(requestedSpeaker, ignoreCase = true) == true
+            }.orEmpty()
+            mapOf(
+                "mode" to "proxy_character",
+                "speaker" to requestedSpeaker,
+                "source" to "plugin_selected_persona",
+                "must_follow" to "Write exactly as $requestedSpeaker would respond to the latest other character in the scene.",
+                "profile" to (matched["profile"] ?: emptyMap<Any?, Any?>()),
+                "preview" to (matched["preview"] ?: emptyMap<Any?, Any?>()),
+                "scene_card" to (sessionMap["scene_card"] ?: emptyMap<Any?, Any?>()),
+            )
+        } else {
+            DialoguePromptRules.buildUserSuggestionPersona(
+                mode, sessionMap, personaContexts, sceneProgress, sessionSummary,
+            )
+        }
         payload["instructions"] = mapOf(
             "mode" to mode,
-            "generation_goal" to "Draft one complete, natural, directly sendable next user message that fits the current scene, " +
-                "relationships, and persona voices. Use one to three sentences when the selected direction needs room to land.",
-            "mode_rule" to DialoguePromptRules.suggestionModeRule(mode),
-            "speaker_rule" to DialoguePromptRules.speakerRule(mode, sessionMap),
-            "response_style" to DialoguePromptRules.suggestionStyleRule(mode),
+            "generation_goal" to if (requestedSpeaker.isNotEmpty()) {
+                "Draft one complete, natural line spoken specifically by $requestedSpeaker. " +
+                    "It must directly respond to the latest utterance from another character in history, " +
+                    "not reply to the controlled character or imitate the latest speaker."
+            } else {
+                "Draft one complete, natural, directly sendable next user message that fits the current scene, " +
+                    "relationships, and persona voices. Use one to three sentences when the selected direction needs room to land."
+            },
+            "mode_rule" to if (requestedSpeaker.isNotEmpty()) {
+                "This is a proxy-character draft. Ignore the session's controlled character as the draft identity."
+            } else {
+                DialoguePromptRules.suggestionModeRule(mode)
+            },
+            "speaker_rule" to if (requestedSpeaker.isNotEmpty()) {
+                "The draft speaker is exactly $requestedSpeaker. Preserve that character's identity, voice, knowledge boundary, and relationships."
+            } else {
+                DialoguePromptRules.speakerRule(mode, sessionMap)
+            },
+            "response_style" to if (requestedSpeaker.isNotEmpty()) {
+                "Prefer one concise in-character reply that naturally answers the latest other character's words."
+            } else {
+                DialoguePromptRules.suggestionStyleRule(mode)
+            },
         )
+        if (requestedSpeaker.isNotEmpty()) payload["requested_speaker"] = requestedSpeaker
         payload["host_action"] = mapOf(
             "expected_output" to mapOf("suggestion" to "一段完整、可直接发送的文案"),
             "output_rule" to "Keep it complete, in-scene, directly sendable, and never explanatory.",

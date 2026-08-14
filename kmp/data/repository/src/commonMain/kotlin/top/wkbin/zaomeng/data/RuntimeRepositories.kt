@@ -190,16 +190,23 @@ class PluginRepositoryImpl(
         actionId: String,
         seedText: String,
         direction: String,
+        selection: String,
     ): PluginChatActionResponse = repositoryRequest {
         val result = ktorPlugins.chatAction(
             runId,
             sessionId,
             pluginId,
             actionId,
-            PluginChatActionRequest(seedText = seedText, direction = direction),
+            PluginChatActionRequest(seedText = seedText, direction = direction, selection = selection),
         )
-        if (result.suggestion.isBlank() && result.suggestions.none { it.suggestion.isNotBlank() }) {
-            throw ApiRequestException("插件没有返回可写入输入框的内容。")
+        if (
+            result.suggestion.isBlank() &&
+            result.suggestions.none { it.suggestion.isNotBlank() } &&
+            result.choices.none { it.value.isNotBlank() } &&
+            result.session.sessionId.isBlank() &&
+            result.notice.isBlank()
+        ) {
+            throw ApiRequestException("插件没有返回可用结果。")
         }
         result
     }

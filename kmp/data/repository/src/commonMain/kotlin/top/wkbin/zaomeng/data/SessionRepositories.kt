@@ -181,6 +181,7 @@ class DialogueRepositoryImpl(
         message: String,
         messageKind: String,
         operationId: String,
+        speakerOverride: String,
         suppressTranscriptMessage: Boolean,
         includeInnerThoughts: Boolean,
         includeModelReasoning: Boolean,
@@ -193,6 +194,7 @@ class DialogueRepositoryImpl(
                 payload = DialogueReplyRequest(
                     message = message,
                     messageKind = messageKind,
+                    speakerOverride = speakerOverride,
                     suppressTranscriptMessage = suppressTranscriptMessage,
                     includeInnerThoughts = includeInnerThoughts,
                     includeModelReasoning = includeModelReasoning,

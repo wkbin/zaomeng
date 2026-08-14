@@ -40,6 +40,7 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
                 sessionId = sessionId,
                 message = request.message,
                 messageKind = request.messageKind,
+                speakerOverride = request.speakerOverride,
                 suppressTranscriptMessage = request.suppressTranscriptMessage,
                 includeInnerThoughts = request.includeInnerThoughts,
                 operationId = request.operationId,

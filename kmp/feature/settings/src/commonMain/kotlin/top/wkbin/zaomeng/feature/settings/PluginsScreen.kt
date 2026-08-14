@@ -578,6 +578,7 @@ private fun String.permissionLabel(): String = when (this) {
     "chat.draft.write" -> "写入聊天草稿"
     "generation.enhance" -> "增强回复生成"
     "run.personas.read" -> "读取当前书卷的已蒸馏人物"
+    "session.modify" -> "修改当前会话人物状态"
     "model.invoke" -> "调用模型"
     "storage.read" -> "读取插件存储"
     "storage.write" -> "写入插件存储"
@@ -586,7 +587,7 @@ private fun String.permissionLabel(): String = when (this) {
 }
 
 private fun String.permissionRiskLabel(): String = when (this) {
-    "chat.cast.write", "model.invoke", "run.personas.read" -> " · 敏感"
+    "chat.cast.write", "model.invoke", "run.personas.read", "session.modify" -> " · 敏感"
     "storage.read", "storage.write", "network.access" -> " · 高风险"
     else -> ""
 }

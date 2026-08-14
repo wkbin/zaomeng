@@ -65,6 +65,7 @@ interface PluginRepository {
         actionId: String,
         seedText: String = "",
         direction: String = "",
+        selection: String = "",
     ): PluginChatActionResponse
 
     suspend fun invokePluginTemporaryNpcGenerator(

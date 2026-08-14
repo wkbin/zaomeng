@@ -398,6 +398,7 @@ class DeclarativePluginTest {
         override suspend fun invokeReplyAsCharacter(
             runId: String,
             sessionId: String,
+            character: String,
             seedText: String,
             direction: String,
         ): PluginReplyAsCharacterResult? = replyAsCharacter

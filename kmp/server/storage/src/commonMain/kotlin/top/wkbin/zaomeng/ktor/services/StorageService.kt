@@ -395,6 +395,29 @@ class StorageService(
         }
     }
 
+    /**
+     * 在与原子写相同的路径锁内完成会话清单读-改-写，避免插件动作、对话提交和后台状态刷新互相覆盖。
+     */
+    fun updateSessionManifest(
+        runId: String,
+        sessionId: String,
+        transform: (JsonObject) -> JsonObject,
+    ): JsonObject {
+        val manifestFile = getDialogueSessionManifestFile(runId, sessionId)
+        return lockFor(manifestFile).withLock {
+            val content = store.readBytes(manifestFile)?.decodeToString()
+                ?: throw NoSuchElementException("Session manifest not found: $sessionId")
+            val current = runCatching { json.decodeFromString(JsonObject.serializer(), content) }
+                .getOrElse { throw IllegalStateException("Failed to load session manifest: ${it.message}", it) }
+            val updated = transform(current)
+            writeBytesLocked(
+                manifestFile,
+                json.encodeToString(JsonObject.serializer(), updated).encodeToByteArray(),
+            )
+            updated
+        }
+    }
+
     private companion object {
         private const val MAX_CACHED_SESSION_MANIFESTS = 32
         private const val TRANSCRIPT_RECENT_TARGET = 80

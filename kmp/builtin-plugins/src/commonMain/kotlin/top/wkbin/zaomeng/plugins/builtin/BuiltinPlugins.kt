@@ -14,5 +14,7 @@ object BuiltinPlugins {
         PlotDicePlugin(),
         RandomNpcPlugin(),
         InnerThoughtsPlugin(),
+        ReplyAsCharacterPlugin(),
+        CharacterMutePlugin(),
     )
 }

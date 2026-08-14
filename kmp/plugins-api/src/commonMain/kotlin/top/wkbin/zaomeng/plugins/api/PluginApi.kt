@@ -64,6 +64,8 @@ data class ChatActionRequest(
     val sessionId: String = "",
     val seedText: String = "",
     val direction: String = "",
+    /** 两阶段动作中由用户选择的值；首轮为空时插件可返回 [ChatActionResult.choices]。 */
+    val selection: String = "",
     /** 插件配置（server 从插件 config.json 注入，如 optionCount/strength/eventType/npcStyle）。 */
     val config: Map<String, Any?> = emptyMap(),
 )
@@ -73,12 +75,21 @@ data class SuggestionOption(
     val suggestion: String = "",
 )
 
+/** 需要用户选择后继续执行的动作选项。 */
+data class ChatActionChoice(
+    val label: String = "",
+    val value: String = "",
+    val description: String = "",
+)
+
 data class ChatActionResult(
     val suggestion: String = "",
     val suggestions: List<SuggestionOption> = emptyList(),
     val notice: String = "",
     val character: String = "",
     val session: JsonObject = JsonObject(emptyMap()),
+    val choicePrompt: String = "",
+    val choices: List<ChatActionChoice> = emptyList(),
 )
 
 data class NpcGeneratorRequest(
@@ -98,6 +109,12 @@ data class NpcGeneratorResult(
 data class PluginPersonaSummary(
     val name: String,
     val preview: String = "",
+)
+
+data class PluginSessionCharacterSummary(
+    val name: String,
+    val muted: Boolean = false,
+    val canMute: Boolean = true,
 )
 
 data class PluginReplyAsCharacterResult(
@@ -136,10 +153,17 @@ interface PluginHost {
     /** 列出当前 run 已蒸馏人物及其简短预览。 */
     suspend fun listRunPersonas(runId: String): List<PluginPersonaSummary> = emptyList()
 
-    /** 从全部已蒸馏人物中选择一名并生成以该角色口吻回复的草稿。 */
+    /** 列出已蒸馏但不在当前场景中的人物。 */
+    suspend fun listOffScenePersonas(runId: String, sessionId: String): List<PluginPersonaSummary> = emptyList()
+
+    /** 列出当前场景人物及其禁言状态。 */
+    suspend fun listSessionCharacters(runId: String, sessionId: String): List<PluginSessionCharacterSummary> = emptyList()
+
+    /** 以用户明确选择的已蒸馏人物口吻生成回复草稿。 */
     suspend fun invokeReplyAsCharacter(
         runId: String,
         sessionId: String,
+        character: String,
         seedText: String,
         direction: String,
     ): PluginReplyAsCharacterResult? = null

@@ -136,6 +136,8 @@ class DialogueService(
         val message: String,
         @SerialName("message_kind")
         val messageKind: String,
+        @SerialName("input_speaker")
+        val inputSpeaker: String = "",
         val responses: List<DialogueResponse>,
         val timestamp: Long,
         val evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
@@ -161,6 +163,7 @@ class DialogueService(
         sessionId: String,
         message: String,
         messageKind: String = "user_input",
+        speakerOverride: String = "",
         suppressTranscriptMessage: Boolean = false,
         includeInnerThoughts: Boolean = false,
         operationId: String = "",
@@ -191,6 +194,7 @@ class DialogueService(
             turnId = turnId,
             message = message,
             messageKind = messageKind,
+            speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
         )
         val conversationHistory = promptBuilder.buildDialogueLlmMessages(
@@ -232,9 +236,14 @@ class DialogueService(
                 )
                 val responseContent = llmResponse.choices.firstOrNull()?.message?.content
                     ?: throw IllegalArgumentException("Empty response from LLM")
+                val allowedResponders = ((payload["input"] as? Map<*, *>)
+                    ?.mapKeys { it.key.toString() }
+                    ?.get("allowed_responders") as? List<*>)
+                    ?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) }
+                    .orEmpty()
                 responses = parseDialogueResponses(
                     responseContent,
-                    participants,
+                    allowedResponders,
                     forbiddenSpeakers = forbiddenSpeakers,
                 )
                 break
@@ -256,6 +265,12 @@ class DialogueService(
             turnId = turnId,
             message = message,
             messageKind = messageKind,
+            inputSpeaker = (payload["input"] as? Map<*, *>)
+                ?.mapKeys { it.key.toString() }
+                ?.get("speaker")
+                ?.toString()
+                .orEmpty(),
+            inputRole = if (speakerOverride.isNotBlank()) "character" else "user",
             responses = finalResponses,
             suppressTranscriptMessage = suppressTranscriptMessage,
             existingSession = sessionManifestJson,
@@ -310,6 +325,18 @@ class DialogueService(
         return DialogueResponseParser.parse(content, allowed, forbiddenSpeakers)
     }
 
+    /** 对话后台可能基于旧快照计算派生状态；落盘时始终保留插件刚写入的会话控制字段。 */
+    private fun persistSessionManifestPreservingControls(
+        runId: String,
+        sessionId: String,
+        candidate: JsonObject,
+    ): JsonObject = storageService.updateSessionManifest(runId, sessionId) { latest ->
+        buildJsonObject {
+            candidate.forEach { (key, value) -> put(key, value) }
+            latest["muted_characters"]?.let { put("muted_characters", it) }
+        }
+    }
+
     /**
      * 提交一轮对话结果：保存 turn 文件并更新会话 manifest（非流式与流式共用）。
      */
@@ -319,6 +346,8 @@ class DialogueService(
         turnId: String,
         message: String,
         messageKind: String,
+        inputSpeaker: String,
+        inputRole: String = "user",
         responses: List<DialogueResponse>,
         suppressTranscriptMessage: Boolean = false,
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
@@ -331,13 +360,15 @@ class DialogueService(
         // enrichment runs in the background. Reload and persist under one session lock.
         val updated = sessionMutationLock(runId, sessionId).withLock {
             val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
-            saveTurn(runId, sessionId, turnId, message, messageKind, responses, evidence)
+            saveTurn(runId, sessionId, turnId, message, messageKind, inputSpeaker, responses, evidence)
             val committed = updateSessionManifest(
                 runId = runId,
                 sessionId = sessionId,
                 newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
                 turnId = turnId,
                 userMessage = message,
+                inputSpeaker = inputSpeaker,
+                inputRole = inputRole,
                 suppressUserMessage = suppressTranscriptMessage,
                 messageKind = messageKind,
                 responses = responses,
@@ -525,6 +556,7 @@ class DialogueService(
         turnId: String,
         message: String,
         messageKind: String,
+        inputSpeaker: String,
         responses: List<DialogueResponse>,
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
     ) {
@@ -535,6 +567,7 @@ class DialogueService(
             turnId = turnId,
             message = message,
             messageKind = messageKind,
+            inputSpeaker = inputSpeaker,
             responses = responses,
             timestamp = nowEpochMillis(),
             evidence = evidence,
@@ -610,6 +643,8 @@ class DialogueService(
         newTurnCount: Int,
         turnId: String,
         userMessage: String,
+        inputSpeaker: String,
+        inputRole: String,
         suppressUserMessage: Boolean,
         messageKind: String,
         responses: List<DialogueResponse>,
@@ -618,16 +653,17 @@ class DialogueService(
         manifest: JsonObject,
         deriveState: Boolean = true,
     ): JsonObject {
-        val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
-
         val timestamp = nowIsoString()
         val transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
         val combinedTranscript = buildJsonArray {
             transcript.forEach(::add)
             if (!suppressUserMessage) add(buildJsonObject {
-                put("speaker", if (messageKind == "fourth_wall") "作者" else "我")
+                val speaker = inputSpeaker.trim().ifBlank {
+                    if (messageKind == "fourth_wall") "作者" else "我"
+                }
+                put("speaker", speaker)
                 put("message", userMessage)
-                put("role", "user")
+                put("role", if (messageKind == "fourth_wall") "user" else inputRole)
                 put("turn_id", turnId)
                 put("timestamp", timestamp)
             })
@@ -664,11 +700,7 @@ class DialogueService(
 
         // 每轮提交后推导场景进度状态（对齐 Python _refresh_dialogue_scene_progress）
         if (!deriveState) {
-            storageService.writeTextAtomically(
-                manifestFile,
-                Json.encodeToString(JsonObject.serializer(), updatedBase),
-            )
-            return updatedBase
+            return persistSessionManifestPreservingControls(runId, sessionId, updatedBase)
         }
 
         val newTranscript = updatedBase["transcript"]?.jsonArray ?: JsonArray(emptyList())
@@ -692,7 +724,7 @@ class DialogueService(
             put("state", SceneProgressState.stateToJsonObject(derivedState))
         }
 
-        storageService.writeTextAtomically(manifestFile, Json.encodeToString(JsonObject.serializer(), updated))
+        val persisted = persistSessionManifestPreservingControls(runId, sessionId, updated)
 
         // 对齐 Python：每轮提交后把本轮的剧情事件/知识账本同步到 run 级世界记忆
         // （时间线按 turn_key 幂等去重，事实带 source_session_id 便于会话删除时清理）
@@ -719,7 +751,7 @@ class DialogueService(
                 updatedAt = timestamp,
             )
         }
-        return updated
+        return persisted
     }
 
     private fun refreshDerivedSessionState(
@@ -727,7 +759,6 @@ class DialogueService(
         sessionId: String,
         manifest: JsonObject,
     ): JsonObject {
-        val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
         val timestamp = nowIsoString()
         val transcript = manifest["transcript"]?.jsonArray ?: JsonArray(emptyList())
         val transcriptMaps = transcript.mapNotNull { raw ->
@@ -749,11 +780,7 @@ class DialogueService(
             manifest.forEach { (key, value) -> put(key, value) }
             put("state", SceneProgressState.stateToJsonObject(derivedState))
         }
-        storageService.writeTextAtomically(
-            manifestFile,
-            Json.encodeToString(JsonObject.serializer(), updated),
-        )
-        return updated
+        return persistSessionManifestPreservingControls(runId, sessionId, updated)
     }
 
     private fun syncWorldMemory(

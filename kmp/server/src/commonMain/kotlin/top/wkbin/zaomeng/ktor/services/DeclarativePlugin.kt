@@ -107,6 +107,7 @@ internal class DeclarativePlugin(
                 val reply = host.invokeReplyAsCharacter(
                     runId = request.runId,
                     sessionId = request.sessionId,
+                    character = request.selection,
                     seedText = request.seedText,
                     direction = rendered,
                 )

@@ -174,6 +174,7 @@ data class DialogueSessionDto(
     @SerialName("latest_context_usage") val latestContextUsage: JsonObject = JsonObject(emptyMap()),
     @SerialName("plugin_enhancer_states")
     val pluginEnhancerStates: Map<String, Map<String, Boolean>> = emptyMap(),
+    @SerialName("muted_characters") val mutedCharacters: List<String> = emptyList(),
     @SerialName("story_recap") val storyRecap: StoryRecapDto? = null,
 )
 
@@ -300,6 +301,8 @@ data class CreateDialogueSessionRequest(
 data class DialogueReplyRequest(
     val message: String,
     @SerialName("message_kind") val messageKind: String = "dialogue",
+    /** Optional character identity used when a plugin drafts and sends a reply on that character's behalf. */
+    @SerialName("speaker_override") val speakerOverride: String = "",
     @SerialName("suppress_transcript_message") val suppressTranscriptMessage: Boolean = false,
     @SerialName("include_inner_thoughts") val includeInnerThoughts: Boolean = false,
     @SerialName("include_model_reasoning") val includeModelReasoning: Boolean = false,
@@ -327,6 +330,7 @@ data class DialogueSuggestionRequest(
 data class PluginChatActionRequest(
     @SerialName("seed_text") val seedText: String = "",
     val direction: String = "",
+    val selection: String = "",
 )
 
 @Serializable
@@ -336,12 +340,21 @@ data class PluginSuggestionOptionDto(
 )
 
 @Serializable
+data class PluginActionChoiceDto(
+    val label: String = "",
+    val value: String = "",
+    val description: String = "",
+)
+
+@Serializable
 data class PluginChatActionResponse(
     val suggestion: String = "",
     val suggestions: List<PluginSuggestionOptionDto> = emptyList(),
     val notice: String = "",
     val character: String = "",
     val session: DialogueSessionDto = DialogueSessionDto(),
+    @SerialName("choice_prompt") val choicePrompt: String = "",
+    val choices: List<PluginActionChoiceDto> = emptyList(),
 )
 
 @Serializable

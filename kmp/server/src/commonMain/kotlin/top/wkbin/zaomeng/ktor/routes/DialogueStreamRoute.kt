@@ -49,6 +49,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                     sessionId = sessionId,
                     message = request.message,
                     messageKind = request.messageKind,
+                    speakerOverride = request.speakerOverride,
                     includeInnerThoughts = request.includeInnerThoughts,
                     operationId = request.operationId,
                     suppressTranscriptMessage = request.suppressTranscriptMessage,

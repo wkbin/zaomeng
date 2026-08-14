@@ -42,6 +42,11 @@ data class ChatToolOption(
     val description: String = "",
     val messageKind: String = "plot",
     val suggestionDirection: String = "",
+    val pluginId: String = "",
+    val pluginActionId: String = "",
+    val pluginSelection: String = "",
+    val pluginSeedText: String = "",
+    val pluginTitle: String = "",
 )
 
 data class ChatPluginAction(
@@ -97,6 +102,7 @@ data class PendingUserMessage(
     val operationId: String,
     val message: String,
     val messageKind: String,
+    val speakerOverride: String = "",
     val status: PendingUserMessageStatus,
     val statusText: String = "",
     val retryable: Boolean = true,
@@ -116,6 +122,7 @@ data class ChatUiState(
     val failedOperationId: String = "",
     val failedMessage: String = "",
     val failedMessageKind: String = "dialogue",
+    val failedSpeakerOverride: String = "",
     val modelReasoning: String = "",
     val streamingReplies: List<StreamingReplyPart> = emptyList(),
     val pendingUserMessage: PendingUserMessage? = null,
@@ -137,6 +144,7 @@ data class ChatUiState(
     val memorySaveRevision: Long = 0,
     val memoryQuality: MemoryQualityReportDto = MemoryQualityReportDto(),
     val draft: String = "",
+    val draftSpeakerOverride: String = "",
     val messageKind: String = "dialogue",
     val searchQuery: String = "",
     val searching: Boolean = false,
@@ -480,7 +488,24 @@ class ChatViewModel(
 
     fun updateDraft(value: String) {
         if (state.value.sendOutcomeUnknown || state.value.failedOperationId.isNotBlank()) return
-        mutableState.update { it.copy(draft = value, error = "", notice = "") }
+        mutableState.update {
+            it.copy(
+                draft = value,
+                draftSpeakerOverride = if (value.isBlank()) "" else it.draftSpeakerOverride,
+                error = "",
+                notice = "",
+            )
+        }
+    }
+
+    fun clearDraftSpeakerOverride() {
+        if (state.value.sending || state.value.failedOperationId.isNotBlank()) return
+        mutableState.update {
+            it.copy(
+                draftSpeakerOverride = "",
+                notice = "已取消人物代发，将恢复为当前受控人物发送。",
+            )
+        }
     }
 
     fun updateSearchQuery(value: String) {
@@ -596,6 +621,7 @@ class ChatViewModel(
             snapshot = snapshot,
             message = message,
             messageKind = snapshot.messageKind,
+            speakerOverride = snapshot.draftSpeakerOverride,
             operationId = clientRandomUuid(),
         )
     }
@@ -708,6 +734,7 @@ class ChatViewModel(
             snapshot = snapshot,
             message = snapshot.failedMessage,
             messageKind = snapshot.failedMessageKind,
+            speakerOverride = snapshot.failedSpeakerOverride,
             operationId = snapshot.failedOperationId,
         )
     }
@@ -716,6 +743,7 @@ class ChatViewModel(
         snapshot: ChatUiState,
         message: String,
         messageKind: String,
+        speakerOverride: String = "",
         operationId: String,
         suppressTranscriptMessage: Boolean = messageKind == "plot",
         showPendingUserMessage: Boolean = true,
@@ -813,6 +841,7 @@ class ChatViewModel(
                 } else current.copy(
                     sending = true,
                     draft = "",
+                    draftSpeakerOverride = "",
                     error = "",
                     modelReasoning = "",
                     streamingReplies = emptyList(),
@@ -820,12 +849,14 @@ class ChatViewModel(
                     failedOperationId = operationId,
                     failedMessage = message,
                     failedMessageKind = messageKind,
+                    failedSpeakerOverride = speakerOverride,
                     sendBaselineTranscript = snapshot.session?.transcript,
                     pendingUserMessage = if (showPendingUserMessage) {
                         PendingUserMessage(
                             operationId = operationId,
                             message = message,
                             messageKind = messageKind,
+                            speakerOverride = speakerOverride,
                             status = PendingUserMessageStatus.Sending,
                             statusText = "正在发送",
                         )
@@ -848,6 +879,7 @@ class ChatViewModel(
                     message = message,
                     messageKind = messageKind,
                     operationId = operationId,
+                    speakerOverride = speakerOverride,
                     suppressTranscriptMessage = suppressTranscriptMessage,
                     includeInnerThoughts = snapshot.includeInnerThoughts,
                     includeModelReasoning = snapshot.chatDisplay.showModelReasoning,
@@ -934,6 +966,7 @@ class ChatViewModel(
                                     sendBaselineTranscript = null,
                                     failedOperationId = "",
                                     failedMessage = "",
+                                    failedSpeakerOverride = "",
                                     streamingReplies = emptyList(),
                                     pendingUserMessage = null,
                                     notice = if (event.replayed) "已恢复这次发送的本地结果。" else current.notice,
@@ -970,6 +1003,7 @@ class ChatViewModel(
                     operationId,
                     message,
                     messageKind,
+                    speakerOverride,
                     error,
                     showPendingUserMessage,
                 )
@@ -1029,6 +1063,7 @@ class ChatViewModel(
         operationId: String,
         message: String,
         messageKind: String,
+        speakerOverride: String,
         error: Throwable,
         showPendingUserMessage: Boolean = true,
     ) {
@@ -1086,6 +1121,7 @@ class ChatViewModel(
                 failedOperationId = if (responseWasCommitted || !showPendingUserMessage) "" else operationId,
                 failedMessage = if (responseWasCommitted || !showPendingUserMessage) "" else message,
                 failedMessageKind = messageKind,
+                failedSpeakerOverride = if (responseWasCommitted || !showPendingUserMessage) "" else speakerOverride,
                 streamingReplies = emptyList(),
                 pendingUserMessage = if (responseWasCommitted || !showPendingUserMessage) {
                     null
@@ -1094,6 +1130,7 @@ class ChatViewModel(
                         operationId = operationId,
                         message = message,
                         messageKind = messageKind,
+                        speakerOverride = speakerOverride,
                         status = if (outcomeUnknown) {
                             PendingUserMessageStatus.OutcomeUnknown
                         } else {
@@ -1124,9 +1161,11 @@ class ChatViewModel(
             it.copy(
                 failedOperationId = "",
                 failedMessage = "",
+                failedSpeakerOverride = "",
                 sendBaselineTranscript = null,
                 pendingUserMessage = null,
                 draft = snapshot.failedMessage,
+                draftSpeakerOverride = snapshot.failedSpeakerOverride,
                 error = "",
                 notice = "已保留输入，可以修改后重新发送。",
             )
@@ -1188,6 +1227,7 @@ class ChatViewModel(
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
                         failedOperationId = if (resolved) "" else it.failedOperationId,
                         failedMessage = if (resolved) "" else it.failedMessage,
+                        failedSpeakerOverride = if (resolved) "" else it.failedSpeakerOverride,
                         pendingUserMessage = when {
                             responseWasCommitted -> null
                             resolved -> it.pendingUserMessage?.copy(
@@ -1271,6 +1311,7 @@ class ChatViewModel(
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
                         failedOperationId = if (responseWasCommitted) "" else it.failedOperationId,
                         failedMessage = if (responseWasCommitted) "" else it.failedMessage,
+                        failedSpeakerOverride = if (responseWasCommitted) "" else it.failedSpeakerOverride,
                         pendingUserMessage = when {
                             responseWasCommitted -> null
                             resolved -> it.pendingUserMessage?.copy(
@@ -1315,6 +1356,10 @@ class ChatViewModel(
 
     fun invokePluginAction(action: ChatPluginAction) {
         val current = state.value
+        invokePluginAction(action, selection = "", seedText = current.draft)
+    }
+
+    private fun invokePluginAction(action: ChatPluginAction, selection: String, seedText: String) {
         runTool("plugin:${action.pluginId}:${action.actionId}") {
             if (action.contribution == "temporary_npc_generator") {
                 val result = plugins.invokePluginTemporaryNpcGenerator(
@@ -1338,46 +1383,82 @@ class ChatViewModel(
                 sessionId = sessionId,
                 pluginId = action.pluginId,
                 actionId = action.actionId,
-                seedText = current.draft,
+                seedText = seedText,
+                selection = selection,
             )
             updateState {
                 val refreshedSession = result.session.takeIf { it.sessionId.isNotBlank() }
-                val options = result.suggestions
+                val suggestionOptions = result.suggestions
                     .filter { option -> option.suggestion.isNotBlank() }
                     .map { option ->
                         ChatToolOption(
                             label = option.label.ifBlank { "候选回复" },
                             value = option.suggestion,
                             description = option.suggestion,
-                            messageKind = current.messageKind,
+                            messageKind = it.messageKind,
                         )
                     }
-                if (refreshedSession != null) {
+                val choiceOptions = result.choices
+                    .filter { option -> option.value.isNotBlank() }
+                    .map { option ->
+                        ChatToolOption(
+                            label = option.label.ifBlank { option.value },
+                            value = option.value,
+                            description = option.description,
+                            messageKind = it.messageKind,
+                            pluginId = action.pluginId,
+                            pluginActionId = action.actionId,
+                            pluginSelection = option.value,
+                            pluginSeedText = seedText,
+                            pluginTitle = action.title,
+                        )
+                    }
+                if (choiceOptions.isNotEmpty()) {
+                    it.copy(
+                        toolOptionsTitle = result.choicePrompt.ifBlank { action.title },
+                        toolOptions = choiceOptions,
+                        notice = result.notice,
+                    )
+                } else if (refreshedSession != null) {
                     it.copy(
                         session = refreshedSession,
-                        draft = result.suggestion,
+                        draft = result.suggestion.ifBlank { it.draft },
+                        draftSpeakerOverride = if (result.character.isNotBlank()) {
+                            result.character
+                        } else {
+                            it.draftSpeakerOverride
+                        },
                         messageKind = if (result.character.isNotBlank()) "dialogue" else it.messageKind,
                         notice = result.notice.ifBlank {
                             if (result.character.isNotBlank()) {
-                                "已选择「${result.character}」的回复。"
+                                "已生成「${result.character}」的回复，将以该人物身份发送。"
                             } else {
                                 "「${action.title}」已更新当前会话。"
                             }
                         },
                     )
-                } else if (options.isNotEmpty()) {
+                } else if (suggestionOptions.isNotEmpty()) {
                     it.copy(
                         toolOptionsTitle = action.title,
-                        toolOptions = options,
+                        toolOptions = suggestionOptions,
+                    )
+                } else if (result.suggestion.isNotBlank()) {
+                    it.copy(
+                        draft = result.suggestion,
+                        draftSpeakerOverride = result.character,
+                        messageKind = if (result.character.isNotBlank()) "dialogue" else it.messageKind,
+                        notice = result.notice.ifBlank {
+                            if (result.character.isNotBlank()) {
+                                "已生成「${result.character}」的回复，将以该人物身份发送。"
+                            } else {
+                                "「${action.title}」已将结果放入输入框。"
+                            }
+                        },
                     )
                 } else {
                     it.copy(
-                        draft = result.suggestion,
-                        messageKind = if (result.character.isNotBlank()) "dialogue" else it.messageKind,
-                        notice = if (result.character.isNotBlank()) {
-                            "已选择「${result.character}」的回复，可直接发送。"
-                        } else {
-                            "「${action.title}」已将结果放入输入框。"
+                        notice = result.notice.ifBlank {
+                            "「${action.title}」没有返回可用结果。"
                         },
                     )
                 }
@@ -1400,6 +1481,7 @@ class ChatViewModel(
             updateState {
                 it.copy(
                     draft = suggestion,
+                    draftSpeakerOverride = "",
                     messageKind = resultMessageKind,
                     notice = "续写建议已放入输入框，可以修改后发送。",
                 )
@@ -1432,6 +1514,22 @@ class ChatViewModel(
 
     fun chooseToolOption(option: ChatToolOption) {
         if (!state.value.canUseTools) return
+        if (option.pluginId.isNotBlank() && option.pluginActionId.isNotBlank()) {
+            mutableState.update {
+                it.copy(toolOptions = emptyList(), toolOptionsTitle = "")
+            }
+            invokePluginAction(
+                action = ChatPluginAction(
+                    pluginId = option.pluginId,
+                    pluginName = "",
+                    actionId = option.pluginActionId,
+                    title = option.pluginTitle,
+                ),
+                selection = option.pluginSelection,
+                seedText = option.pluginSeedText,
+            )
+            return
+        }
         if (option.suggestionDirection.isNotBlank()) {
             mutableState.update {
                 it.copy(
@@ -1450,6 +1548,7 @@ class ChatViewModel(
         mutableState.update {
             it.copy(
                 draft = option.value,
+                draftSpeakerOverride = "",
                 messageKind = option.messageKind,
                 toolOptions = emptyList(),
                 toolOptionsTitle = "",

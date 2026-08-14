@@ -614,6 +614,7 @@ class DialoguePromptBuilder(
         val hostAction = (payload["host_action"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val sceneCard = (payload["scene_card"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val selectedDirection = payload["selected_direction"]?.toString()?.trim().orEmpty()
+        val requestedSpeaker = payload["requested_speaker"]?.toString()?.trim().orEmpty()
 
         val systemParts = mutableListOf<String>()
         systemParts.add(payload["host_prompt_brief"]?.toString()?.trim().orEmpty())
@@ -628,7 +629,9 @@ class DialoguePromptBuilder(
         systemParts.add(promptLoader.getTurnSystemRule("insert_persona_rule"))
         systemParts.add(promptLoader.getTurnSystemRule("insert_core_rule"))
         systemParts.add(promptLoader.getTurnSystemRule("persona_priority_rule"))
-        systemParts.add(promptLoader.getTurnSystemRule("act_persona_rule"))
+        if (requestedSpeaker.isEmpty()) {
+            systemParts.add(promptLoader.getTurnSystemRule("act_persona_rule"))
+        }
         systemParts.add(promptLoader.getTurnSystemRule("observe_scene_rule"))
         systemParts.add(promptLoader.getTurnSystemRule("scene_progress_rule"))
         systemParts.add(promptLoader.getTurnSystemRule("observe_immediate_rule"))

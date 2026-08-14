@@ -46,7 +46,15 @@ fun Route.pluginOperationsRoutes(service: PluginOperationsService) {
         val actionId = call.parameters["action_id"].orEmpty()
         val request = call.receive<PluginChatActionRequest>()
         pluginOpsCall(call) {
-            service.invokeChatAction(runId, sessionId, pluginId, actionId, request.seedText, request.direction)
+            service.invokeChatAction(
+                runId,
+                sessionId,
+                pluginId,
+                actionId,
+                request.seedText,
+                request.direction,
+                request.selection,
+            )
         }
     }
 

@@ -41,6 +41,7 @@ class DialogueStreamService(
         sessionId: String,
         message: String,
         messageKind: String = "user_input",
+        speakerOverride: String = "",
         includeInnerThoughts: Boolean = false,
         operationId: String = "",
         suppressTranscriptMessage: Boolean = false,
@@ -68,6 +69,7 @@ class DialogueStreamService(
             turnId = turnId,
             message = message,
             messageKind = messageKind,
+            speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
         )
         val payloadBuiltAt = nowEpochMillis()
@@ -92,7 +94,7 @@ class DialogueStreamService(
         // Otherwise a model response for the user-controlled character is briefly rendered and
         // then disappears when the committed transcript correctly filters it out.
         val inputMap = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
-        val participants = ((inputMap["participants"] as? List<*>) ?: emptyList<Any?>())
+        val participants = ((inputMap["allowed_responders"] as? List<*>) ?: emptyList<Any?>())
             .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() } + listOf("旁白", "场景提示")
         val forbidden = listOf(
             inputMap["controlled_character"]?.toString()?.trim().orEmpty(),
@@ -220,6 +222,8 @@ class DialogueStreamService(
                 turnId = turnId,
                 message = message,
                 messageKind = messageKind,
+                inputSpeaker = inputMap["speaker"]?.toString().orEmpty(),
+                inputRole = if (speakerOverride.isNotBlank()) "character" else "user",
                 responses = responses,
                 suppressTranscriptMessage = suppressTranscriptMessage,
                 existingSession = sessionManifestJson,

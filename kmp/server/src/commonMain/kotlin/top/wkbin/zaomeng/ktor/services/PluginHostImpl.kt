@@ -13,9 +13,12 @@ import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.utils.io.readRemaining
 import kotlinx.io.readByteArray
+import okio.Path
+import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.plugins.api.PluginHost
 import top.wkbin.zaomeng.plugins.api.PluginPersonaSummary
 import top.wkbin.zaomeng.plugins.api.PluginReplyAsCharacterResult
+import top.wkbin.zaomeng.plugins.api.PluginSessionCharacterSummary
 import top.wkbin.zaomeng.plugins.api.SuggestionOption
 import top.wkbin.zaomeng.platform.createHttpClientEngine
 import top.wkbin.zaomeng.platform.nowIsoString
@@ -110,44 +113,74 @@ class PluginHostImpl(
             val item = element.jsonObject
             val name = item["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isBlank()) return@mapNotNull null
+            val profileContext = readPersonaProfileContext(runId, name)
             val preview = item["preview"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?: item["core_identity"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?: ""
+                ?: profileContext.lineSequence()
+                    .map(String::trim)
+                    .filter { it.isNotBlank() && it != "---" && !it.startsWith("#") }
+                    .take(3)
+                    .joinToString(" · ")
             PluginPersonaSummary(name = name, preview = preview.take(240))
+        }
+    }
+
+    override suspend fun listOffScenePersonas(runId: String, sessionId: String): List<PluginPersonaSummary> {
+        val session = storage.loadSessionManifest(runId, sessionId)
+        val present = currentSceneCharacters(session).map { it.lowercase() }.toSet()
+        return listRunPersonas(runId).filterNot { it.name.lowercase() in present }
+    }
+
+    override suspend fun listSessionCharacters(
+        runId: String,
+        sessionId: String,
+    ): List<PluginSessionCharacterSummary> {
+        val session = storage.loadSessionManifest(runId, sessionId)
+        val muted = stringArray(session, "muted_characters").map { it.lowercase() }.toSet()
+        val controlled = session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val mode = session["mode"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        return currentSceneCharacters(session).map { name ->
+            PluginSessionCharacterSummary(
+                name = name,
+                muted = name.lowercase() in muted,
+                canMute = mode != "act" || !name.equals(controlled, ignoreCase = true),
+            )
         }
     }
 
     override suspend fun invokeReplyAsCharacter(
         runId: String,
         sessionId: String,
+        character: String,
         seedText: String,
         direction: String,
     ): PluginReplyAsCharacterResult? {
-        val personas = listRunPersonas(runId)
+        val personas = listOffScenePersonas(runId, sessionId)
         if (personas.isEmpty()) return null
-        val names = personas.joinToString("、") { it.name }
+        val selected = character.trim().takeIf(String::isNotBlank)?.let { requested ->
+            personas.firstOrNull { it.name.equals(requested, ignoreCase = true) }
+                ?: throw IllegalArgumentException("「$requested」不是当前场景外的已蒸馏人物。")
+        } ?: personas.first()
         val selectionDirection = buildString {
-            append("从以下已蒸馏人物中选择最合适的一名，替用户回复：")
-            append(names)
-            append("。")
+            append("请由已蒸馏人物「${selected.name}」直接回应聊天记录中最近一位其他人物说的话。")
+            append("不要把当前受控人物当作回复对象，也不要模仿最近说话者；必须严格保持「${selected.name}」的身份、语气和认知边界。")
+            val personaContext = readPersonaProfileContext(runId, selected.name).ifBlank { selected.preview }
+            if (personaContext.isNotBlank()) append("人物档案（只用于模仿该人物）：$personaContext。")
             if (direction.isNotBlank()) {
                 append("附加要求：")
                 append(direction)
             }
-            append("最终只输出该角色的自然回复文本，不要解释选择过程。")
+            append("最终只输出「${selected.name}」要说的自然回复文本，不要添加人物名，不要解释过程。")
         }
         val suggestion = dialogueAdvanced.suggestDialogue(
             runId = runId,
             sessionId = sessionId,
             seedText = seedText,
             direction = selectionDirection,
+            speakerOverride = selected.name,
         )["suggestion"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (suggestion.isBlank()) return null
-        // 用轻量关键词命中选择角色；不匹配时仍返回文本，由客户端展示为普通草稿。
-        val character = personas.firstOrNull { persona ->
-            persona.name.isNotBlank() && suggestion.contains(persona.name)
-        }?.name.orEmpty()
-        return PluginReplyAsCharacterResult(character = character, text = suggestion)
+        return PluginReplyAsCharacterResult(character = selected.name, text = suggestion)
     }
 
     override suspend fun setSessionCharacterMuted(
@@ -162,29 +195,81 @@ class PluginHostImpl(
             sessionActionLocks.getOrPut("$runId:$sessionId") { SimpleLock() }
         }
         return lock.withLock {
-            val manifestFile = storage.getDialogueSessionManifestFile(runId, sessionId)
-            val session = storage.loadSessionManifest(runId, sessionId)
-            val participants = (session["participants"]?.jsonArray ?: JsonArray(emptyList()))
-                .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }
-            if (participants.none { it == normalized }) {
-                throw IllegalArgumentException("「$normalized」不在当前会话参与者中。")
+            storage.updateSessionManifest(runId, sessionId) { session ->
+                val present = currentSceneCharacters(session)
+                val canonicalName = present.firstOrNull { it.equals(normalized, ignoreCase = true) }
+                    ?: throw IllegalArgumentException("「$normalized」不在当前场景中。")
+                val mode = session["mode"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val controlled = session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (muted && mode == "act" && canonicalName.equals(controlled, ignoreCase = true)) {
+                    throw IllegalArgumentException("不能禁言当前受控角色「$canonicalName」。")
+                }
+                val mutedSet = (session["muted_characters"]?.jsonArray ?: JsonArray(emptyList()))
+                    .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }.toMutableSet()
+                mutedSet.removeAll { it.equals(canonicalName, ignoreCase = true) }
+                if (muted) mutedSet += canonicalName
+                buildJsonObject {
+                    session.forEach { (key, value) -> if (key != "muted_characters") put(key, value) }
+                    put("muted_characters", buildJsonArray { mutedSet.sorted().forEach { add(JsonPrimitive(it)) } })
+                    put("updated_at", JsonPrimitive(nowIsoString()))
+                }
             }
-            val mode = session["mode"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val controlled = session["controlled_character"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            if (muted && mode == "act" && normalized == controlled) {
-                throw IllegalArgumentException("不能禁言当前受控角色「$normalized」。")
-            }
-            val mutedSet = (session["muted_characters"]?.jsonArray ?: JsonArray(emptyList()))
-                .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }.toMutableSet()
-            if (muted) mutedSet += normalized else mutedSet -= normalized
-            val updated = buildJsonObject {
-                session.forEach { (key, value) -> if (key != "muted_characters") put(key, value) }
-                put("muted_characters", buildJsonArray { mutedSet.sorted().forEach { add(JsonPrimitive(it)) } })
-                put("updated_at", JsonPrimitive(nowIsoString()))
-            }
-            storage.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), updated))
-            updated
         }
+    }
+
+    private fun currentSceneCharacters(session: JsonObject): List<String> {
+        val scenePresent = runCatching {
+            session["scene_progress"]?.jsonObject?.get("present_participants")?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+                ?.filter(String::isNotBlank)
+        }.getOrNull().orEmpty()
+        val statePresent = runCatching {
+            session["state"]?.jsonObject?.get("presence")?.jsonObject
+                ?.get("present_participants")?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+                ?.filter(String::isNotBlank)
+        }.getOrNull().orEmpty()
+        return scenePresent.ifEmpty { statePresent }.ifEmpty { stringArray(session, "participants") }.distinct()
+    }
+
+    private fun stringArray(source: JsonObject, key: String): List<String> =
+        runCatching {
+            source[key]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+                ?.filter(String::isNotBlank)
+        }.getOrNull().orEmpty()
+
+    private fun readPersonaProfileContext(runId: String, character: String): String {
+        val runRoot = storage.getRunDirectory(runId).normalized()
+        val item = storage.readRunManifest(runId)?.get("artifact_index")?.jsonObject
+            ?.get("characters")?.jsonArray
+            ?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+            ?.firstOrNull {
+                it["name"]?.jsonPrimitive?.contentOrNull?.equals(character, ignoreCase = true) == true
+            } ?: return ""
+        val candidates = buildList {
+            item["profile_file"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { raw ->
+                add(resolveManifestPath(runRoot, raw))
+            }
+            item["persona_dir"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { raw ->
+                val directory = resolveManifestPath(runRoot, raw)
+                add(directory / "PROFILE.md")
+                add(directory / "PROFILE.generated.md")
+            }
+        }
+        return candidates.firstOrNull { candidate ->
+            candidate.isWithin(runRoot) && storage.isFile(candidate)
+        }?.let(storage::readText)?.take(MAX_PLUGIN_PERSONA_CONTEXT_CHARS).orEmpty()
+    }
+
+    private fun resolveManifestPath(runRoot: Path, raw: String): Path {
+        val path = raw.toPath()
+        return (if (path.isAbsolute) path else runRoot / path).normalized()
+    }
+
+    private fun Path.isWithin(root: Path): Boolean {
+        val relative = runCatching { normalized().relativeTo(root) }.getOrNull() ?: return false
+        val value = relative.toString().replace('\\', '/')
+        return value != ".." && !value.startsWith("../")
     }
 
     override fun log(pluginId: String, level: String, message: String) {
@@ -309,6 +394,7 @@ class PluginHostImpl(
 }
 
 internal const val MAX_PLUGIN_HTTP_RESPONSE_BYTES = 1024 * 1024
+internal const val MAX_PLUGIN_PERSONA_CONTEXT_CHARS = 4_000
 
 internal fun validatePluginHttpUrl(rawUrl: String): String {
     val normalized = rawUrl.trim()

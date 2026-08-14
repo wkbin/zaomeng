@@ -308,6 +308,7 @@ Authorization: Bearer <token>
 {
   "message": "你怎么看这件事？",
   "message_kind": "dialogue",
+  "speaker_override": "",
   "suppress_transcript_message": false,
   "include_inner_thoughts": false,
   "include_model_reasoning": false,
@@ -318,6 +319,7 @@ Authorization: Bearer <token>
 
 - `message` 必填。
 - `message_kind` 允许 `dialogue`、`narration`、`plot`、`fourth_wall`。`fourth_wall` 表示作者从故事之外直接向角色下指令，角色可以回应、质疑、谈判、抵抗或拒绝。
+- `speaker_override` 默认为空；内置“帮我回”等可信流程可传入已蒸馏人物名，使本轮输入以该人物身份进入提示词和 transcript，服务端会拒绝未知人物名。
 - `include_model_reasoning` 仅流式服务使用；非流式路由当前不会向业务服务传递该字段。
 - `include_transcript=false` 时返回轻量会话（不含完整 transcript，但含 `transcript_count`）；为 `true` 时返回带完整 transcript 的会话。
 
@@ -859,11 +861,13 @@ API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规�
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
-| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/actions/{action_id}` | `{"seed_text":"...","direction":"..."}` | `200` 建议或动作结果 |
+| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/actions/{action_id}` | `{"seed_text":"...","direction":"...","selection":"..."}` | `200` 建议、待选择项或动作结果 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/npc-generators/{generator_id}` | `{"direction":"..."}` | `200` 更新后的会话、NPC 和提示 |
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/enhancers/{enhancer_id}/state` | `{"enabled":true}` | `200` 更新后的 enhancer 状态/会话 |
 
 三个执行端点都会在服务端校验插件处于启用状态，并确认请求的 action、NPC generator 或 enhancer 已在该插件清单中声明；仅依赖客户端隐藏入口不构成授权。
+
+聊天动作支持两阶段选择：首次请求不传 `selection`，插件可返回 `choice_prompt` 与 `choices`（每项含 `label`、`value`、`description`）；客户端展示后把所选 `value` 作为 `selection` 再次请求同一动作。响应也可返回 `suggestion`、`suggestions`、`notice`、`character` 或更新后的 `session`。
 
 ## 11. 核心响应对象
 

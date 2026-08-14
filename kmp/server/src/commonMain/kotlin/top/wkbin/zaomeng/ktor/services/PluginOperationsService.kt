@@ -193,7 +193,15 @@ class PluginOperationsService(
     }
 
     /** 插件聊天动作：内置插件或声明式外置插件通过 PluginHost 执行。 */
-    suspend fun invokeChatAction(runId: String, sessionId: String, pluginId: String, actionId: String, seedText: String, direction: String): JsonObject {
+    suspend fun invokeChatAction(
+        runId: String,
+        sessionId: String,
+        pluginId: String,
+        actionId: String,
+        seedText: String,
+        direction: String,
+        selection: String = "",
+    ): JsonObject {
         val plugin = pluginService.requireEnabledPlugin(pluginId)
         require(plugin.manifest.contributes.chatActions.any { it.id == actionId }) {
             "插件「$pluginId」未声明聊天动作「$actionId」。"
@@ -204,6 +212,7 @@ class PluginOperationsService(
             sessionId = sessionId,
             seedText = seedText,
             direction = direction,
+            selection = selection,
             config = configMap(pluginService.getConfig(pluginId)),
         )
         val result = plugin.executeChatAction(actionId, request, pluginHost)
@@ -220,6 +229,16 @@ class PluginOperationsService(
             put("notice", JsonPrimitive(result.notice))
             put("character", JsonPrimitive(result.character))
             put("session", result.session)
+            put("choice_prompt", JsonPrimitive(result.choicePrompt))
+            put("choices", buildJsonArray {
+                result.choices.forEach {
+                    add(buildJsonObject {
+                        put("label", JsonPrimitive(it.label))
+                        put("value", JsonPrimitive(it.value))
+                        put("description", JsonPrimitive(it.description))
+                    })
+                }
+            })
         }
     }
 

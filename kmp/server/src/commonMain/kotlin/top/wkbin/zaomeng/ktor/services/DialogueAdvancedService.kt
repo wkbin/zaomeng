@@ -349,7 +349,13 @@ class DialogueAdvancedService(
      * 生成续写建议。
      * 对应 Python: suggest_dialogue_turn
      */
-    suspend fun suggestDialogue(runId: String, sessionId: String, seedText: String, direction: String): JsonObject {
+    suspend fun suggestDialogue(
+        runId: String,
+        sessionId: String,
+        seedText: String,
+        direction: String,
+        speakerOverride: String = "",
+    ): JsonObject {
         val session = requireSession(runId, sessionId)
         val client = requireNotNull(llm) { "LLM 客户端未配置" }
         val loader = requireNotNull(prompts) { "提示词加载器未配置" }
@@ -360,6 +366,7 @@ class DialogueAdvancedService(
             session = session,
             seedText = seedText,
             direction = direction,
+            speakerOverride = speakerOverride,
         )
         val messages = DialoguePromptBuilder(loader).buildDialogueSuggestionLlmMessages(
             payload = payload,

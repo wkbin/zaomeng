@@ -78,6 +78,7 @@ interface DialogueRepository {
         message: String,
         messageKind: String,
         operationId: String,
+        speakerOverride: String = "",
         suppressTranscriptMessage: Boolean = messageKind == "plot",
         includeInnerThoughts: Boolean = false,
         includeModelReasoning: Boolean = false,

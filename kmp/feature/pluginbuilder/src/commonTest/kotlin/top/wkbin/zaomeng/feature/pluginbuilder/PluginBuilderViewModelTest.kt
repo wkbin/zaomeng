@@ -144,6 +144,7 @@ private class FakePluginRepository : PluginRepository {
         actionId: String,
         seedText: String,
         direction: String,
+        selection: String,
     ): PluginChatActionResponse = PluginChatActionResponse()
 
     override suspend fun invokePluginTemporaryNpcGenerator(

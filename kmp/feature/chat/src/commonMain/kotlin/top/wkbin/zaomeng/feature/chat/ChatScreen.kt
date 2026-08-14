@@ -348,6 +348,7 @@ fun ChatScreen(
                                 state = state,
                                 avatarBytes = state.avatarBytes,
                                 onDraftChange = viewModel::updateDraft,
+                                onClearSpeakerOverride = viewModel::clearDraftSpeakerOverride,
                                 onMessageKindChange = viewModel::selectMessageKind,
                                 onInvokePluginAction = viewModel::invokePluginAction,
                                 onOpenDirector = { directorOpen = true },
@@ -765,7 +766,11 @@ private fun ChatToolOptionsDialog(
                     ) {
                         Column(Modifier.fillMaxWidth()) {
                             Text(option.label, fontWeight = FontWeight.SemiBold)
-                            if (option.value.isNotBlank() && option.value != option.label) {
+                            if (
+                                option.pluginSelection.isBlank() &&
+                                option.value.isNotBlank() &&
+                                option.value != option.label
+                            ) {
                                 Text(
                                     option.value,
                                     style = MaterialTheme.typography.bodySmall,
@@ -1231,7 +1236,7 @@ private fun PendingUserMessageBubble(
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text(
-                    "你",
+                    pending.speakerOverride.takeIf(String::isNotBlank)?.let { "$it · 代发" } ?: "你",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                     fontWeight = FontWeight.SemiBold,
@@ -1925,6 +1930,7 @@ private fun ChatComposer(
     state: ChatUiState,
     avatarBytes: Map<String, ByteArray>,
     onDraftChange: (String) -> Unit,
+    onClearSpeakerOverride: () -> Unit,
     onMessageKindChange: (String) -> Unit,
     onInvokePluginAction: (ChatPluginAction) -> Unit,
     onOpenDirector: () -> Unit,
@@ -2211,6 +2217,15 @@ private fun ChatComposer(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (state.draftSpeakerOverride.isNotBlank()) {
+            TextButton(
+                onClick = onClearSpeakerOverride,
+                enabled = inputEnabled,
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            ) {
+                Text("将以「${state.draftSpeakerOverride}」身份发送 · 取消")
+            }
         }
 
         Row(verticalAlignment = Alignment.Bottom) {
