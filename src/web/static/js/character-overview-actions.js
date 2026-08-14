@@ -378,8 +378,7 @@
     const character = String(currentCharacterOverview?.character || "").trim();
     if (!character || !currentRun) return false;
     await openNewDialogueSession();
-    const characters = getRunCharacterNames(currentRun);
-    setValue("dialogue-participants", joinCharacters(characters));
+    setValue("dialogue-participants", "");
     setValue("dialogue-mode", mode);
     if (mode === "act") {
       setValue("dialogue-controlled", character);

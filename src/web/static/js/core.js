@@ -951,7 +951,7 @@ function maybePrefillChatSetup(run) {
   const characters = run.artifact_index?.characters?.map((item) => item.name).filter(Boolean) || run.locked_characters || [];
   if (!characters.length) return;
 
-  setValue("dialogue-participants", joinCharacters(characters));
+  setValue("dialogue-participants", "");
   setValue("dialogue-mode", "insert");
   setValue("dialogue-controlled", characters[0] || "");
   if (el("dialogue-self-name") && !el("dialogue-self-name").value.trim()) setValue("dialogue-self-name", "你");

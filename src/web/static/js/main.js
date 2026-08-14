@@ -703,6 +703,21 @@ async function handleDialogueSessionSubmit(event) {
       setValue("dialogue-participants", joinCharacters(participants));
       updateCharacterPillState();
     }
+    if (mode === "observe" && participants.length < 2) {
+      setDialogueSessionFailure("群聊至少要选择两位角色。", "请至少选择两位角色后再开始这一幕。", true);
+      publishChatSetupState("chat-setup-submit-blocked");
+      return;
+    }
+    if (mode === "act" && participants.length < 2) {
+      setDialogueSessionFailure("扮演角色至少要选择两位角色。", "请至少选择两位角色后再开始这一幕。", true);
+      publishChatSetupState("chat-setup-submit-blocked");
+      return;
+    }
+    if (mode === "insert" && participants.length < 1) {
+      setDialogueSessionFailure("以自己去代入至少要选择一位角色。", "请至少选择一位角色后再开始这一幕。", true);
+      publishChatSetupState("chat-setup-submit-blocked");
+      return;
+    }
     sessionBooting = true;
     setComposerEnabled(false);
     renderSessionBooting(mode, participants);

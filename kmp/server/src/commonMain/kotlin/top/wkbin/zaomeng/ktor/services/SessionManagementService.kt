@@ -125,6 +125,12 @@ class SessionManagementService(
         selfProfile: JsonObject = JsonObject(emptyMap())
     ): JsonObject {
         val normalizedControlledCharacter = controlledCharacter.takeIf { mode == "act" }.orEmpty()
+        if ((mode == "observe" || mode == "act") && participants.size < 2) {
+            throw IllegalArgumentException("At least two participants are required for $mode mode")
+        }
+        if (mode == "insert" && participants.size < 1) {
+            throw IllegalArgumentException("At least one participant is required for insert mode")
+        }
         val session = createDialogueSession(
             runId = runId,
             mode = mode,

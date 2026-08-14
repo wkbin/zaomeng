@@ -295,7 +295,7 @@ class PendingTurnRecoveryTests(unittest.TestCase):
                 manifest={"run_id": "run-1"},
                 dialogue=dialogue,
                 mode="observe",
-                participants=["A"],
+                participants=["A", "B"],
                 controlled_character="",
                 scene_profile=None,
                 self_profile=None,

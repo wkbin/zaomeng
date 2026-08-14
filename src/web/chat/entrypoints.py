@@ -123,6 +123,14 @@ def create_dialogue_session_payload(
         Callable[[str, dict[str, Any]], dict[str, Any]] | None
     ) = None,
 ) -> dict[str, Any]:
+    if mode in {"act", "observe"} and len(participants) < 2:
+        raise ValueError(
+            "At least two participants are required for this dialogue mode."
+        )
+    if mode == "insert" and len(participants) < 1:
+        raise ValueError(
+            "At least one participant is required for self-insert dialogue."
+        )
     session = dialogue.create_session(
         manifest,
         mode=mode,

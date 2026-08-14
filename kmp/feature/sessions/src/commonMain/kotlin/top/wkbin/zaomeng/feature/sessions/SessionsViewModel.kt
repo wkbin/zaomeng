@@ -89,11 +89,14 @@ data class SessionsUiState(
 
     val canCreate: Boolean
         get() = draft.runId.isNotBlank() &&
-            draft.participants.isNotEmpty() &&
             when (draft.mode) {
-                "act" -> draft.controlledCharacter in draft.participants
-                "insert" -> draft.selfName.isNotBlank() && draft.selfIdentity.isNotBlank()
-                else -> true
+                "observe" -> draft.participants.size >= 2
+                "act" -> draft.participants.size >= 2 &&
+                    draft.controlledCharacter in draft.participants
+                "insert" -> draft.participants.isNotEmpty() &&
+                    draft.selfName.isNotBlank() &&
+                    draft.selfIdentity.isNotBlank()
+                else -> false
             }
 }
 
@@ -770,12 +773,7 @@ class SessionsViewModel(
     }
 
     private fun newDraftForRun(runs: List<RunManifestDto>, runId: String): NewSessionDraft {
-        val characters = runs.firstOrNull { it.runId == runId }?.availableCharacters.orEmpty()
-        return NewSessionDraft(
-            runId = runId,
-            participants = characters.toSet(),
-            controlledCharacter = characters.firstOrNull().orEmpty(),
-        )
+        return NewSessionDraft(runId = runId)
     }
 
     private suspend fun loadOptionalCards(kind: ReusableCardKind): List<ReusableCardDto> = try {
@@ -840,8 +838,10 @@ class SessionsViewModel(
 
     private fun createValidationMessage(draft: NewSessionDraft): String = when {
         draft.runId.isBlank() -> "请选择一本已经完成人物蒸馏的书。"
-        draft.participants.isEmpty() -> "请至少选择一位参与人物。"
+        draft.mode == "observe" && draft.participants.size < 2 -> "群聊至少要选择两位角色。"
+        draft.mode == "act" && draft.participants.size < 2 -> "扮演角色至少要选择两位角色。"
         draft.mode == "act" && draft.controlledCharacter !in draft.participants -> "请选择你要扮演的人物。"
+        draft.mode == "insert" && draft.participants.isEmpty() -> "以自己去代入至少要选择一位角色。"
         draft.mode == "insert" && draft.selfName.isBlank() -> "请填写你进入故事后使用的名字。"
         draft.mode == "insert" && draft.selfIdentity.isBlank() -> "请填写你在当前场景中的身份。"
         else -> "当前会话设置不完整。"

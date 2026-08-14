@@ -115,11 +115,55 @@ class ChatEntrypointWorkflowTests(unittest.TestCase):
         )
         dialogue.ingest_turn_responses.assert_not_called()
 
+    def test_create_session_requires_two_participants_for_observe(self):
+        dialogue = Mock()
+
+        with self.assertRaisesRegex(ValueError, "At least two participants"):
+            create_dialogue_session_payload(
+                run_id="run-1",
+                manifest={"run_id": "run-1"},
+                dialogue=dialogue,
+                mode="observe",
+                participants=["?"],
+                controlled_character="",
+                scene_profile={},
+                self_profile={},
+                build_dialogue_opening_message=Mock(),
+                load_pending_turn_payload=Mock(),
+                generate_dialogue_responses=Mock(),
+                friendly_dialogue_llm_error=Mock(),
+                evolve_relations_from_turn=Mock(),
+            )
+
+        dialogue.create_session.assert_not_called()
+
+    def test_create_session_requires_one_participant_for_insert(self):
+        dialogue = Mock()
+
+        with self.assertRaisesRegex(ValueError, "At least one participant"):
+            create_dialogue_session_payload(
+                run_id="run-1",
+                manifest={"run_id": "run-1"},
+                dialogue=dialogue,
+                mode="insert",
+                participants=[],
+                controlled_character="",
+                scene_profile={},
+                self_profile={},
+                build_dialogue_opening_message=Mock(),
+                load_pending_turn_payload=Mock(),
+                generate_dialogue_responses=Mock(),
+                friendly_dialogue_llm_error=Mock(),
+                evolve_relations_from_turn=Mock(),
+            )
+
+        dialogue.create_session.assert_not_called()
+
     def test_failed_opening_removes_new_session(self):
         dialogue = Mock()
         dialogue.create_session.return_value = {
             "session_id": "dlg-1",
-            "participants": ["甲"],
+            "participants": ["甲", "乙"],
         }
         dialogue.prepare_turn.return_value = {
             "pending_turn_summary": {"turn_id": "turn-1"}
@@ -131,7 +175,7 @@ class ChatEntrypointWorkflowTests(unittest.TestCase):
                 manifest={"run_id": "run-1"},
                 dialogue=dialogue,
                 mode="observe",
-                participants=["甲"],
+                participants=["甲", "乙"],
                 controlled_character="",
                 scene_profile={},
                 self_profile={},
