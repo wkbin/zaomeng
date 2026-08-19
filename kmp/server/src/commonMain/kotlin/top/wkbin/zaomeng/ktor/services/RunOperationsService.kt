@@ -291,7 +291,9 @@ class RunOperationsService(
             val charactersRoot = storage.getRunDirectory(runId) / "artifacts/characters"
             storage.mkdirs(charactersRoot)
             for ((_, character, sourceDir) in selected) {
-                val target = charactersRoot / sourceDir.name
+                val sourceNovelDir = sourceDir.parent
+                    ?: throw NoSuchElementException("$character 的人物资料缺少书卷目录。")
+                val target = charactersRoot / sourceNovelDir.name / sourceDir.name
                 if (!storage.exists(target)) copyRecursively(sourceDir, target)
             }
             val now = nowIsoString()

@@ -54,7 +54,17 @@ data class RunManifestDto(
             control.interruptionReason in setOf("android_process_ended", "process_ended")
 
     val availableCharacters: List<String>
-        get() = artifactIndex.characters.map(PersonaIndexDto::name).filter(String::isNotBlank)
+        get() {
+            val indexed = artifactIndex.characters.map(PersonaIndexDto::name).filter(String::isNotBlank)
+            if (indexed.isNotEmpty()) return indexed
+            return betaFeature
+                ?.takeIf { it.kind == "cross_book_crossover" }
+                ?.sourceSnapshots
+                ?.map(CrossoverSourceDto::character)
+                ?.filter(String::isNotBlank)
+                ?.distinct()
+                .orEmpty()
+        }
 }
 
 @Serializable
@@ -319,4 +329,3 @@ data class DeleteRunResponse(
     @SerialName("deleted_session_count") val deletedSessionCount: Int = 0,
     @SerialName("deleted_run_ids") val deletedRunIds: List<String> = emptyList(),
 )
-
