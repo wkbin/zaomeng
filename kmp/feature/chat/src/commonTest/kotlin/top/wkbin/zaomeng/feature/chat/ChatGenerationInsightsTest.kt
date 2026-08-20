@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.chat
 
+import top.wkbin.zaomeng.feature.chat.insights.*
+
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

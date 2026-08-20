@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -16,20 +17,20 @@ import top.wkbin.zaomeng.ktor.services.*
  */
 fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
     post("/api/web/settings/model/profiles/{profile_id}/activate") {
-        val profileId = call.parameters["profile_id"] ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing profile_id"))
+        val profileId = call.parameters["profile_id"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing profile_id")
         try {
             call.respond(HttpStatusCode.OK, settingsService.activateProfile(profileId))
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Profile not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Profile not found"))
         }
     }
 
     delete("/api/web/settings/model/profiles/{profile_id}") {
-        val profileId = call.parameters["profile_id"] ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing profile_id"))
+        val profileId = call.parameters["profile_id"] ?: return@delete call.respondError(HttpStatusCode.BadRequest, "Missing profile_id")
         try {
             call.respond(HttpStatusCode.OK, settingsService.deleteProfile(profileId))
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Profile not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Profile not found"))
         }
     }
 
@@ -39,7 +40,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
             val result = settingsService.getModelSettings()
             call.respond(HttpStatusCode.OK, result)
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to get settings"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to get settings")
         }
     }
 
@@ -63,9 +64,9 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
             )
             call.respond(HttpStatusCode.OK, result)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to save settings"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to save settings")
         }
     }
 
@@ -85,9 +86,9 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
             )
             call.respond(HttpStatusCode.OK, result)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to test settings"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to test settings")
         }
     }
 
@@ -108,9 +109,9 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                 ),
             )
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Capability detection failed")))
+            call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Capability detection failed"))
         }
     }
 }

@@ -27,7 +27,7 @@ Authorization: Bearer <token>
 ```
 
 - `GET /api/web/health` 无需认证。
-- token 缺失或错误返回 `401`，响应为 `{"detail":"Bearer authentication is required."}`，并带 `WWW-Authenticate: Bearer`。
+- token 缺失或错误返回 `401`，响应为 `{"error":"Bearer authentication is required."}`，并带 `WWW-Authenticate: Bearer`。
 - 当前应用控制器的默认 token 为 `dev-token`，但调用方应使用运行时提供的 token，不应依赖该默认值。
 
 ### 1.3 编码与字段命名
@@ -40,13 +40,7 @@ Authorization: Bearer <token>
 
 ### 1.4 通用错误
 
-路由按模块返回 `error` 或 `detail`，尚未统一：
-
-```json
-{"detail": "错误说明"}
-```
-
-或：
+所有 HTTP 路由使用统一的 `error` 字段：
 
 ```json
 {"error": "错误说明"}
@@ -65,7 +59,7 @@ Authorization: Bearer <token>
 | `502 Bad Gateway` | 章节/卡片等模型生成失败 |
 | `500 Internal Server Error` | 未处理异常；全局兜底响应不暴露内部细节 |
 
-不同路由的错误字段和个别状态码存在历史差异，客户端应同时兼容 `detail` 与 `error`。
+客户端可继续兼容历史版本的 `detail` 字段，但当前服务端只返回 `error`。
 
 ### 1.5 标识与分页
 
@@ -261,6 +255,7 @@ Authorization: Bearer <token>
 {
   "message": "我们去哪里？",
   "message_kind": "user_input",
+  "pacing": "normal",
   "include_inner_thoughts": false,
   "operation_id": "client-generated-id"
 }
@@ -308,6 +303,7 @@ Authorization: Bearer <token>
 {
   "message": "你怎么看这件事？",
   "message_kind": "dialogue",
+  "pacing": "normal",
   "speaker_override": "",
   "suppress_transcript_message": false,
   "include_inner_thoughts": false,
@@ -319,6 +315,7 @@ Authorization: Bearer <token>
 
 - `message` 必填。
 - `message_kind` 允许 `dialogue`、`narration`、`plot`、`fourth_wall`。`fourth_wall` 表示作者从故事之外直接向角色下指令，角色可以回应、质疑、谈判、抵抗或拒绝。
+- `pacing` 控制本轮回复节奏：`brief` 使用约 0.5 倍输出预算并要求每人一两句话，`normal` 保持默认节奏，`detailed` 使用约 1.5 倍预算（不超过服务端上限）并展开动作与环境；未知值按 `normal` 处理。
 - `speaker_override` 默认为空；内置“帮我回”等可信流程可传入已蒸馏人物名，使本轮输入以该人物身份进入提示词和 transcript，服务端会拒绝未知人物名。
 - `include_model_reasoning` 仅流式服务使用；非流式路由当前不会向业务服务传递该字段。
 - `include_transcript=false` 时返回轻量会话（不含完整 transcript，但含 `transcript_count`）；为 `true` 时返回带完整 transcript 的会话。

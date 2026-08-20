@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -34,12 +35,12 @@ fun Route.worldMemoryRoutes(service: WorldMemoryService) {
 }
 
 private suspend fun io.ktor.server.routing.RoutingContext.worldMemoryCall(block: suspend (String) -> Unit) {
-    val runId = call.parameters["run_id"] ?: return call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
+    val runId = call.parameters["run_id"] ?: return call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
     try {
         block(runId)
     } catch (error: NoSuchElementException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (error.message ?: "Not found")))
+        call.respondError(HttpStatusCode.NotFound, (error.message ?: "Not found"))
     } catch (error: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (error.message ?: "Invalid request"))
     }
 }

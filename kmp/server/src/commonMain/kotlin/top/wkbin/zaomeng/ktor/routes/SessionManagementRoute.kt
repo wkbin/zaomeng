@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -43,10 +44,7 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
 
     // 创建对话会话
     post("/api/web/runs/{run_id}/dialogue/sessions") {
-        val runId = call.parameters["run_id"] ?: return@post call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing run_id")
-        )
+        val runId = call.parameters["run_id"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
 
         try {
             val request = call.receive<CreateDialogueSessionRequest>()
@@ -62,24 +60,18 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
             )
             call.respond(HttpStatusCode.Created, result)
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Run not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Run not found"))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to create session"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to create session")
         }
     }
 
     // 获取对话会话
     get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}") {
-        val runId = call.parameters["run_id"] ?: return@get call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing run_id")
-        )
-        val sessionId = call.parameters["session_id"] ?: return@get call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing session_id")
-        )
+        val runId = call.parameters["run_id"] ?: return@get call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
+        val sessionId = call.parameters["session_id"] ?: return@get call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
 
         try {
             val result = sessionService.getDialogueSession(runId, sessionId)
@@ -93,9 +85,9 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
             }
             call.respond(HttpStatusCode.OK, response)
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Session not found"))
+            call.respondError(HttpStatusCode.NotFound, "Session not found")
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to get session"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to get session")
         }
     }
 
@@ -104,7 +96,7 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         val runId = call.parameters["run_id"].orEmpty()
         val sessionId = call.parameters["session_id"].orEmpty()
         if (runId.isBlank() || sessionId.isBlank()) {
-            return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing session identifier"))
+            return@get call.respondError(HttpStatusCode.BadRequest, "Missing session identifier")
         }
         val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
         val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
@@ -114,16 +106,16 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
             val session = sessionService.getDialogueSession(runId, sessionId)
             call.respond(pageTranscript(session, offset, limit, order))
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Session not found"))
+            call.respondError(HttpStatusCode.NotFound, "Session not found")
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to list messages"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to list messages")
         }
     }
 
     get("/api/web/runs/{run_id}/dialogue/sessions") {
         val runId = call.parameters["run_id"].orEmpty()
-        if (runId.isBlank()) return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
-        if (!sessionService.runExists(runId)) return@get call.respond(HttpStatusCode.NotFound, mapOf("detail" to "Run not found"))
+        if (runId.isBlank()) return@get call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
+        if (!sessionService.runExists(runId)) return@get call.respondError(HttpStatusCode.NotFound, "Run not found")
         val page = call.sessionPageParams()
         call.respond(
             sessionService.listDialogueSessions(runId, page.offset, page.limit, page.query, page.sort).toResponse(),
@@ -134,48 +126,36 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         val runId = call.parameters["run_id"].orEmpty()
         val sessionId = call.parameters["session_id"].orEmpty()
         if (runId.isBlank() || sessionId.isBlank()) {
-            return@delete call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing session identifier"))
+            return@delete call.respondError(HttpStatusCode.BadRequest, "Missing session identifier")
         }
         if (!sessionService.deleteDialogueSession(runId, sessionId)) {
-            return@delete call.respond(HttpStatusCode.NotFound, mapOf("detail" to "Session not found"))
+            return@delete call.respondError(HttpStatusCode.NotFound, "Session not found")
         }
         call.respond(DeleteStatusDto(status = "deleted"))
     }
 
     // 更新会话标题
     patch("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/title") {
-        val runId = call.parameters["run_id"] ?: return@patch call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing run_id")
-        )
-        val sessionId = call.parameters["session_id"] ?: return@patch call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing session_id")
-        )
+        val runId = call.parameters["run_id"] ?: return@patch call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
+        val sessionId = call.parameters["session_id"] ?: return@patch call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
 
         try {
             val request = call.receive<UpdateDialogueSessionTitleRequest>()
             val result = sessionService.updateDialogueSessionTitle(runId, sessionId, request.title)
             call.respond(HttpStatusCode.OK, result)
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Session not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Session not found"))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to update title"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to update title")
         }
     }
 
     // 准备对话轮次（写入用户输入）
     post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/prepare") {
-        val runId = call.parameters["run_id"] ?: return@post call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing run_id")
-        )
-        val sessionId = call.parameters["session_id"] ?: return@post call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing session_id")
-        )
+        val runId = call.parameters["run_id"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
+        val sessionId = call.parameters["session_id"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
 
         try {
             val request = call.receive<PrepareDialogueTurnRequest>()
@@ -192,11 +172,11 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
             )
             call.respond(HttpStatusCode.OK, result)
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Session not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Session not found"))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to prepare turn"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to prepare turn")
         }
     }
 }

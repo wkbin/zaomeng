@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -22,12 +23,12 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
         // POST /api/web/runs/{run_id}/dialogue/sessions/{session_id}/suggestions
         post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/suggestions") {
             val runId = call.parameters["run_id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
                 return@post
             }
 
             val sessionId = call.parameters["session_id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing session_id"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
                 return@post
             }
 
@@ -37,7 +38,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
             val request = try {
                 call.receive<SuggestionRequest>()
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid request body"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid request body")
                 return@post
             }
 
@@ -88,29 +89,26 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                 }
             } catch (e: Exception) {
                 call.application.log.error("Error generating suggestions", e)
-                call.respond(
-                    HttpStatusCode.InternalServerError,
-                    mapOf("error" to (e.message ?: "Internal server error"))
-                )
+                call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
             }
         }
 
         // POST /api/web/runs/{run_id}/dialogue/sessions/{session_id}/associations
         post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/associations") {
             val runId = call.parameters["run_id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
                 return@post
             }
 
             val sessionId = call.parameters["session_id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing session_id"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
                 return@post
             }
 
             val request = try {
                 call.receive<AssociationRequest>()
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid request body"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid request body")
                 return@post
             }
 
@@ -128,10 +126,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                 )
             } catch (e: Exception) {
                 call.application.log.error("Error generating associations", e)
-                call.respond(
-                    HttpStatusCode.InternalServerError,
-                    mapOf("error" to (e.message ?: "Internal server error"))
-                )
+                call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
             }
         }
     }

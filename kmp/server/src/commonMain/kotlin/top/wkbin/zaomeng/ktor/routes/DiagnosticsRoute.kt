@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -29,10 +30,7 @@ fun Route.diagnosticsRoute(
 
                 call.respond(HttpStatusCode.OK, report)
             } catch (e: Exception) {
-                call.respond(
-                    HttpStatusCode.InternalServerError,
-                    mapOf("detail" to (e.message ?: "Failed to build diagnostics report"))
-                )
+                call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Failed to build diagnostics report"))
             }
         }
     }

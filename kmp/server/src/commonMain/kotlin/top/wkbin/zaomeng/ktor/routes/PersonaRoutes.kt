@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.*
@@ -60,13 +61,13 @@ fun Route.personaRoutes(service: PersonaService) {
 }
 
 private suspend fun RoutingContext.personaCall(block: suspend (String, String) -> Unit) {
-    val runId = call.parameters["run_id"] ?: return call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
-    val character = call.parameters["character"] ?: return call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing character"))
+    val runId = call.parameters["run_id"] ?: return call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
+    val character = call.parameters["character"] ?: return call.respondError(HttpStatusCode.BadRequest, "Missing character")
     try {
         block(runId, character)
     } catch (error: NoSuchElementException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (error.message ?: "Not found")))
+        call.respondError(HttpStatusCode.NotFound, (error.message ?: "Not found"))
     } catch (error: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (error.message ?: "Invalid request"))
     }
 }

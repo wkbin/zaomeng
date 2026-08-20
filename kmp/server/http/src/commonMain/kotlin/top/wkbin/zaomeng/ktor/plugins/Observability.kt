@@ -6,9 +6,9 @@ import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.plugins.statuspages.StatusPages
-import io.ktor.server.response.respond
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.uri
+import top.wkbin.zaomeng.ktor.http.respondError
 import top.wkbin.zaomeng.platform.PlatformLog
 
 fun Application.configureObservability() {
@@ -33,7 +33,7 @@ fun Application.configureObservability() {
                 cause,
             )
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to "Internal server error"))
+                call.respondError(HttpStatusCode.InternalServerError, "Internal server error")
             }
         }
     }

@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -26,14 +27,14 @@ import top.wkbin.zaomeng.platform.PlatformLog
 fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, storageService: StorageService) {
     post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/reply/stream") {
         val runId = call.parameters["run_id"]
-            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
+            ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
         val sessionId = call.parameters["session_id"]
-            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing session_id"))
+            ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
         val request = runCatching { call.receive<DialogueReplyRequest>() }.getOrElse {
-            return@post call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Invalid request body"))
+            return@post call.respondError(HttpStatusCode.BadRequest, "Invalid request body")
         }
         if (request.message.isBlank()) {
-            return@post call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Message cannot be blank"))
+            return@post call.respondError(HttpStatusCode.BadRequest, "Message cannot be blank")
         }
         call.respondBytesWriter(ContentType.Text.EventStream) {
             // 1. 初始 status 事件
@@ -49,6 +50,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService, sto
                     sessionId = sessionId,
                     message = request.message,
                     messageKind = request.messageKind,
+                    pacing = request.pacing,
                     speakerOverride = request.speakerOverride,
                     includeInnerThoughts = request.includeInnerThoughts,
                     operationId = request.operationId,

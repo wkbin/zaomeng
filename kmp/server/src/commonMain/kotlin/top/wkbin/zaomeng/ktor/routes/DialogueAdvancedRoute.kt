@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -42,7 +43,7 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         val (runId, sessionId) = requireRunAndSession()
         val query = call.request.queryParameters["q"]?.trim().orEmpty()
         if (query.isEmpty() || query.length > 120) {
-            return@get call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "q 需为 1-120 字"))
+            return@get call.respondError(HttpStatusCode.BadRequest, "q 需为 1-120 字")
         }
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 100) ?: 50
         runRoute(call) { buildJsonObject { put("items", service.search(runId, sessionId, query, limit)) } }
@@ -138,7 +139,7 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         try {
             call.respond(HttpStatusCode.OK, service.memoryQuality(runId, sessionId))
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
         }
     }
 
@@ -149,7 +150,7 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         try {
             call.respond(HttpStatusCode.OK, service.updateAutomaticMemoryStatus(runId, sessionId, memoryId, request.status))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         }
     }
 
@@ -225,11 +226,11 @@ private suspend fun runRoute(
     try {
         call.respond(HttpStatusCode.OK, withTranscriptCount(block()))
     } catch (e: NoSuchElementException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
+        call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
     } catch (e: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
     } catch (e: Exception) {
         call.application.log.error("Dialogue advanced route failed", e)
-        call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (e.message ?: "Internal server error")))
+        call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
     }
 }

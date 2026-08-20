@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -19,7 +20,7 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
         try {
             call.respond(HttpStatusCode.Created, packageService.importPackage(call.receive<top.wkbin.zaomeng.data.api.ImportRunPackageRequest>()))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid run package")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid run package"))
         }
     }
 
@@ -38,9 +39,9 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
             )
             call.respond(HttpStatusCode.Created, result)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to create run"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to create run")
         }
     }
 
@@ -56,25 +57,22 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
 
     // 删除运行
     delete("/api/web/runs/{run_id}") {
-        val runId = call.parameters["run_id"] ?: return@delete call.respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to "Missing run_id")
-        )
+        val runId = call.parameters["run_id"] ?: return@delete call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
 
         try {
             val result = runService.deleteRun(runId)
             call.respond(HttpStatusCode.OK, result)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Run not found"))
+            call.respondError(HttpStatusCode.NotFound, "Run not found")
         } catch (e: Exception) {
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to delete run"))
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to delete run")
         }
     }
 }
 
 private suspend fun stopRun(call: ApplicationCall, runService: RunManagementService) {
     val runId = call.parameters["run_id"] ?: run {
-        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
+        call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
         return
     }
 
@@ -82,8 +80,8 @@ private suspend fun stopRun(call: ApplicationCall, runService: RunManagementServ
         val result = runService.stopRun(runId)
         call.respond(HttpStatusCode.OK, result)
     } catch (e: IllegalArgumentException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Run not found"))
+        call.respondError(HttpStatusCode.NotFound, "Run not found")
     } catch (e: Exception) {
-        call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to stop run"))
+        call.respondError(HttpStatusCode.InternalServerError, "Failed to stop run")
     }
 }

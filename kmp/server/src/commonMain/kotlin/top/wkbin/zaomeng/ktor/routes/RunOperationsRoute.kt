@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
@@ -72,12 +73,12 @@ fun Route.runOperationsRoutes(service: RunOperationsService) {
             )
             call.respondBytes(bytes, ContentType.Application.Zip)
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
+            call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid request")))
+            call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
             call.application.log.error("Run export failed", e)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (e.message ?: "Internal server error")))
+            call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
         }
     }
 
@@ -123,11 +124,11 @@ private suspend fun runOpsCall(call: ApplicationCall, block: suspend () -> JsonO
     try {
         call.respond(HttpStatusCode.OK, block())
     } catch (e: NoSuchElementException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (e.message ?: "Not found")))
+        call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
     } catch (e: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (e.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
     } catch (e: Exception) {
         call.application.log.error("Run operations route failed", e)
-        call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (e.message ?: "Internal server error")))
+        call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
     }
 }

@@ -36,171 +36,6 @@ import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.TimeSource
 import top.wkbin.zaomeng.client.platform.clientRandomUuid
 
-data class ChatToolOption(
-    val label: String,
-    val value: String,
-    val description: String = "",
-    val messageKind: String = "plot",
-    val suggestionDirection: String = "",
-    val pluginId: String = "",
-    val pluginActionId: String = "",
-    val pluginSelection: String = "",
-    val pluginSeedText: String = "",
-    val pluginTitle: String = "",
-)
-
-data class ChatPluginAction(
-    val pluginId: String,
-    val pluginName: String,
-    val actionId: String,
-    val title: String,
-    val icon: String = "",
-    val contribution: String = "chat_action",
-)
-
-data class ChatGenerationEnhancer(
-    val pluginId: String,
-    val pluginName: String,
-    val enhancerId: String,
-    val title: String,
-    val description: String = "",
-    val icon: String = "",
-    val defaultActive: Boolean = false,
-) {
-    val stateKey: String get() = "$pluginId/$enhancerId"
-
-    fun isActive(session: DialogueSessionDto?): Boolean =
-        session?.pluginEnhancerStates?.get(pluginId)?.get(enhancerId) ?: defaultActive
-}
-
-private data class LoadedChatPlugins(
-    val actions: List<ChatPluginAction> = emptyList(),
-    val enhancers: List<ChatGenerationEnhancer> = emptyList(),
-)
-
-private const val INNER_THOUGHTS_ENHANCER_KEY =
-    "com.zaomeng.inner-thoughts/inner-thoughts"
-private const val MODEL_REASONING_DISPLAY_LIMIT = 16_000
-private const val MODEL_REASONING_UPDATE_INTERVAL_NANOS = 100_000_000L
-private const val STREAMING_UI_UPDATE_INTERVAL_MS = 40L
-
-data class StreamingReplyPart(
-    val index: Int,
-    val speaker: String = "",
-    val role: String = "character",
-    val text: String = "",
-    val innerThought: String = "",
-)
-
-enum class PendingUserMessageStatus {
-    Sending,
-    Failed,
-    OutcomeUnknown,
-}
-
-data class PendingUserMessage(
-    val operationId: String,
-    val message: String,
-    val messageKind: String,
-    val speakerOverride: String = "",
-    val status: PendingUserMessageStatus,
-    val statusText: String = "",
-    val retryable: Boolean = true,
-)
-
-data class ChatUiState(
-    val runId: String = "",
-    val sessionId: String = "",
-    val loading: Boolean = true,
-    val refreshing: Boolean = false,
-    /** 正在向上加载更早的历史消息。 */
-    val loadingEarlier: Boolean = false,
-    val sending: Boolean = false,
-    val recovering: Boolean = false,
-    val sendOutcomeUnknown: Boolean = false,
-    val sendBaselineTranscript: List<TranscriptItemDto>? = null,
-    val failedOperationId: String = "",
-    val failedMessage: String = "",
-    val failedMessageKind: String = "dialogue",
-    val failedSpeakerOverride: String = "",
-    val modelReasoning: String = "",
-    val streamingReplies: List<StreamingReplyPart> = emptyList(),
-    val pendingUserMessage: PendingUserMessage? = null,
-    val continuousObserveEnabled: Boolean = false,
-    val includeInnerThoughts: Boolean = false,
-    val toolBusy: String = "",
-    val session: DialogueSessionDto? = null,
-    /** 本卷会话列表（桌面端主从布局左侧面板用）。 */
-    val runSessions: List<DialogueSessionDto> = emptyList(),
-    val avatarBytes: Map<String, ByteArray> = emptyMap(),
-    val sceneCards: List<ReusableCardDto> = emptyList(),
-    val pluginActions: List<ChatPluginAction> = emptyList(),
-    val generationEnhancers: List<ChatGenerationEnhancer> = emptyList(),
-    val toolOptions: List<ChatToolOption> = emptyList(),
-    val toolOptionsTitle: String = "",
-    val recommendedSceneCardId: String = "",
-    val recommendedTransition: String = "",
-    val navigationSession: DialogueSessionDto? = null,
-    val memorySaveRevision: Long = 0,
-    val memoryQuality: MemoryQualityReportDto = MemoryQualityReportDto(),
-    val draft: String = "",
-    val draftSpeakerOverride: String = "",
-    val messageKind: String = "dialogue",
-    val searchQuery: String = "",
-    val searching: Boolean = false,
-    val searchResults: List<ChatSearchResultDto> = emptyList(),
-    val chatDisplay: ChatDisplayPreferences = ChatDisplayPreferences(),
-    val notice: String = "",
-    val error: String = "",
-) {
-    val canSend: Boolean
-        get() = !loading &&
-            !refreshing &&
-            !loadingEarlier &&
-            !sending &&
-            !continuousObserveEnabled &&
-            !recovering &&
-            !sendOutcomeUnknown &&
-            failedOperationId.isBlank() &&
-            toolBusy.isBlank() &&
-            session?.status == "ready" &&
-            draft.isNotBlank()
-
-    val canUseTools: Boolean
-        get() = !loading &&
-            !refreshing &&
-            !sending &&
-            !continuousObserveEnabled &&
-            !recovering &&
-            !sendOutcomeUnknown &&
-            failedOperationId.isBlank() &&
-            toolBusy.isBlank() &&
-            session?.status == "ready"
-
-    val canRefresh: Boolean
-        get() = !loading &&
-            !refreshing &&
-            !sending &&
-            !continuousObserveEnabled &&
-            !recovering &&
-            toolBusy.isBlank()
-
-    val canToggleContinuousObserve: Boolean
-        get() = if (continuousObserveEnabled) {
-            true
-        } else {
-            !loading &&
-                !refreshing &&
-                !sending &&
-                !recovering &&
-                !sendOutcomeUnknown &&
-                failedOperationId.isBlank() &&
-                toolBusy.isBlank() &&
-                session?.status == "ready" &&
-                session.mode == "observe"
-        }
-}
-
 class ChatViewModel(
     private val dialogue: DialogueRepository,
     private val sessions: SessionRepository,
@@ -209,6 +44,7 @@ class ChatViewModel(
     preferencesRepository: AppPreferencesRepository,
     private val loadChatSession: LoadChatSessionUseCase,
 ) : ViewModel() {
+    private val toolsDelegate = ChatToolsDelegate(sessions)
     private val mutableState = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = mutableState.asStateFlow()
 
@@ -571,6 +407,16 @@ class ChatViewModel(
         mutableState.update { it.copy(messageKind = kind, error = "") }
     }
 
+    fun selectPacing(pacing: String) {
+        val current = state.value
+        if (
+            pacing !in pacingOptions || current.sending || current.recovering ||
+            current.sendOutcomeUnknown || current.failedOperationId.isNotBlank() ||
+            current.toolBusy.isNotBlank()
+        ) return
+        mutableState.update { it.copy(pacing = pacing, error = "") }
+    }
+
     fun toggleGenerationEnhancer(enhancer: ChatGenerationEnhancer) {
         val current = state.value
         if (!current.canUseTools) return
@@ -703,24 +549,8 @@ class ChatViewModel(
         }
     }
 
-    private fun buildContinuousObservePrompt(session: DialogueSessionDto): String {
-        val nextHint = session.runtimeStateOverview["next_hint"]
-            ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
-            ?.trim()
-            .orEmpty()
-        if (nextHint.isNotBlank()) return nextHint
-
-        val recentPrompt = session.transcript.asReversed()
-            .firstOrNull { item -> item.role in setOf("scene", "director", "user") }
-            ?.message
-            ?.trim()
-            .orEmpty()
-        return if (recentPrompt.isNotBlank()) {
-            "承接刚才的场景：$recentPrompt"
-        } else {
-            "让当前场景自然延续，保持人物关系和情绪变化一致。"
-        }
-    }
+    private fun buildContinuousObservePrompt(session: DialogueSessionDto): String =
+        ContinuousObserveController.buildPrompt(session)
 
     fun retryLastSend() {
         val snapshot = state.value
@@ -756,14 +586,12 @@ class ChatViewModel(
             var reasoningTruncated = false
             var reasoningFinalized = false
             var lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
-            val pendingReplyDeltas = mutableListOf<DialogueStreamEvent.Delta>()
+            val streamEngine = ChatStreamEngine()
             var replyDeltaFlushJob: Job? = null
-            var hasDisplayedReplyDelta = false
 
             fun flushReplyDeltas() {
-                if (pendingReplyDeltas.isEmpty()) return
-                val batch = pendingReplyDeltas.toList()
-                pendingReplyDeltas.clear()
+                val batch = streamEngine.drain()
+                if (batch.isEmpty()) return
                 updateSendState(snapshot, operationId) { current ->
                     val repliesByIndex = current.streamingReplies.associateBy(StreamingReplyPart::index).toMutableMap()
                     batch.forEach { event ->
@@ -796,11 +624,9 @@ class ChatViewModel(
             }
 
             fun queueReplyDelta(event: DialogueStreamEvent.Delta) {
-                pendingReplyDeltas += event
                 // The first visible dialogue delta should reach Compose immediately.
                 // Later deltas remain frame-batched to avoid excessive recomposition.
-                if (!hasDisplayedReplyDelta) {
-                    hasDisplayedReplyDelta = true
+                if (streamEngine.enqueue(event)) {
                     flushReplyDeltas()
                     return
                 }
@@ -879,6 +705,7 @@ class ChatViewModel(
                     message = message,
                     messageKind = messageKind,
                     operationId = operationId,
+                    pacing = snapshot.pacing,
                     speakerOverride = speakerOverride,
                     suppressTranscriptMessage = suppressTranscriptMessage,
                     includeInnerThoughts = snapshot.includeInnerThoughts,
@@ -911,9 +738,8 @@ class ChatViewModel(
                         }
                         is DialogueStreamEvent.Reset -> {
                             replyDeltaFlushJob?.cancel()
-                            pendingReplyDeltas.clear()
+                            streamEngine.reset()
                             reasoningBuffer.setLength(0)
-                            hasDisplayedReplyDelta = false
                             reasoningTruncated = false
                             reasoningFinalized = false
                             lastReasoningUpdateAt = TimeSource.Monotonic.markNow()
@@ -997,7 +823,7 @@ class ChatViewModel(
                 throw cancelled
             } catch (error: Throwable) {
                 replyDeltaFlushJob?.cancel()
-                pendingReplyDeltas.clear()
+                streamEngine.reset()
                 handleStreamingFailure(
                     snapshot,
                     operationId,
@@ -1850,61 +1676,25 @@ class ChatViewModel(
 
     private suspend fun ToolRequest.sessionMutation(
         operation: suspend () -> DialogueSessionDto,
-    ): DialogueSessionDto = try {
-        operation()
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        val recovered = try {
-            sessions.getSession(runId, sessionId, includeTranscript = true)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Throwable) {
-            null
-        }
-        recovered?.takeIf { it != snapshot.session } ?: throw error
-    }
+    ): DialogueSessionDto = toolsDelegate.sessionMutation(
+        runId = runId,
+        sessionId = sessionId,
+        previousSession = snapshot.session,
+        operation = operation,
+    )
 
     private suspend fun ToolRequest.branchMutation(
         originKind: String,
         originValue: String = "",
         operation: suspend () -> DialogueSessionDto,
     ): DialogueSessionDto {
-        val knownSessionIds = try {
-            sessions.listSessions(runId).mapTo(mutableSetOf()) { it.sessionId }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Throwable) {
-            null
-        }
-        return try {
-            operation()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Throwable) {
-            if (knownSessionIds == null) throw error
-            val recovered = try {
-                sessions.listSessions(runId)
-                    .asSequence()
-                    .filter { it.sessionId !in knownSessionIds }
-                    .filter { it.branchOrigin.stringValue("session_id") == sessionId }
-                    .filter { it.branchOrigin.stringValue("kind") == originKind }
-                    .filter {
-                        when (originKind) {
-                            "event_timeline", "consistency_correction" ->
-                                originValue.isBlank() || it.branchOrigin.stringValue("turn_id") == originValue
-                            "scene_timeline" -> it.branchOrigin.stringValue("scene_index") == originValue
-                            else -> true
-                        }
-                    }
-                    .singleOrNull()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                null
-            }
-            recovered ?: throw error
-        }
+        return toolsDelegate.branchMutation(
+            runId = runId,
+            sessionId = sessionId,
+            originKind = originKind,
+            originValue = originValue,
+            operation = operation,
+        )
     }
 
     fun consumeNavigationSession() {
@@ -2003,89 +1793,9 @@ class ChatViewModel(
 
     private companion object {
         val messageKinds = setOf("dialogue", "narration", "plot", "fourth_wall")
+        val pacingOptions = setOf("brief", "normal", "detailed")
         const val CONTINUOUS_OBSERVE_DELAY_MS = 480L
         const val INITIAL_TRANSCRIPT_PAGE = 100
         const val EARLIER_TRANSCRIPT_PAGE = 100
     }
 }
-
-/**
- * 从完整 transcript 中提取 baseline 之后「已提交」的新增条目。
- * 只有包含非用户内容才算提交成功（对齐旧 hasCommittedReply 语义，避免误判重复发送）。
- */
-internal fun committedAppend(
-    baselineSize: Int,
-    currentTranscript: List<TranscriptItemDto>,
-): List<TranscriptItemDto> {
-    if (currentTranscript.size <= baselineSize) return emptyList()
-    val appended = currentTranscript.drop(baselineSize)
-    return appended.takeIf { items ->
-        items.any { it.role != "user" && it.message.isNotBlank() }
-    }.orEmpty()
-}
-
-/**
- * 按 turn_id 幂等合并 transcript：append 中已存在于 base 的条目替换而非重复追加。
- * 断连重试 / 失败恢复时，base 可能已经包含部分或全部本轮条目（本地已拼过、服务端已提交），
- * 直接 `base + append` 会把整段历史重复一遍；按 turn_id 去重后天然幂等。
- */
-internal fun mergeTranscript(
-    base: List<TranscriptItemDto>,
-    append: List<TranscriptItemDto>,
-): List<TranscriptItemDto> {
-    if (append.isEmpty()) return base
-    val appendedTurnIds = append.map { it.turnId }.filter { it.isNotBlank() }.toSet()
-    if (appendedTurnIds.isEmpty()) return base + append
-    return base.filterNot { it.turnId in appendedTurnIds } + append
-}
-
-private fun hasCommittedContent(items: List<TranscriptItemDto>): Boolean =
-    items.any { it.role != "user" && it.message.isNotBlank() }
-
-internal fun JsonObject.extractDirectorOptions(): List<ChatToolOption> = this["options"]
-    ?.let { runCatching { it.jsonArray }.getOrNull() }
-    ?.mapNotNull { element ->
-        val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
-        val messageKind = stringValue("message_kind").ifBlank { "plot" }
-        val title = item.stringValue("title")
-        val beat = item.stringValue("beat")
-        val direction = item.stringValue("direction")
-        if (title.isBlank() || beat.isBlank() || direction.isBlank()) return@mapNotNull null
-        val details = buildList {
-            item.stringValue("focus").takeIf(String::isNotBlank)?.let { add("焦点：$it") }
-            item.stringValue("expected_effect").takeIf(String::isNotBlank)?.let { add("效果：$it") }
-            item.stringValue("risk").takeIf(String::isNotBlank)?.let { add("风险：$it") }
-            item.stringValue("resistance").takeIf(String::isNotBlank)?.let { add("抵抗：$it") }
-            item.stringValue("price").takeIf(String::isNotBlank)?.let { add("代价：$it") }
-        }
-        ChatToolOption(
-            label = title,
-            value = listOf(beat, direction).distinct().joinToString("；"),
-            description = details.joinToString(" · "),
-            messageKind = messageKind,
-        )
-    }
-    .orEmpty()
-
-private fun JsonObject.stringValue(key: String): String = this[key]
-    ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
-    .orEmpty()
-
-private fun JsonObject.stringList(key: String): List<String> = this[key]
-    ?.let { runCatching { it.jsonArray }.getOrNull() }
-    ?.mapNotNull { element ->
-        runCatching { element.jsonPrimitive.contentOrNull }.getOrNull()
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-    }
-    .orEmpty()
-
-private fun Throwable.readableMessage(fallback: String): String = message
-    ?.trim()
-    ?.takeIf(String::isNotEmpty)
-    ?: fallback
-
-private class StreamReplyException(
-    message: String,
-    val retryable: Boolean,
-) : Exception(message)

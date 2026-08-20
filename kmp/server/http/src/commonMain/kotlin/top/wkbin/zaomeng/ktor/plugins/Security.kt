@@ -5,6 +5,7 @@ import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
+import top.wkbin.zaomeng.ktor.http.respondError
 
 /**
  * Bearer Token 认证配置
@@ -47,10 +48,7 @@ fun Application.configureSecurity(authToken: String) {
 
             if (token != authToken) {
                 call.response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("detail" to "Bearer authentication is required.")
-                )
+                call.respondError(HttpStatusCode.Unauthorized, "Bearer authentication is required.")
                 finish()
             }
         }

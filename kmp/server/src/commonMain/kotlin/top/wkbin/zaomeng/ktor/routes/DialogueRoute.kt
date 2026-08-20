@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -28,9 +29,9 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
      */
     post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/reply") {
         val runId = call.parameters["run_id"]
-            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing run_id"))
+            ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
         val sessionId = call.parameters["session_id"]
-            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing session_id"))
+            ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
 
         try {
             val request = call.receive<DialogueReplyRequest>()
@@ -40,6 +41,7 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
                 sessionId = sessionId,
                 message = request.message,
                 messageKind = request.messageKind,
+                pacing = request.pacing,
                 speakerOverride = request.speakerOverride,
                 suppressTranscriptMessage = request.suppressTranscriptMessage,
                 includeInnerThoughts = request.includeInnerThoughts,
@@ -51,17 +53,14 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
                 if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
             )
         } catch (e: NoSuchElementException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to e.message))
+            call.respondError(HttpStatusCode.NotFound, e.message ?: "Not found")
         } catch (e: IllegalStateException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to e.message))
+            call.respondError(HttpStatusCode.NotFound, e.message ?: "Not found")
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to e.message))
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "Invalid request")
         } catch (e: Exception) {
             call.application.environment.log.error("Error replying to dialogue turn", e)
-            call.respond(
-                HttpStatusCode.InternalServerError,
-                mapOf("error" to "Internal server error: ${e.message}")
-            )
+            call.respondError(HttpStatusCode.InternalServerError, "Internal server error: ${e.message}")
         }
     }
 

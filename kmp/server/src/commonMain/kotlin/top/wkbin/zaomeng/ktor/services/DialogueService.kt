@@ -60,10 +60,14 @@ class DialogueService(
         /**
          * 解析对话回复的 max_tokens（对齐 Python _resolve_dialogue_max_tokens 的无配置分支）。
          */
-        fun resolveDialogueMaxTokens(responseLimitHint: Int, reasoningEffort: String = "auto"): Int {
+        fun resolveDialogueMaxTokens(
+            responseLimitHint: Int,
+            reasoningEffort: String = "auto",
+            pacing: String = "normal",
+        ): Int {
             val limit = responseLimitHint
-            if (reasoningEffort.trim().equals("off", ignoreCase = true)) {
-                return if (limit > 0) {
+            val base = if (reasoningEffort.trim().equals("off", ignoreCase = true)) {
+                if (limit > 0) {
                     minOf(
                         maxOf(DIALOGUE_RESPONSE_NON_REASONING_MIN_MAX_TOKENS, 520 + limit * 360),
                         DIALOGUE_RESPONSE_NON_REASONING_MAX_MAX_TOKENS,
@@ -71,8 +75,7 @@ class DialogueService(
                 } else {
                     DIALOGUE_RESPONSE_NON_REASONING_MIN_MAX_TOKENS
                 }
-            }
-            return if (limit > 0) {
+            } else if (limit > 0) {
                 minOf(
                     maxOf(DIALOGUE_RESPONSE_MIN_MAX_TOKENS, 520 + limit * 360),
                     DIALOGUE_RESPONSE_MAX_MAX_TOKENS,
@@ -80,6 +83,28 @@ class DialogueService(
             } else {
                 DIALOGUE_RESPONSE_MIN_MAX_TOKENS
             }
+            return when (normalizePacing(pacing)) {
+                "brief" -> maxOf(1, (base * 0.5).toInt())
+                "detailed" -> minOf(DIALOGUE_RESPONSE_MAX_MAX_TOKENS, (base * 1.5).toInt())
+                else -> base
+            }
+        }
+
+        internal fun normalizePacing(pacing: String): String = when (pacing.trim().lowercase()) {
+            "brief", "detailed" -> pacing.trim().lowercase()
+            else -> "normal"
+        }
+
+        internal fun applyPacingInstruction(
+            messages: List<LlmClient.ChatMessage>,
+            pacing: String,
+        ): List<LlmClient.ChatMessage> {
+            val instruction = when (normalizePacing(pacing)) {
+                "brief" -> "本轮保持简短回复，每位发言者一到两句话。"
+                "detailed" -> "本轮进行细腻描写，适当展开动作、感受与环境细节。"
+                else -> return messages
+            }
+            return messages + LlmClient.ChatMessage(role = "system", content = instruction)
         }
 
         /** 角色读心增强器（inner-thoughts）是否在会话内启用（读 session 的 plugin_enhancer_states）。 */
@@ -163,6 +188,7 @@ class DialogueService(
         sessionId: String,
         message: String,
         messageKind: String = "user_input",
+        pacing: String = "normal",
         speakerOverride: String = "",
         suppressTranscriptMessage: Boolean = false,
         includeInnerThoughts: Boolean = false,
@@ -197,9 +223,9 @@ class DialogueService(
             speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
         )
-        val conversationHistory = promptBuilder.buildDialogueLlmMessages(
-            payload = payload,
-            retryOnEmpty = false,
+        val conversationHistory = applyPacingInstruction(
+            messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = false),
+            pacing = pacing,
         )
 
         // 4. 计算 max_tokens（对齐 Python _resolve_dialogue_max_tokens：
@@ -209,6 +235,7 @@ class DialogueService(
         val maxTokens = resolveDialogueMaxTokens(
             responseLimitHint = responseLimit,
             reasoningEffort = modelSettings["reasoning_effort"] as? String ?: "auto",
+            pacing = pacing,
         )
 
         // 5. 调用 LLM API（对齐 Python generate_dialogue_responses：解析失败重试一次，maxTokens 翻倍 + retryOnEmpty 提示词）
@@ -223,7 +250,7 @@ class DialogueService(
             val retry = attempt > 0
             try {
                 val history = if (retry) {
-                    promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true)
+                    applyPacingInstruction(promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true), pacing)
                 } else {
                     conversationHistory
                 }

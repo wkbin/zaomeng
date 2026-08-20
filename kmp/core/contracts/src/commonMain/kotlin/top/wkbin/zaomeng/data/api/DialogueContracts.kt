@@ -301,6 +301,8 @@ data class CreateDialogueSessionRequest(
 data class DialogueReplyRequest(
     val message: String,
     @SerialName("message_kind") val messageKind: String = "dialogue",
+    /** Per-turn response pacing: brief, normal, or detailed. */
+    val pacing: String = "normal",
     /** Optional character identity used when a plugin drafts and sends a reply on that character's behalf. */
     @SerialName("speaker_override") val speakerOverride: String = "",
     @SerialName("suppress_transcript_message") val suppressTranscriptMessage: Boolean = false,

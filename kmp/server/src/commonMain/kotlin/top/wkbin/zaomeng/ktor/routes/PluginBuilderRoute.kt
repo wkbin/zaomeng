@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
@@ -24,10 +25,10 @@ fun Route.pluginBuilderRoutes(service: PluginBuilderService) {
             val request = call.receive<GeneratePluginDraftRequest>()
             call.respond(service.generate(request.description))
         } catch (error: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "插件需求不完整。")))
+            call.respondError(HttpStatusCode.BadRequest, (error.message ?: "插件需求不完整。"))
         } catch (error: Exception) {
             call.application.log.error("Plugin builder generation failed", error)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (error.message ?: "生成插件草稿失败。")))
+            call.respondError(HttpStatusCode.InternalServerError, (error.message ?: "生成插件草稿失败。"))
         }
     }
 
@@ -48,10 +49,10 @@ fun Route.pluginBuilderRoutes(service: PluginBuilderService) {
             )
             call.respondBytes(result.bytes, ContentType.Application.Zip)
         } catch (error: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "插件草稿未通过校验。")))
+            call.respondError(HttpStatusCode.BadRequest, (error.message ?: "插件草稿未通过校验。"))
         } catch (error: Exception) {
             call.application.log.error("Plugin builder package failed", error)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("detail" to (error.message ?: "插件打包失败。")))
+            call.respondError(HttpStatusCode.InternalServerError, (error.message ?: "插件打包失败。"))
         }
     }
 }

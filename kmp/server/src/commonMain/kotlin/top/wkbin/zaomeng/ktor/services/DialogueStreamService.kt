@@ -41,6 +41,7 @@ class DialogueStreamService(
         sessionId: String,
         message: String,
         messageKind: String = "user_input",
+        pacing: String = "normal",
         speakerOverride: String = "",
         includeInnerThoughts: Boolean = false,
         operationId: String = "",
@@ -75,9 +76,9 @@ class DialogueStreamService(
         val payloadBuiltAt = nowEpochMillis()
 
         // 3. 构建对话历史
-        val conversationHistory = promptBuilder.buildDialogueLlmMessages(
-            payload = payload,
-            retryOnEmpty = false,
+        val conversationHistory = DialogueService.applyPacingInstruction(
+            messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = false),
+            pacing = pacing,
         )
         val promptBuiltAt = nowEpochMillis()
         val promptChars = conversationHistory.sumOf { it.content?.length ?: 0 }
@@ -88,6 +89,7 @@ class DialogueStreamService(
         val maxTokens = DialogueService.resolveDialogueMaxTokens(
             responseLimitHint = responseLimit,
             reasoningEffort = modelSettings["reasoning_effort"] as? String ?: "auto",
+            pacing = pacing,
         )
 
         // Apply the same speaker contract while streaming that is used for the final parse.
@@ -163,7 +165,10 @@ class DialogueStreamService(
                             "\n--- full output (first 800 chars) ---\n${full.take(800)}" +
                             "\n--- participants: $participants / forbidden: $forbidden ---",
                     )
-                    val retryHistory = promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true)
+                    val retryHistory = DialogueService.applyPacingInstruction(
+                        promptBuilder.buildDialogueLlmMessages(payload, retryOnEmpty = true),
+                        pacing,
+                    )
                     val retryMaxTokens = minOf(maxTokens * 2, DialogueService.DIALOGUE_RESPONSE_MAX_MAX_TOKENS)
                     emit(
                         StreamEvent(

@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
@@ -97,14 +98,14 @@ private suspend fun RoutingContext.originalKnowledgeCall(
     block: suspend (String, JsonObject) -> Unit,
 ) {
     val runId = call.parameters["run_id"]
-        ?: return call.respond(HttpStatusCode.BadRequest, mapOf("detail" to "Missing run_id"))
+        ?: return call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
     val manifest = storage.readRunManifest(runId)
-        ?: return call.respond(HttpStatusCode.NotFound, mapOf("detail" to "Run not found"))
+        ?: return call.respondError(HttpStatusCode.NotFound, "Run not found")
     try {
         block(runId, manifest)
     } catch (error: NoSuchElementException) {
-        call.respond(HttpStatusCode.NotFound, mapOf("detail" to (error.message ?: "Not found")))
+        call.respondError(HttpStatusCode.NotFound, (error.message ?: "Not found"))
     } catch (error: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("detail" to (error.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (error.message ?: "Invalid request"))
     }
 }

@@ -16,8 +16,27 @@ import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 
-/** 本地持久化长期记忆：以 lexical retrieval 替代 1.5 的可选 Pinecone。 */
-class LongTermMemoryService(private val storage: StorageService) {
+/** 记忆检索策略。未来可替换为语义检索或混合检索。 */
+internal interface MemoryRetrievalStrategy {
+    fun score(query: String, memoryText: String): Float
+}
+
+/** 默认的本地词法检索：分词重合度，并为完整短语命中加权。 */
+internal class LexicalRetrievalStrategy : MemoryRetrievalStrategy {
+    override fun score(query: String, memoryText: String): Float {
+        val normalizedQuery = normalizeMemoryText(query)
+        if (normalizedQuery.isBlank()) return 0f
+        val normalizedMemory = memoryText.lowercase()
+        val overlap = memoryTokens(normalizedQuery).count(normalizedMemory::contains)
+        return overlap.toFloat() + if (normalizedMemory.contains(normalizedQuery.lowercase())) 5f else 0f
+    }
+}
+
+/** 本地持久化长期记忆，检索算法通过策略接口隔离。 */
+internal class LongTermMemoryService(
+    private val storage: StorageService,
+    private val retrievalStrategy: MemoryRetrievalStrategy = LexicalRetrievalStrategy(),
+) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
 
     private fun lockFor(runId: String, sessionId: String): SimpleLock = locksLock.withLock {
@@ -83,9 +102,8 @@ class LongTermMemoryService(private val storage: StorageService) {
         limit: Int = 3,
         currentTurnId: String = "",
     ): List<Map<String, Any?>> = lockFor(runId, sessionId).withLock {
-        val queryText = normalize(query)
+        val queryText = normalizeMemoryText(query)
         if (queryText.isBlank()) return@withLock emptyList()
-        val queryTokens = tokens(queryText)
         val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
             .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
         val selected = entries
@@ -95,10 +113,8 @@ class LongTermMemoryService(private val storage: StorageService) {
                 if (entry["status"]?.jsonPrimitive?.contentOrNull in setOf("stale", "conflict")) return@mapNotNull null
                 val text = entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 if (text.isBlank()) return@mapNotNull null
-                val overlap = queryTokens.count { text.lowercase().contains(it) }
-                var score = overlap.toDouble()
-                if (text.lowercase().contains(queryText.lowercase())) score += 5.0
-                if (score <= 0.0) return@mapNotNull null
+                val score = retrievalStrategy.score(queryText, text)
+                if (score <= 0f) return@mapNotNull null
                 score to entry
             }
             .sortedByDescending { it.first }
@@ -280,7 +296,7 @@ class LongTermMemoryService(private val storage: StorageService) {
         source = "user",
     )
 
-    private fun duplicateKey(text: String): String = normalize(text).lowercase()
+    private fun duplicateKey(text: String): String = normalizeMemoryText(text).lowercase()
         .replace(Regex("[\\p{P}\\p{S}\\s]+"), "")
 
     private fun read(runId: String, sessionId: String): JsonObject {
@@ -318,7 +334,7 @@ class LongTermMemoryService(private val storage: StorageService) {
                 put("memory_id", memoryId)
                 put("turn_id", turnId)
                 put("speaker", speaker)
-                put("text", normalize(text).take(MAX_TEXT_LENGTH))
+                put("text", normalizeMemoryText(text).take(MAX_TEXT_LENGTH))
                 put("created_at", timestamp)
                 put("updated_at", timestamp)
                 put("source", "automatic")
@@ -350,22 +366,8 @@ class LongTermMemoryService(private val storage: StorageService) {
         put("updated_at", "")
     }
 
-    private fun normalize(value: String): String = value.replace(Regex("\\s+"), " ").trim()
-
     private fun trim(value: String, max: Int): String =
         if (value.length <= max) value else value.take(max - 1).trimEnd() + "…"
-
-    private fun tokens(value: String): Set<String> {
-        val result = linkedSetOf<String>()
-        Regex("[A-Za-z0-9_]{2,}|[\\u3400-\\u9fff]+|[^\\s]{2,}").findAll(value.lowercase()).forEach { match ->
-            val token = match.value
-            result += token
-            if (token.all { it in '\u3400'..'\u9fff' }) {
-                for (index in 0 until token.length - 1) result += token.substring(index, index + 2)
-            }
-        }
-        return result
-    }
 
     companion object {
         private val locks = HashMap<String, SimpleLock>()
@@ -373,4 +375,18 @@ class LongTermMemoryService(private val storage: StorageService) {
         private const val MAX_ENTRIES = 400
         private const val MAX_TEXT_LENGTH = 1200
     }
+}
+
+private fun normalizeMemoryText(value: String): String = value.replace(Regex("\\s+"), " ").trim()
+
+private fun memoryTokens(value: String): Set<String> {
+    val result = linkedSetOf<String>()
+    Regex("[A-Za-z0-9_]{2,}|[\\u3400-\\u9fff]+|[^\\s]{2,}").findAll(value.lowercase()).forEach { match ->
+        val token = match.value
+        result += token
+        if (token.all { it in '\u3400'..'\u9fff' }) {
+            for (index in 0 until token.length - 1) result += token.substring(index, index + 2)
+        }
+    }
+    return result
 }

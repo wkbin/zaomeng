@@ -1,4 +1,5 @@
 package top.wkbin.zaomeng.ktor.routes
+import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
@@ -19,9 +20,9 @@ private suspend fun respondCard(call: ApplicationCall, generator: suspend () -> 
     try {
         call.respond(HttpStatusCode.OK, generator())
     } catch (e: IllegalArgumentException) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+        call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
     } catch (e: Exception) {
         call.application.environment.log.error("Card generation failed", e)
-        call.respond(HttpStatusCode.BadGateway, mapOf("error" to (e.message ?: "Card generation failed")))
+        call.respondError(HttpStatusCode.BadGateway, (e.message ?: "Card generation failed"))
     }
 }
