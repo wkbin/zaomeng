@@ -32,10 +32,27 @@ internal class LexicalRetrievalStrategy : MemoryRetrievalStrategy {
     }
 }
 
+/** 混合检索策略：融合词法高频重叠与稠密局部语义向量余弦相似度。 */
+internal class HybridMemoryRetrievalStrategy(
+    val lexicalWeight: Float = 0.6f,
+    val semanticWeight: Float = 0.4f,
+    private val lexicalStrategy: MemoryRetrievalStrategy = LexicalRetrievalStrategy(),
+) : MemoryRetrievalStrategy {
+    override fun score(query: String, memoryText: String): Float {
+        val lexicalScore = lexicalStrategy.score(query, memoryText)
+        val semanticSimilarity = LocalSemanticVector.similarity(query, memoryText)
+        if (lexicalScore <= 0f && semanticSimilarity < 0.12f) {
+            return 0f
+        }
+        val scaledSemantic = semanticSimilarity * 8.0f
+        return (lexicalWeight * lexicalScore) + (semanticWeight * scaledSemantic)
+    }
+}
+
 /** 本地持久化长期记忆，检索算法通过策略接口隔离。 */
 internal class LongTermMemoryService(
     private val storage: StorageService,
-    private val retrievalStrategy: MemoryRetrievalStrategy = LexicalRetrievalStrategy(),
+    private val retrievalStrategy: MemoryRetrievalStrategy = HybridMemoryRetrievalStrategy(),
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
 
