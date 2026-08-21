@@ -21,9 +21,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.AlertDialog
+import top.wkbin.zaomeng.platform.PlatformTts
+import top.wkbin.zaomeng.platform.rememberPlatformTts
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -99,10 +103,20 @@ fun PersonaScreen(
         onSuggestField = viewModel::suggestField,
         onApplyRepair = viewModel::applyRepairChange,
         onApplyAllRepairs = viewModel::applyAllRepairChanges,
+        onRequestEvolution = { viewModel.requestEvolutionProposal() },
         onSave = viewModel::save,
         snackbarHostState = snackbarHostState,
         modifier = modifier,
     )
+
+    if (state.showEvolutionDialog && state.evolutionProposal != null) {
+        PersonaEvolutionDialog(
+            proposal = state.evolutionProposal!!,
+            isApplying = state.isApplyingEvolution,
+            onApply = viewModel::applyEvolution,
+            onDismiss = viewModel::dismissEvolutionDialog,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,6 +131,7 @@ fun PersonaContent(
     onSuggestField: (String) -> Unit,
     onApplyRepair: (PersonaRepairChangeDto) -> Unit,
     onApplyAllRepairs: () -> Unit,
+    onRequestEvolution: () -> Unit,
     onSave: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -127,6 +142,7 @@ fun PersonaContent(
         }
     }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    val tts = rememberPlatformTts()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -156,6 +172,16 @@ fun PersonaContent(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onRequestEvolution,
+                        enabled = state.hasLoaded && !state.isBusy,
+                    ) {
+                        if (state.isGeneratingEvolution) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = "成长提炼")
+                        }
+                    }
                     IconButton(onClick = onRetry, enabled = !state.isBusy) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "重新载入")
                     }
@@ -205,6 +231,7 @@ fun PersonaContent(
                 onSuggestField = onSuggestField,
                 onApplyRepair = onApplyRepair,
                 onApplyAllRepairs = onApplyAllRepairs,
+                tts = tts,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -246,6 +273,7 @@ private fun PersonaEditor(
     onSuggestField: (String) -> Unit,
     onApplyRepair: (PersonaRepairChangeDto) -> Unit,
     onApplyAllRepairs: () -> Unit,
+    tts: PlatformTts,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -280,6 +308,15 @@ private fun PersonaEditor(
                 )
             }
             if (expandedGroups[group.key] == true) {
+                if (group.key == "voice") {
+                    item(key = "voice-preview-card") {
+                        VoicePreviewCard(
+                            character = state.character,
+                            fields = state.fields,
+                            tts = tts,
+                        )
+                    }
+                }
                 items(group.fields, key = { "field-${it.key}" }) { field ->
                     PersonaFieldEditor(
                         spec = field,
@@ -892,4 +929,80 @@ private fun severityColor(severity: String): Color = when (severity) {
     "high" -> MaterialTheme.colorScheme.error
     "medium" -> MaterialTheme.colorScheme.tertiary
     else -> MaterialTheme.colorScheme.primary
+}
+
+@Composable
+private fun VoicePreviewCard(
+    character: String,
+    fields: Map<String, String>,
+    tts: PlatformTts,
+) {
+    val isSpeaking by tts.isSpeaking.collectAsStateWithLifecycle()
+    val speakingId by tts.currentSpeakingId.collectAsStateWithLifecycle()
+    val isThisSpeaking = isSpeaking && speakingId == "persona-voice-preview"
+
+    val voiceName = fields["voice_name"].orEmpty()
+    val pitch = fields["voice_pitch"]?.toFloatOrNull() ?: 1.0f
+    val speed = fields["voice_speed"]?.toFloatOrNull() ?: 1.0f
+    val testText = fields["typical_lines"]?.split("；", ";")?.firstOrNull()?.takeIf(String::isNotBlank)
+        ?: "${character}在此。有何吩咐？"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "声线实时试听",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "试听文案：“$testText”",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    if (isThisSpeaking) {
+                        tts.stop()
+                    } else {
+                        tts.speak(
+                            id = "persona-voice-preview",
+                            text = testText,
+                            pitch = pitch,
+                            speed = speed,
+                            voiceName = voiceName,
+                        )
+                    }
+                },
+                modifier = Modifier.padding(start = 12.dp),
+            ) {
+                Icon(
+                    if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = if (isThisSpeaking) "停止" else "试听",
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+    }
 }

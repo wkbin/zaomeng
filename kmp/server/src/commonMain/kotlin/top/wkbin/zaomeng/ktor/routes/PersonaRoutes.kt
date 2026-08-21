@@ -57,6 +57,18 @@ fun Route.personaRoutes(service: PersonaService) {
                 call.respond(service.suggestField(runId, character, request.field, request.currentFields))
             }
         }
+        post("/evolve/proposal") {
+            personaCall { runId, character ->
+                val request = runCatching { call.receive<top.wkbin.zaomeng.data.api.GenerateEvolutionProposalRequest>() }.getOrNull()
+                call.respond(service.generateEvolutionProposal(runId, character, request?.recap))
+            }
+        }
+        post("/evolve/apply") {
+            personaCall { runId, character ->
+                val request = call.receive<top.wkbin.zaomeng.data.api.ApplyPersonaEvolutionRequest>()
+                call.respond(service.applyEvolution(runId, character, request.changes))
+            }
+        }
     }
 }
 

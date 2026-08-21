@@ -3,10 +3,13 @@ package top.wkbin.zaomeng.feature.persona
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.PersonaRepository
+import top.wkbin.zaomeng.data.api.PersonaEvolutionChangeDto
+import top.wkbin.zaomeng.data.api.PersonaEvolutionProposalDto
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaRepairChangeDto
 import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
+import top.wkbin.zaomeng.data.api.StoryRecapDto
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,9 +68,13 @@ data class PersonaUiState(
     val deleted: Boolean = false,
     val loadError: String = "",
     val notice: PersonaNotice? = null,
+    val evolutionProposal: PersonaEvolutionProposalDto? = null,
+    val isGeneratingEvolution: Boolean = false,
+    val isApplyingEvolution: Boolean = false,
+    val showEvolutionDialog: Boolean = false,
 ) {
     val isBusy: Boolean
-        get() = isLoading || isSaving || isDeleting || suggestingField != null
+        get() = isLoading || isSaving || isDeleting || suggestingField != null || isGeneratingEvolution || isApplyingEvolution
 
     fun issueFor(field: String): PersonaIssueDto? = quality?.issues
         ?.firstOrNull { field in it.fields }
@@ -311,6 +318,73 @@ class PersonaViewModel(
         }
     }
 
+    fun requestEvolutionProposal(recap: StoryRecapDto? = null) {
+        val snapshot = _uiState.value
+        if (!snapshot.hasLoaded || snapshot.isBusy) return
+        val runId = snapshot.runId
+        val character = snapshot.character
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isGeneratingEvolution = true) }
+            try {
+                val proposal = repository.getEvolutionProposal(runId, character, recap)
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(
+                        isGeneratingEvolution = false,
+                        evolutionProposal = proposal,
+                        showEvolutionDialog = true,
+                    )
+                }
+            } catch (error: Throwable) {
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(
+                        isGeneratingEvolution = false,
+                        notice = notice(readableError(error, "提炼角色成长提案失败，请稍后重试。")),
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyEvolution(changes: List<PersonaEvolutionChangeDto>) {
+        val snapshot = _uiState.value
+        if (!snapshot.hasLoaded || snapshot.isBusy || changes.isEmpty()) return
+        val runId = snapshot.runId
+        val character = snapshot.character
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEvolution = true) }
+            try {
+                val updated = repository.applyEvolution(runId, character, changes)
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(
+                        fields = updated.fields,
+                        isApplyingEvolution = false,
+                        showEvolutionDialog = false,
+                        hasUnsavedChanges = false,
+                        notice = notice("成功将 ${changes.size} 项角色成长演化合并回人物档案！"),
+                    )
+                }
+                refreshQuality(runId, character, announceFailure = false)
+            } catch (error: Throwable) {
+                _uiState.update { current ->
+                    if (!current.matches(runId, character)) return@update current
+                    current.copy(
+                        isApplyingEvolution = false,
+                        notice = notice(readableError(error, "应用角色成长失败，请重试。")),
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissEvolutionDialog() {
+        _uiState.update { it.copy(showEvolutionDialog = false) }
+    }
+
     fun dismissNotice(id: Long) {
         _uiState.update { current ->
             if (current.notice?.id == id) current.copy(notice = null) else current
@@ -430,6 +504,10 @@ val PERSONA_FIELD_GROUPS: List<PersonaFieldGroup> = listOf(
             PersonaFieldSpec("signature_phrases", "口头禅"),
             PersonaFieldSpec("sentence_openers", "起句习惯"),
             PersonaFieldSpec("sentence_endings", "句尾习惯"),
+            PersonaFieldSpec("voice_name", "声线音色"),
+            PersonaFieldSpec("voice_pitch", "音调倍率"),
+            PersonaFieldSpec("voice_speed", "语速倍率"),
+            PersonaFieldSpec("voice_desc", "声线听感描述", true),
         ),
     ),
     PersonaFieldGroup(

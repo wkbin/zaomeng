@@ -150,3 +150,31 @@ data class SuggestPersonaFieldResponse(
     val reason: String = "",
 )
 
+@Serializable
+data class PersonaEvolutionProposalDto(
+    val character: String = "",
+    val status: String = "available",
+    @SerialName("evolution_summary") val evolutionSummary: String = "",
+    val changes: List<PersonaEvolutionChangeDto> = emptyList(),
+)
+
+@Serializable
+data class PersonaEvolutionChangeDto(
+    val field: String = "",
+    @SerialName("field_label") val fieldLabel: String = "",
+    @SerialName("current_value") val currentValue: String = "",
+    @SerialName("proposed_value") val proposedValue: String = "",
+    val reason: String = "",
+    val category: String = "general",
+)
+
+@Serializable
+data class ApplyPersonaEvolutionRequest(
+    val changes: List<PersonaEvolutionChangeDto> = emptyList(),
+)
+
+@Serializable
+data class GenerateEvolutionProposalRequest(
+    @SerialName("session_id") val sessionId: String = "",
+    val recap: StoryRecapDto? = null,
+)

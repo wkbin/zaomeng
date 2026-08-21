@@ -14,10 +14,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.PersonaAvatarDto
+import top.wkbin.zaomeng.data.api.PersonaEvolutionChangeDto
+import top.wkbin.zaomeng.data.api.PersonaEvolutionProposalDto
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaReviewDto
 import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
+import top.wkbin.zaomeng.data.api.StoryRecapDto
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.PlatformLog
@@ -279,6 +282,108 @@ class PersonaService(
         }
     }
 
+    fun generateEvolutionProposal(
+        runId: String,
+        character: String,
+        recap: StoryRecapDto?,
+    ): PersonaEvolutionProposalDto {
+        val review = getReview(runId, character)
+        val changes = mutableListOf<PersonaEvolutionChangeDto>()
+        val fields = review.fields
+
+        if (recap != null) {
+            // 1. 角色心境成长 (Character Arc)
+            val arc = recap.characterArcs.firstOrNull { it.name.trim() == character.trim() }
+            if (arc != null && arc.growthSummary.isNotBlank()) {
+                val currentConflict = fields["inner_conflict"].orEmpty().trim()
+                val proposedConflict = if (currentConflict.isBlank()) {
+                    arc.growthSummary
+                } else if (!currentConflict.contains(arc.growthSummary)) {
+                    "$currentConflict；${arc.growthSummary}"
+                } else {
+                    currentConflict
+                }
+                if (proposedConflict != currentConflict) {
+                    changes.add(
+                        PersonaEvolutionChangeDto(
+                            field = "inner_conflict",
+                            fieldLabel = "内心矛盾与心境",
+                            currentValue = currentConflict,
+                            proposedValue = proposedConflict,
+                            reason = "剧情复盘记录了新的心境成长：“${arc.growthSummary}”",
+                            category = "conflict",
+                        )
+                    )
+                }
+            }
+
+            // 2. 羁绊深化与变动 (Relation Changes)
+            val matchingRelations = recap.relations.filter { rel ->
+                rel.characters.any { it.trim() == character.trim() }
+            }
+            matchingRelations.forEach { rel ->
+                val other = rel.characters.firstOrNull { it.trim() != character.trim() } ?: "同伴"
+                val reason = rel.reason.ifBlank { rel.evidence }.ifBlank { rel.label }
+                val newBondDesc = "与${other}：$reason"
+                val currentBonds = fields["key_bonds"].orEmpty().trim()
+                if (reason.isNotBlank() && !currentBonds.contains(reason)) {
+                    val proposedBonds = if (currentBonds.isBlank()) newBondDesc else "$currentBonds；$newBondDesc"
+                    changes.add(
+                        PersonaEvolutionChangeDto(
+                            field = "key_bonds",
+                            fieldLabel = "关键羁绊",
+                            currentValue = currentBonds,
+                            proposedValue = proposedBonds,
+                            reason = "剧情互动中与${other}发生羁绊演变：$reason",
+                            category = "bond",
+                        )
+                    )
+                }
+            }
+
+            // 3. 名场面经典台词提炼 (Quotes)
+            val characterQuotes = recap.quotes.filter { it.speaker.trim() == character.trim() && it.message.isNotBlank() }
+            characterQuotes.forEach { quote ->
+                val currentLines = fields["typical_lines"].orEmpty().trim()
+                if (!currentLines.contains(quote.message)) {
+                    val proposedLines = if (currentLines.isBlank()) quote.message else "$currentLines；${quote.message}"
+                    changes.add(
+                        PersonaEvolutionChangeDto(
+                            field = "typical_lines",
+                            fieldLabel = "代表台词",
+                            currentValue = currentLines,
+                            proposedValue = proposedLines,
+                            reason = "在剧情高潮中留下代表性台词",
+                            category = "quote",
+                        )
+                    )
+                }
+            }
+        }
+
+        val summary = if (changes.isEmpty()) {
+            "当前未发现可自动提炼的角色成长项。"
+        } else {
+            "从近期剧情与对话中提炼出 ${changes.size} 项角色成长演化提案。"
+        }
+
+        return PersonaEvolutionProposalDto(
+            character = character,
+            status = if (changes.isEmpty()) "no_changes" else "available",
+            evolutionSummary = summary,
+            changes = changes,
+        )
+    }
+
+    fun applyEvolution(
+        runId: String,
+        character: String,
+        changes: List<PersonaEvolutionChangeDto>,
+    ): PersonaReviewDto {
+        val fieldMap = changes.associate { it.field to it.proposedValue }
+        return saveReview(runId, character, fieldMap)
+    }
+
     private fun reconcileRepairArtifacts(directory: Path, savedFields: Map<String, String>) {
         val qualityFile = directory / ProfileRepairService.QUALITY_REPORT_FILE
         if (storage.isFile(qualityFile)) storage.deleteFile(qualityFile)
@@ -462,6 +567,7 @@ class PersonaService(
         val nested = when {
             field == "cadence" || field in SPEECH_LIST_FIELDS -> (profile["speech_habits"] as? Map<*, *>)?.get(field)
             field in EMOTION_FIELDS -> (profile["emotion_profile"] as? Map<*, *>)?.get(field)
+            field in VOICE_FIELDS -> (profile["voice_profile"] as? Map<*, *>)?.get(field)
             else -> null
         }
         return PersonaProfileNormalizer.normalizeFieldValue(formatField(nested ?: profile[field]))
@@ -485,6 +591,11 @@ class PersonaService(
             val nested = profile["emotion_profile"].asNestedMap()
             nested[field] = normalized
             profile["emotion_profile"] = nested
+        }
+        if (field in VOICE_FIELDS) {
+            val nested = profile["voice_profile"].asNestedMap()
+            nested[field] = normalized
+            profile["voice_profile"] = nested
         }
     }
 
@@ -527,9 +638,10 @@ class PersonaService(
         private const val MAX_AVATAR_BYTES = 5 * 1024 * 1024
         private val PROFILE_FILENAMES = setOf("PROFILE.md", "PROFILE.generated.md")
         private val INSUFFICIENT_VALUES = setOf("不详", "信息不足", "暂无", "未知", "资料不足", "证据不足", "待补充", "留空")
-        private val REVIEW_FIELDS = listOf("core_identity", "story_role", "identity_anchor", "temperament_type", "gender", "age_stage", "appearance_feature", "habit_action", "soul_goal", "hidden_desire", "inner_conflict", "self_cognition", "private_self", "speech_style", "cadence", "typical_lines", "signature_phrases", "sentence_openers", "sentence_endings", "social_mode", "thinking_style", "decision_rules", "reward_logic", "worldview", "belief_anchor", "moral_bottom_line", "restraint_threshold", "core_traits", "key_bonds", "preference_like", "dislike_hate", "forbidden_behaviors", "stress_response", "emotion_model", "anger_style", "joy_style", "grievance_style", "others_impression")
+        private val REVIEW_FIELDS = listOf("core_identity", "story_role", "identity_anchor", "temperament_type", "gender", "age_stage", "appearance_feature", "habit_action", "soul_goal", "hidden_desire", "inner_conflict", "self_cognition", "private_self", "speech_style", "cadence", "typical_lines", "signature_phrases", "sentence_openers", "sentence_endings", "voice_name", "voice_pitch", "voice_speed", "voice_desc", "social_mode", "thinking_style", "decision_rules", "reward_logic", "worldview", "belief_anchor", "moral_bottom_line", "restraint_threshold", "core_traits", "key_bonds", "preference_like", "dislike_hate", "forbidden_behaviors", "stress_response", "emotion_model", "anger_style", "joy_style", "grievance_style", "others_impression")
         private val LIST_FIELDS = setOf("typical_lines", "signature_phrases", "sentence_openers", "sentence_endings", "decision_rules", "core_traits", "key_bonds", "preference_like", "dislike_hate", "forbidden_behaviors")
         private val SPEECH_LIST_FIELDS = setOf("signature_phrases", "sentence_openers", "sentence_endings")
         private val EMOTION_FIELDS = setOf("anger_style", "joy_style", "grievance_style")
+        private val VOICE_FIELDS = setOf("voice_name", "voice_pitch", "voice_speed", "voice_desc")
     }
 }

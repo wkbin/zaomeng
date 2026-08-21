@@ -67,6 +67,26 @@ class KtorPersonaClient(
         }
     }.body()
 
+    suspend fun getEvolutionProposal(
+        runId: String,
+        character: String,
+        recap: StoryRecapDto? = null,
+    ): PersonaEvolutionProposalDto = request { endpoint ->
+        http.client.post("${url(endpoint, runId, character)}/evolve/proposal") {
+            setBody(GenerateEvolutionProposalRequest(recap = recap))
+        }
+    }.body()
+
+    suspend fun applyEvolution(
+        runId: String,
+        character: String,
+        changes: List<PersonaEvolutionChangeDto>,
+    ): PersonaReviewDto = request { endpoint ->
+        http.client.post("${url(endpoint, runId, character)}/evolve/apply") {
+            setBody(ApplyPersonaEvolutionRequest(changes = changes))
+        }
+    }.body()
+
     private fun url(endpoint: BackendEndpoint, runId: String, character: String): String =
         "${endpoint.baseUrl.trimEnd('/')}/api/web/runs/${runId.encodeURLPathPart()}/personas/${character.encodeURLPathPart()}"
 

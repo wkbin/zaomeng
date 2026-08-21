@@ -84,6 +84,22 @@ class PersonaRepositoryImpl(
     ): SuggestPersonaFieldResponse = repositoryRequest {
         ktorPersona.suggestField(runId, character, field)
     }
+
+    override suspend fun getEvolutionProposal(
+        runId: String,
+        character: String,
+        recap: top.wkbin.zaomeng.data.api.StoryRecapDto?,
+    ): top.wkbin.zaomeng.data.api.PersonaEvolutionProposalDto = repositoryRequest {
+        ktorPersona.getEvolutionProposal(runId, character, recap)
+    }
+
+    override suspend fun applyEvolution(
+        runId: String,
+        character: String,
+        changes: List<top.wkbin.zaomeng.data.api.PersonaEvolutionChangeDto>,
+    ): PersonaReviewDto = repositoryRequest {
+        ktorPersona.applyEvolution(runId, character, changes)
+    }
 }
 
 class OriginalKnowledgeRepositoryImpl(

@@ -24,6 +24,16 @@ interface PersonaRepository {
     suspend fun uploadPersonaAvatar(runId: String, character: String, bytes: ByteArray): PersonaAvatarDto
     suspend fun getPersonaAvatar(runId: String, character: String, version: String): ByteArray?
     suspend fun suggestPersonaField(runId: String, character: String, field: String): SuggestPersonaFieldResponse
+    suspend fun getEvolutionProposal(
+        runId: String,
+        character: String,
+        recap: top.wkbin.zaomeng.data.api.StoryRecapDto? = null,
+    ): top.wkbin.zaomeng.data.api.PersonaEvolutionProposalDto
+    suspend fun applyEvolution(
+        runId: String,
+        character: String,
+        changes: List<top.wkbin.zaomeng.data.api.PersonaEvolutionChangeDto>,
+    ): PersonaReviewDto
 }
 
 interface OriginalKnowledgeRepository {
