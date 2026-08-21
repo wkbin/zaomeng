@@ -103,6 +103,9 @@ interface DialogueRepository {
         action: String = "advance",
     ): JsonObject
 
+    suspend fun getSceneTension(runId: String, sessionId: String): top.wkbin.zaomeng.data.api.SceneTensionDto
+    suspend fun getPresetEvents(runId: String, sessionId: String, category: String? = null): List<top.wkbin.zaomeng.data.api.PlotEventPresetDto>
+
     suspend fun branchDialogueTurn(runId: String, sessionId: String, turnId: String): DialogueSessionDto
     suspend fun branchDialogueScene(runId: String, sessionId: String, sceneIndex: Int): DialogueSessionDto
 

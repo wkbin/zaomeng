@@ -6,10 +6,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
 
-class ChatStreamEngineTest {
+class ReplyDeltaBufferTest {
     @Test
     fun `first delta flushes immediately and later deltas batch`() {
-        val engine = ChatStreamEngine()
+        val engine = ReplyDeltaBuffer()
         assertTrue(engine.enqueue(delta("a")))
         assertEquals(listOf("a"), engine.drain().map { it.text })
         assertFalse(engine.enqueue(delta("b")))
@@ -19,7 +19,7 @@ class ChatStreamEngineTest {
 
     @Test
     fun `reset restores first-delta behavior`() {
-        val engine = ChatStreamEngine()
+        val engine = ReplyDeltaBuffer()
         engine.enqueue(delta("a"))
         engine.reset()
         assertTrue(engine.enqueue(delta("b")))

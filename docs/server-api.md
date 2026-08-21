@@ -415,6 +415,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/correct-latest` | 无 | `200` 会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/deep-review` | 无 | `200` 审查结果/会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director-options` | `DialogueDirectorRequest` | `200` 导演选项 |
+| GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/tension` | 无 | `200 SceneTensionDto` |
+| GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/events` | 查询参数 `category`（可选） | `200 List<PlotEventPresetDto>` |
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/scene-card` | `SwitchDialogueSceneRequest` | `200` 更新后的会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/scene-card/recommend` | 无 | `200` 推荐场景卡 |
 
@@ -504,6 +506,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | GET | `/quality-report` | 无 | `200 PersonaQualityReport` |
 | GET | `/repair-proposal` | 无 | `200 PersonaRepairProposal` |
 | POST | `/suggest-field` | 见下 | `200` 字段建议 |
+| POST | `/evolve/proposal` | `GenerateEvolutionProposalRequest`（可选包含 `recap`） | `200 PersonaEvolutionProposal` |
+| POST | `/evolve/apply` | `ApplyPersonaEvolutionRequest` | `200 PersonaReview` |
 | POST | `/avatar` | `multipart/form-data`，文件 part 名为 `file` | `200 {"character":"...","avatar_version":"..."}` |
 | GET | `/avatar` | 无 | `200 image/png` |
 

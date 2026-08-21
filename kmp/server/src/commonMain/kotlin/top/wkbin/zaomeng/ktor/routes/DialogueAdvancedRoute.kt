@@ -193,6 +193,18 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         }
     }
 
+    // GET .../sessions/{session_id}/director/tension
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/tension") {
+        val (runId, sessionId) = requireRunAndSession()
+        runRouteGeneric(call) { service.getSceneTension(runId, sessionId) }
+    }
+
+    // GET .../sessions/{session_id}/director/events
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/events") {
+        val category = call.request.queryParameters["category"]
+        runRouteGeneric(call) { service.getPresetEvents(category) }
+    }
+
     // PUT .../sessions/{session_id}/scene-card
     put("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/scene-card") {
         val (runId, sessionId) = requireRunAndSession()
@@ -225,6 +237,22 @@ private suspend fun runRoute(
 ) {
     try {
         call.respond(HttpStatusCode.OK, withTranscriptCount(block()))
+    } catch (e: NoSuchElementException) {
+        call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
+    } catch (e: IllegalArgumentException) {
+        call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
+    } catch (e: Exception) {
+        call.application.log.error("Dialogue advanced route failed", e)
+        call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Internal server error"))
+    }
+}
+
+private suspend inline fun <reified T : Any> runRouteGeneric(
+    call: ApplicationCall,
+    crossinline block: suspend () -> T,
+) {
+    try {
+        call.respond(HttpStatusCode.OK, block())
     } catch (e: NoSuchElementException) {
         call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
     } catch (e: IllegalArgumentException) {

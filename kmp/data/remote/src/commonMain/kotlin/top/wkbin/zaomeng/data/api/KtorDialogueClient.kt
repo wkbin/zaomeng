@@ -93,6 +93,24 @@ class KtorDialogueClient(
         },
     )
 
+    suspend fun getSceneTension(runId: String, sessionId: String): SceneTensionDto {
+        val text = request { endpoint ->
+            http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/director/tension")
+        }.bodyAsText()
+        return json.decodeFromString<SceneTensionDto>(text)
+    }
+
+    suspend fun getPresetEvents(runId: String, sessionId: String, category: String? = null): List<PlotEventPresetDto> {
+        val text = request { endpoint ->
+            http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/director/events") {
+                if (!category.isNullOrBlank()) {
+                    url.parameters.append("category", category)
+                }
+            }
+        }.bodyAsText()
+        return json.decodeFromString<List<PlotEventPresetDto>>(text)
+    }
+
     suspend fun branchFromTurn(runId: String, sessionId: String, turnId: String): DialogueSessionDto = decodeSession(
         request { endpoint ->
             http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/branch-turn") {

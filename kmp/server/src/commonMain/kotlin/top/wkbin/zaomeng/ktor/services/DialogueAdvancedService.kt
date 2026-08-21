@@ -47,10 +47,30 @@ class DialogueAdvancedService(
         ignoreUnknownKeys = true
     }
     private val longTermMemory = LongTermMemoryService(storage)
+    private val tensionService = SceneTensionService()
 
     // ------------------------------------------------------------------
     // 只读操作
     // ------------------------------------------------------------------
+
+    /**
+     * 获取当前场景的剧情张力评估指数。
+     */
+    fun getSceneTension(runId: String, sessionId: String): top.wkbin.zaomeng.data.api.SceneTensionDto {
+        val session = requireSession(runId, sessionId)
+        val transcript = transcriptOf(session)
+        val recentMessages = transcript.takeLast(10).mapNotNull {
+            it["message"]?.jsonPrimitive?.contentOrNull
+        }
+        return tensionService.evaluateTension(recentMessages)
+    }
+
+    /**
+     * 获取内置突发事件预设列表。
+     */
+    fun getPresetEvents(category: String? = null): List<top.wkbin.zaomeng.data.api.PlotEventPresetDto> {
+        return tensionService.getPresetEvents(category)
+    }
 
     /**
      * 搜索会话内容（transcript + 长期记忆）。

@@ -69,6 +69,12 @@ internal fun mergeTranscript(
 internal fun hasCommittedContent(items: List<TranscriptItemDto>): Boolean =
     items.any { it.role != "user" && it.message.isNotBlank() }
 
+internal fun ChatUiState.matchesSession(runId: String, sessionId: String): Boolean =
+    this.runId == runId && this.sessionId == sessionId
+
+internal fun ChatUiState.matchesSend(snapshot: ChatUiState, operationId: String): Boolean =
+    matchesSession(snapshot.runId, snapshot.sessionId) && failedOperationId == operationId
+
 internal fun JsonObject.extractDirectorOptions(): List<ChatToolOption> = this["options"]
     ?.let { runCatching { it.jsonArray }.getOrNull() }
     ?.mapNotNull { element ->

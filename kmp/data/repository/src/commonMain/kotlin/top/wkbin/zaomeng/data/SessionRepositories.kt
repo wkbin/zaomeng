@@ -26,6 +26,8 @@ import top.wkbin.zaomeng.data.api.KtorDialogueClient
 import top.wkbin.zaomeng.data.api.KtorSessionClient
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 import top.wkbin.zaomeng.data.api.MessagesResponse
+import top.wkbin.zaomeng.data.api.PlotEventPresetDto
+import top.wkbin.zaomeng.data.api.SceneTensionDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
@@ -341,6 +343,18 @@ class DialogueRepositoryImpl(
         action: String,
     ): JsonObject = repositoryRequest {
         ktorDialogue.directorOptions(runId, sessionId, goal, action)
+    }
+
+    override suspend fun getSceneTension(runId: String, sessionId: String): SceneTensionDto = repositoryRequest {
+        ktorDialogue.getSceneTension(runId, sessionId)
+    }
+
+    override suspend fun getPresetEvents(
+        runId: String,
+        sessionId: String,
+        category: String?,
+    ): List<PlotEventPresetDto> = repositoryRequest {
+        ktorDialogue.getPresetEvents(runId, sessionId, category)
     }
 
     override suspend fun branchDialogueTurn(

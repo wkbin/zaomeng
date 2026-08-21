@@ -463,3 +463,23 @@ data class UpdateDialogueRelationLockRequest(
 
 @Serializable
 data class DeleteStatusDto(val status: String = "")
+
+@Serializable
+data class SceneTensionDto(
+    val score: Int = 30,
+    val pacing: String = "Calm",
+    val label: String = "平缓蓄势",
+    val suggestion: String = "",
+    @SerialName("dominant_emotion") val dominantEmotion: String = "neutral",
+    @SerialName("conflict_indicator") val conflictIndicator: Float = 0.2f,
+)
+
+@Serializable
+data class PlotEventPresetDto(
+    val id: String = "",
+    val category: String = "external",
+    @SerialName("category_label") val categoryLabel: String = "外部异动",
+    val title: String = "",
+    val event: String = "",
+    @SerialName("recommended_action") val recommendedAction: String = "advance",
+)
