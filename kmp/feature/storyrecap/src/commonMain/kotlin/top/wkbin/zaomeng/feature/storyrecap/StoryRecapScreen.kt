@@ -28,6 +28,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -62,6 +64,8 @@ fun StoryRecapScreen(
     val recap = state.session?.storyRecap
     var novelConversionStarted by remember { mutableStateOf(false) }
     var pendingNovelConversion by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
     val novelConversionForeground: NovelConversionForeground = koinInject()
     val requestNotificationPermission = rememberNotificationPermissionRequester { granted ->
         if (pendingNovelConversion && granted) {
@@ -90,6 +94,7 @@ fun StoryRecapScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("剧情复盘") },
@@ -100,10 +105,10 @@ fun StoryRecapScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { recap?.shareText?.takeIf(String::isNotBlank)?.let { shareText(it) } },
-                        enabled = !state.loading && recap?.shareText?.isNotBlank() == true,
+                        onClick = { showExportDialog = true },
+                        enabled = !state.loading && recap != null,
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "分享剧情复盘")
+                        Icon(Icons.Default.Share, contentDescription = "导出剧场与战报")
                     }
                     IconButton(
                         onClick = viewModel::load,
@@ -181,6 +186,14 @@ fun StoryRecapScreen(
                 item(key = "footer-space") { Spacer(Modifier.height(8.dp)) }
             }
         }
+    }
+
+    if (showExportDialog && recap != null) {
+        RecapExportDialog(
+            recap = recap,
+            onDismiss = { showExportDialog = false },
+            snackbarHostState = snackbarHostState,
+        )
     }
 }
 
