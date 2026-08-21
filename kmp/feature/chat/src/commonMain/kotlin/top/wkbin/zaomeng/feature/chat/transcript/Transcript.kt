@@ -140,6 +140,7 @@ import top.wkbin.zaomeng.feature.chat.insights.consistencyInsight
 import top.wkbin.zaomeng.platform.PlatformBackHandler
 import top.wkbin.zaomeng.platform.rememberClipboardTextWriter
 import top.wkbin.zaomeng.platform.rememberPlatformImage
+import top.wkbin.zaomeng.platform.rememberPlatformTts
 import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
 import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -173,6 +174,9 @@ internal fun Transcript(
     val listState = rememberLazyListState()
     val scrollScope = rememberCoroutineScope()
     val clipboardWriter = rememberClipboardTextWriter()
+    val tts = rememberPlatformTts()
+    val isSpeaking by tts.isSpeaking.collectAsStateWithLifecycle()
+    val speakingId by tts.currentSpeakingId.collectAsStateWithLifecycle()
     val bottomThresholdPx = with(LocalDensity.current) { 24.dp.roundToPx() }
     val transcript = session.transcript
     val latestAssistantIndex = transcript.indexOfLast { item ->
@@ -314,6 +318,19 @@ internal fun Transcript(
                         actionsEnabled = actionsEnabled,
                         includeInnerThoughts = includeInnerThoughts,
                         canRegenerate = index == latestAssistantIndex && !sending,
+                        isSpeaking = isSpeaking,
+                        speakingId = speakingId,
+                        onSpeak = {
+                            val key = item.transcriptKey()
+                            if (isSpeaking && speakingId == key) {
+                                tts.stop()
+                            } else {
+                                tts.speak(
+                                    id = key,
+                                    text = item.message,
+                                )
+                            }
+                        },
                         onCopy = {
                             scrollScope.launch {
                                 clipboardWriter(item.message)

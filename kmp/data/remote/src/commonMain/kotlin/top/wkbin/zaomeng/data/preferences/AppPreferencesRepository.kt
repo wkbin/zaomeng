@@ -46,6 +46,9 @@ data class AppPreferences(
     val dynamicColorEnabled: Boolean = false,
     val uiScale: Float = UI_SCALE_DEFAULT,
     val builtInBackHandlingEnabled: Boolean = true,
+    val ttsEnabled: Boolean = true,
+    val ttsSpeechRate: Float = 1.0f,
+    val ttsAutoPlayObserve: Boolean = false,
 )
 
 /** 跨平台偏好仓库：全部平台统一走官方 KMP DataStore（Preferences）。 */
@@ -81,6 +84,9 @@ class AppPreferencesRepository(
                 builtInBackHandlingEnabled = values[KEY_BUILT_IN_BACK_HANDLING_ENABLED]
                     ?: values[KEY_LEGACY_PREDICTIVE_BACK_ENABLED]
                     ?: true,
+                ttsEnabled = values[KEY_TTS_ENABLED] ?: true,
+                ttsSpeechRate = (values[KEY_TTS_SPEECH_RATE] ?: 1.0f).coerceIn(0.5f, 2.0f),
+                ttsAutoPlayObserve = values[KEY_TTS_AUTO_PLAY_OBSERVE] ?: false,
             )
         }
 
@@ -106,6 +112,10 @@ class AppPreferencesRepository(
 
     val builtInBackHandlingEnabled: Flow<Boolean> = preferences
         .map { it.builtInBackHandlingEnabled }
+        .distinctUntilChanged()
+
+    val ttsEnabled: Flow<Boolean> = preferences
+        .map { it.ttsEnabled }
         .distinctUntilChanged()
 
     /**
@@ -244,6 +254,20 @@ class AppPreferencesRepository(
         }
     }
 
+    suspend fun setTtsEnabled(enabled: Boolean) {
+        dataStore.edit { values -> values[KEY_TTS_ENABLED] = enabled }
+    }
+
+    suspend fun setTtsSpeechRate(rate: Float) {
+        dataStore.edit { values ->
+            values[KEY_TTS_SPEECH_RATE] = rate.coerceIn(0.5f, 2.0f)
+        }
+    }
+
+    suspend fun setTtsAutoPlayObserve(enabled: Boolean) {
+        dataStore.edit { values -> values[KEY_TTS_AUTO_PLAY_OBSERVE] = enabled }
+    }
+
     private companion object {
         val KEY_DEFAULT_CHARACTERS = stringPreferencesKey("default_characters")
         val KEY_AUTO_DISTILL = booleanPreferencesKey("auto_distill")
@@ -265,6 +289,9 @@ class AppPreferencesRepository(
         val KEY_BUILT_IN_BACK_HANDLING_ENABLED = booleanPreferencesKey("built_in_back_handling_enabled")
         // 兼容旧版本曾用于控制系统预测返回的设置值。
         val KEY_LEGACY_PREDICTIVE_BACK_ENABLED = booleanPreferencesKey("predictive_back_enabled")
+        val KEY_TTS_ENABLED = booleanPreferencesKey("tts_enabled")
+        val KEY_TTS_SPEECH_RATE = floatPreferencesKey("tts_speech_rate")
+        val KEY_TTS_AUTO_PLAY_OBSERVE = booleanPreferencesKey("tts_auto_play_observe")
     }
 }
 

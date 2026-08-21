@@ -57,12 +57,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -158,6 +154,9 @@ internal fun TranscriptBubble(
     includeInnerThoughts: Boolean,
     streaming: Boolean = false,
     canRegenerate: Boolean = false,
+    isSpeaking: Boolean = false,
+    speakingId: String? = null,
+    onSpeak: (() -> Unit)? = null,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
     onBranch: () -> Unit,
@@ -299,12 +298,32 @@ internal fun TranscriptBubble(
         }
         Column {
             if (!isUser) {
-                Text(
-                    text = item.speaker.ifBlank { "人物" },
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ) {
+                    Text(
+                        text = item.speaker.ifBlank { "人物" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (onSpeak != null && !streaming) {
+                        val isThisSpeaking = isSpeaking && speakingId == item.transcriptKey()
+                        IconButton(
+                            onClick = onSpeak,
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .size(18.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isThisSpeaking) "停止朗读" else "朗读",
+                                modifier = Modifier.size(14.dp),
+                                tint = if (isThisSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
             }
             Box {
                 Surface(
