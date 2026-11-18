@@ -41,8 +41,10 @@ expect object ZaomengDatabaseConstructor : RoomDatabaseConstructor<ZaomengDataba
 /** 通用构建：捆绑 SQLite 驱动 + IO 调度器（平台差异只剩 Builder 的路径/Context）。 */
 fun buildZaomengDatabase(builder: RoomDatabase.Builder<ZaomengDatabase>): ZaomengDatabase =
     builder
-        // 不兼容升级：旧版（v1 documents-only）数据库直接重建，不迁移老数据。
-        .fallbackToDestructiveMigration(dropAllTables = true)
+        // v1（documents-only）已确认可以丢弃，升级到 v2 时允许直接重建。
+        // v2 起必须显式提供 Migration：漏写会在打开数据库时抛异常暴露问题，而不是静默清空
+        // 所有用户数据。不要改回全局 fallbackToDestructiveMigration(dropAllTables = true)。
+        .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1)
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(platformIoDispatcher)
         .build()
