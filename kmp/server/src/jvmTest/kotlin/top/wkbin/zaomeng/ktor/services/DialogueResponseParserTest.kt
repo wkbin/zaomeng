@@ -104,4 +104,17 @@ class DialogueResponseParserTest {
 
         assertNull(parsed)
     }
+
+    @Test
+    fun `bare single object reply is accepted when another participant is forbidden`() {
+        val content =
+            "{\"speaker\":\"潘金莲\",\"message\":\"（指尖把衣襟攥得发皱，声音细得几乎听不见）奴家都依你。\",\"inner_thought\":\"他这般急着要，我若是不应，怕是又要惹他动怒。\"}"
+        val parsed = DialogueResponseParser.parse(
+            content,
+            allowedSpeakers = listOf("武松", "潘金莲", "旁白", "场景提示"),
+            forbiddenSpeakers = listOf("武松"),
+        )
+        assertEquals("潘金莲", parsed.single().speaker)
+        assertEquals("（指尖把衣襟攥得发皱，声音细得几乎听不见）奴家都依你。", parsed.single().message)
+    }
 }
