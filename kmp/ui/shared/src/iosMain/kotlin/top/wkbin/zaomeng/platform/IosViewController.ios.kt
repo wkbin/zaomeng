@@ -16,7 +16,7 @@ internal fun foregroundViewController(): UIViewController? {
     // windows 在 Kotlin/Native 侧是 List<*>，先收敛成 UIWindow 再挑 keyWindow
     val windows = application.windows.filterIsInstance<UIWindow>()
     val keyWindow = application.keyWindow
-        ?: windows.firstOrNull { it.isKeyWindow }
+        ?: windows.firstOrNull { it.isKeyWindow() }
         ?: windows.firstOrNull()
     var top: UIViewController? = keyWindow?.rootViewController
     while (top != null) {

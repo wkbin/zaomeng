@@ -1,16 +1,19 @@
 package top.wkbin.zaomeng.platform
 
 import androidx.compose.runtime.Composable
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRectMake
-import platform.CoreGraphics.useContents
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIDevice
-import platform.UIKit.UIUserInterfaceIdiom
+import platform.UIKit.UIUserInterfaceIdiomPad
+import platform.UIKit.popoverPresentationController
 
 /**
  * iOS 系统分享：弹出 UIActivityViewController。
  * iPad 必须提供 popover 锚点（sourceView/sourceRect），否则系统会崩溃。
  */
+@OptIn(ExperimentalForeignApi::class)
 @Composable
 actual fun rememberShareText(): (String) -> Unit = { text ->
     foregroundViewController()?.let { presenter ->
@@ -18,7 +21,7 @@ actual fun rememberShareText(): (String) -> Unit = { text ->
             activityItems = listOf(text),
             applicationActivities = null,
         )
-        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiom.UIUserInterfaceIdiomPad) {
+        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
             val bounds = presenter.view.bounds
             activityController.popoverPresentationController?.sourceView = presenter.view
             activityController.popoverPresentationController?.sourceRect = bounds.useContents {
