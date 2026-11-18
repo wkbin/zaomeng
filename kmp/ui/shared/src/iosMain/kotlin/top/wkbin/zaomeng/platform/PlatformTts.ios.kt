@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.cinterop.ObjCSignatureOverride
 import platform.AVFAudio.AVSpeechSynthesisVoice
 import platform.AVFAudio.AVSpeechSynthesizer
 import platform.AVFAudio.AVSpeechSynthesizerDelegateProtocol
@@ -23,17 +24,21 @@ internal class IosPlatformTts : PlatformTts {
     private var activeId: String? = null
 
     private val delegate = object : NSObject(), AVSpeechSynthesizerDelegateProtocol {
+        // didStart / didFinish / didCancel 在 Kotlin 侧签名完全相同，需要显式声明 Obj-C 选择器
+        @ObjCSignatureOverride
         override fun speechSynthesizer(synthesizer: AVSpeechSynthesizer, didStartSpeechUtterance: AVSpeechUtterance) {
             _isSpeaking.value = true
             _currentSpeakingId.value = activeId
         }
 
+        @ObjCSignatureOverride
         override fun speechSynthesizer(synthesizer: AVSpeechSynthesizer, didFinishSpeechUtterance: AVSpeechUtterance) {
             _isSpeaking.value = false
             _currentSpeakingId.value = null
             activeId = null
         }
 
+        @ObjCSignatureOverride
         override fun speechSynthesizer(synthesizer: AVSpeechSynthesizer, didCancelSpeechUtterance: AVSpeechUtterance) {
             _isSpeaking.value = false
             _currentSpeakingId.value = null

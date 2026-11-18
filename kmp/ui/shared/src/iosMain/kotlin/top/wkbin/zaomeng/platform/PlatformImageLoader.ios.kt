@@ -12,7 +12,7 @@ actual fun rememberPlatformImage(uri: String): ImageBitmap? = remember(uri) {
     runCatching {
         val path = uri.toPath()
         if (FileSystem.SYSTEM.exists(path)) {
-            FileSystem.SYSTEM.read(path) { source -> decodeImageBitmap(source.readByteArray()) }
+            FileSystem.SYSTEM.read(path) { decodeImageBitmap(readByteArray()) }
         } else {
             null
         }
