@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.core.okio.OkioStorage
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferencesSerializer
+import kotlinx.cinterop.ExperimentalForeignApi
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -20,6 +21,7 @@ fun createDataStore(): DataStore<Preferences> = createDataStore(
     ),
 )
 
+@OptIn(ExperimentalForeignApi::class)
 private fun documentDirectory(): String {
     val url = NSFileManager.defaultManager.URLForDirectory(
         directory = NSDocumentDirectory,

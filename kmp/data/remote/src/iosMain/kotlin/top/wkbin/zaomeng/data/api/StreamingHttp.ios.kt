@@ -3,13 +3,13 @@ package top.wkbin.zaomeng.data.api
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.contentType
 import io.ktor.client.request.header
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
@@ -17,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import okio.Buffer
 import okio.BufferedSource
 import okio.Source
+import okio.Timeout
 import okio.buffer
 
 /**
@@ -52,17 +53,21 @@ private class ByteReadChannelSource(
     private val channel: ByteReadChannel,
 ) : Source {
     override fun read(sink: Buffer, byteCount: Long): Long {
-        if (channel.isClosedForRead && channel.availableForRead == 0) return -1L
+        if (byteCount == 0L) return 0L
         val size = minOf(byteCount, 8192L).toInt()
         val bytes = ByteArray(size)
+        // readAvailable 会挂起到有数据或结束为止；-1 表示流结束，0 表示本次没读到内容。
         val read = runBlocking { channel.readAvailable(bytes, 0, size) }
         if (read < 0) return -1L
-        if (read == 0) return if (channel.isClosedForRead) -1L else 0L
+        if (read == 0) return 0L
         sink.write(bytes, 0, read)
         return read.toLong()
     }
 
+    /** 阻塞式读取，没有超时语义（由外层 HttpTimeout 管）。 */
+    override fun timeout(): Timeout = Timeout.NONE
+
     override fun close() {
-        channel.cancel()
+        channel.cancel(null)
     }
 }

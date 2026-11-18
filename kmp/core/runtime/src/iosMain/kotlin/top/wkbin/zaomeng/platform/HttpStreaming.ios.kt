@@ -10,7 +10,6 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.cancel
 import io.ktor.utils.io.readUTF8Line
 
 actual fun createHttpClientEngine(): HttpClientEngine = Darwin.create()
@@ -54,5 +53,5 @@ private class DarwinStreamingResponse(
         }
     }
 
-    override fun close() = channel.cancel()
+    override fun close() = channel.cancel(null)
 }
