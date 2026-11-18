@@ -1,12 +1,15 @@
 package top.wkbin.zaomeng.db
 
+import androidx.room3.withWriteTransaction
 import okio.FileSystem
 import okio.Path
 import okio.buffer
 import okio.use
+import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.monotonicNanos
 import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.runBlockingPlatform
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * 文档存储后端抽象：StorageService 的业务文件语义（文本/二进制、目录、递归删除、改名）。
@@ -111,8 +114,10 @@ class FileSystemDocumentStore(
  * （SQLite 操作在 Room 的 IO 执行器上跑，调用线程阻塞等待，等价于原同步文件 IO）。
  */
 class RoomDocumentStore(
-    private val dao: DocumentDao,
+    private val db: ZaomengDatabase,
 ) : DocumentStore {
+    private val dao: DocumentDao = db.documentDao()
+
     /** 统一用 / 作路径分隔符（Windows 的 okio Path toString 是 \，前缀匹配需要一致）。 */
     private fun key(path: Path): String = path.toString().replace('\\', '/')
 
@@ -168,34 +173,58 @@ class RoomDocumentStore(
         }
     }
 
-    override fun rename(source: Path, target: Path): Boolean = try {
+    /**
+     * 单事务内完成「列举源行 → 读源字节 → 写目标行 → 删源行」。
+     *
+     * - 写入与删除原本是两个独立事务，中途失败会留下新旧两份数据；现在整体包在
+     *   [withWriteTransaction] 里，失败由 SQLite 回滚，不存在半搬移状态。
+     * - 源行读不到时**跳过**而不是写 [ByteArray] 空字节：空字节会把「行已消失」伪装成
+     *   长度为 0 的合法文件，比直接丢这一条更难排查。
+     * - 事务失败对调用方仍通过 `false` 表达（`StorageService.rename` 的契约只返回布尔），
+     *   但会记一条截断日志，避免静默。
+     */
+    override fun rename(source: Path, target: Path): Boolean {
         val sourceKey = key(source)
         val sourcePrefix = prefixOf(source)
-        val moves: List<Pair<String, ByteArray>> = runBlockingPlatform {
-            val self = dao.bytesOf(sourceKey)?.let { listOf(sourceKey to it) } ?: emptyList()
-            val under = dao.pathsUnder(patternFor(sourcePrefix))
-            self + under.map { it to (dao.bytesOf(it) ?: ByteArray(0)) }
-        }
-        if (moves.isEmpty()) return false
         val targetKey = key(target)
         val targetPrefix = prefixOf(target)
-        val now = nowEpochMillis()
-        runBlockingPlatform {
-            moves.forEach { (from, bytes) ->
-                val to = if (from == sourceKey) {
-                    targetKey
-                } else {
-                    targetPrefix + from.removePrefix(sourcePrefix)
+        return runBlockingPlatform {
+            try {
+                db.withWriteTransaction {
+                    val moves = mutableListOf<Pair<String, ByteArray>>()
+                    dao.bytesOf(sourceKey)?.let { moves += sourceKey to it }
+                    for (child in dao.pathsUnder(patternFor(sourcePrefix))) {
+                        dao.bytesOf(child)?.let { moves += child to it }
+                    }
+                    if (moves.isEmpty()) {
+                        // 源不存在：不写任何行，返回 false（与文件系统后端的 atomicMove 一致）。
+                        return@withWriteTransaction false
+                    }
+                    val now = nowEpochMillis()
+                    for ((from, bytes) in moves) {
+                        val to = if (from == sourceKey) {
+                            targetKey
+                        } else {
+                            targetPrefix + from.removePrefix(sourcePrefix)
+                        }
+                        dao.upsert(DocumentEntity(to, bytes, now))
+                    }
+                    for ((from, _) in moves) dao.delete(from)
+                    true
                 }
-                dao.upsert(DocumentEntity(to, bytes, now))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                PlatformLog.w(TAG, "document rename failed, rolled back: $source -> $target", error)
+                false
             }
-            moves.forEach { (from, _) -> dao.delete(from) }
         }
-        true
-    } catch (e: Exception) {
-        false
     }
 
     override fun fileSize(path: Path): Long =
         runBlockingPlatform { dao.bytesOf(key(path))?.size?.toLong() ?: 0L }
+
+    private companion object {
+        const val TAG = "RoomDocumentStore"
+    }
 }

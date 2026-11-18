@@ -30,7 +30,7 @@ class PersonaDeleteTest {
 
     private fun newStorage(dbFile: File, db: ZaomengDatabase): StorageService {
         val root = dbFile.absolutePath.toPath()
-        val documentStore = RoomDocumentStore(db.documentDao())
+        val documentStore = RoomDocumentStore(db)
         val domain = DomainStore(root, db.domainDao(), documentStore)
         return StorageService(root, documentStore, domain)
     }

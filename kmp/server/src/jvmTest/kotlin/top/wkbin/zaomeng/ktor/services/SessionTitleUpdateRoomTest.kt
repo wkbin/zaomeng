@@ -22,7 +22,7 @@ class SessionTitleUpdateRoomTest {
         try {
             val db = buildZaomengDatabase(getDatabaseBuilder(dbFile.absolutePath.toPath()))
             val root = dbFile.absolutePath.toPath()
-            val documentStore = RoomDocumentStore(db.documentDao())
+            val documentStore = RoomDocumentStore(db)
             val storage = StorageService(root, documentStore, DomainStore(root, db.domainDao(), documentStore))
             val service = SessionManagementService(storage, DialogueService(storage))
 

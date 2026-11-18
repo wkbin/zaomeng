@@ -22,7 +22,7 @@ class RoomDocumentStoreTest {
     fun `write read roundtrip with metadata`() {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
-        val store = RoomDocumentStore(db.documentDao())
+        val store = RoomDocumentStore(db)
         val path = dbFile.absolutePath.toPath() / "runs" / "run-1" / "run_manifest.json"
 
         store.writeBytes(path, """{"run_id":"run-1"}""".encodeToByteArray(), updatedAtMillis = 42L)
@@ -40,7 +40,7 @@ class RoomDocumentStoreTest {
     fun `directory semantics and one level listing`() {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
-        val store = RoomDocumentStore(db.documentDao())
+        val store = RoomDocumentStore(db)
         val root = dbFile.absolutePath.toPath()
         val runDir = root / "runs" / "run-a"
         val runManifest = runDir / "run_manifest.json"
@@ -67,7 +67,7 @@ class RoomDocumentStoreTest {
     fun `delete recursively removes subtree only`() {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
-        val store = RoomDocumentStore(db.documentDao())
+        val store = RoomDocumentStore(db)
         val root = dbFile.absolutePath.toPath()
         val keep = root / "runs" / "keep" / "run_manifest.json"
         val dropDir = root / "runs" / "drop"
@@ -90,7 +90,7 @@ class RoomDocumentStoreTest {
     fun `rename moves file and directory`() {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
-        val store = RoomDocumentStore(db.documentDao())
+        val store = RoomDocumentStore(db)
         val root = dbFile.absolutePath.toPath()
         val oldFile = root / "a.json"
         val newFile = root / "b.json"
@@ -112,10 +112,52 @@ class RoomDocumentStoreTest {
     }
 
     @Test
+    fun `rename moves whole subtree and refreshes timestamps`() {
+        val dbFile = tempDbFile()
+        val db = newDatabase(dbFile)
+        val store = RoomDocumentStore(db)
+        val root = dbFile.absolutePath.toPath()
+        val oldDir = root / "runs" / "old"
+        val newDir = root / "runs" / "new"
+        val sibling = root / "runs" / "sibling.json"
+        store.writeBytes(oldDir / "run_manifest.json", "manifest".encodeToByteArray(), 1L)
+        store.writeBytes(oldDir / "chapters" / "c1.json", "chapter-1".encodeToByteArray(), 2L)
+        store.writeBytes(sibling, "sibling".encodeToByteArray(), 3L)
+
+        assertTrue(store.rename(oldDir, newDir))
+
+        assertEquals("manifest", store.readBytes(newDir / "run_manifest.json")?.decodeToString())
+        assertEquals("chapter-1", store.readBytes(newDir / "chapters" / "c1.json")?.decodeToString())
+        // 目标行按写入时间刷新 updated_at
+        assertTrue(store.updatedAtMillis(newDir / "run_manifest.json")!! > 1L)
+        // 内容长度保持非零：不能把搬移写成 0 字节占位行
+        assertEquals(8L, store.fileSize(newDir / "run_manifest.json"))
+        assertEquals(9L, store.fileSize(newDir / "chapters" / "c1.json"))
+        // 源子树整体消失，子树之外的兄弟文件不受影响
+        assertFalse(store.exists(oldDir / "run_manifest.json"))
+        assertFalse(store.exists(oldDir / "chapters" / "c1.json"))
+        assertEquals("sibling", store.readBytes(sibling)?.decodeToString())
+        db.close()
+    }
+
+    @Test
+    fun `rename of missing source returns false and writes nothing`() {
+        val dbFile = tempDbFile()
+        val db = newDatabase(dbFile)
+        val store = RoomDocumentStore(db)
+        val root = dbFile.absolutePath.toPath()
+
+        assertFalse(store.rename(root / "missing", root / "target"))
+
+        assertFalse(store.exists(root / "target"))
+        db.close()
+    }
+
+    @Test
     fun `like special characters in paths are handled`() {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
-        val store = RoomDocumentStore(db.documentDao())
+        val store = RoomDocumentStore(db)
         val root = dbFile.absolutePath.toPath()
         val weirdDir = root / "runs" / "run_100%_x"
         val file = weirdDir / "a_b.json"
@@ -134,7 +176,7 @@ class RoomDocumentStoreTest {
         val dbFile = tempDbFile()
         val db = newDatabase(dbFile)
         val root = dbFile.absolutePath.toPath()
-        val storage = StorageService(root, RoomDocumentStore(db.documentDao()))
+        val storage = StorageService(root, RoomDocumentStore(db))
 
         storage.writeRunManifest(
             "run-1",

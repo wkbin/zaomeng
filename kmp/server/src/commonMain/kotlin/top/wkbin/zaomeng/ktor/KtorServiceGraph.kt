@@ -9,7 +9,7 @@ import top.wkbin.zaomeng.ktor.services.*
 /** Application-scoped Ktor services. Routes receive dependencies from this graph. */
 class KtorServiceGraph(platform: ServerPlatform) {
     private val database = buildZaomengDatabase(platform.databaseBuilder())
-    private val documentStore = RoomDocumentStore(database.documentDao())
+    private val documentStore = RoomDocumentStore(database)
     val storage = StorageService(
         platform.dataRoot,
         documentStore,

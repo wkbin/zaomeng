@@ -61,7 +61,7 @@ class CrossoverSpaceTest {
 
     private fun newStorage(dbFile: File, db: ZaomengDatabase): StorageService {
         val root = dbFile.absolutePath.toPath()
-        val documentStore = RoomDocumentStore(db.documentDao())
+        val documentStore = RoomDocumentStore(db)
         return StorageService(root, documentStore, DomainStore(root, db.domainDao(), documentStore))
     }
 
