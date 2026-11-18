@@ -89,6 +89,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.koinInject
+import kotlin.math.roundToLong
 import androidx.window.core.layout.WindowSizeClass
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
@@ -1514,11 +1515,17 @@ private fun sourceMeta(source: NovelSourceDto): String = buildList {
     when {
         source.charCount >= 10_000 -> add("约 ${source.charCount / 10_000.0f} 万字".replace(".0 ", " "))
         source.charCount > 0 -> add("约 ${source.charCount} 字")
-        source.byteSize >= 1024 * 1024 -> add("%.1f MB".format(source.byteSize / (1024.0 * 1024.0)))
-        source.byteSize >= 1024 -> add("%.1f KB".format(source.byteSize / 1024.0))
+        source.byteSize >= 1024 * 1024 -> add("${oneDecimal(source.byteSize / (1024.0 * 1024.0))} MB")
+        source.byteSize >= 1024 -> add("${oneDecimal(source.byteSize / 1024.0)} KB")
         source.byteSize > 0 -> add("${source.byteSize} B")
     }
     if (source.timestamp.isNotBlank()) {
         add(source.timestamp.toLocalDateTimeDisplay())
     }
 }.joinToString(" · ")
+
+/** 保留一位小数：commonMain 没有 JVM 的 `String.format`。 */
+private fun oneDecimal(value: Double): String {
+    val scaled = (value * 10.0).roundToLong()
+    return "${scaled / 10}.${scaled % 10}"
+}
