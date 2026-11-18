@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.di
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import okio.Path
 import okio.Path.Companion.toPath
 import platform.Foundation.NSCachesDirectory
@@ -41,6 +42,7 @@ object IosAppPlatform : AppPlatform {
     private const val BACKEND_TOKEN = "ios-dev-token"
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun cachesDirectory(): String {
     val url = NSFileManager.defaultManager.URLForDirectory(
         directory = NSCachesDirectory,
@@ -52,6 +54,7 @@ private fun cachesDirectory(): String {
     return requireNotNull(url?.path) { "NSCachesDirectory unavailable" }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 private fun documentsDirectory(): String {
     val url = NSFileManager.defaultManager.URLForDirectory(
         directory = NSDocumentDirectory,
