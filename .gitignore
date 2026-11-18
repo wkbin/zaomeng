@@ -69,6 +69,10 @@ outputs/
 clawhub-zaomeng-skill/runtime/data/
 .tools/
 
+# Agent runtime memory artifacts (openclaw dreaming, regenerated daily)
+/memory/
+/DREAMS.md
+
 # Local/generated Android Studio project mirror (contains signing credentials)
 /android/
 
