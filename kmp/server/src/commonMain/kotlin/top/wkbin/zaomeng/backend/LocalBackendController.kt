@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 import top.wkbin.zaomeng.ktor.KtorServiceGraph
 import top.wkbin.zaomeng.ktor.plugins.configureObservability
 import top.wkbin.zaomeng.ktor.plugins.configureSecurity
@@ -38,6 +39,7 @@ import top.wkbin.zaomeng.ktor.routes.settingsManagementRoutes
 import top.wkbin.zaomeng.ktor.routes.suggestionsRoutes
 import top.wkbin.zaomeng.ktor.routes.worldMemoryRoutes
 import top.wkbin.zaomeng.platform.ServerPlatform
+import top.wkbin.zaomeng.platform.SimpleLock
 
 /**
  * 通用内嵌后端控制器：三端统一的 Ktor CIO server（数据走 Room）。
@@ -58,6 +60,9 @@ class LocalBackendController(
     @Volatile
     private var boundPort: Int? = null
 
+    /** 启动闸门：commonMain 里没有 java 的 `synchronized`，统一用跨平台锁保证幂等。 */
+    private val startLock = SimpleLock()
+
     /** 实际绑定端口（随机端口模式下在 start 后解析）。 */
     val actualPort: Int? get() = boundPort
 
@@ -77,11 +82,16 @@ class LocalBackendController(
     }
 
     override fun start() {
-        if (started) return
-        synchronized(this) {
-            if (started) return
-            started = true
+        // 只有抢到「从未启动」的那一方真正拉起服务器；其余调用直接返回。
+        val firstStart = startLock.withLock {
+            if (started) {
+                false
+            } else {
+                started = true
+                true
+            }
         }
+        if (!firstStart) return
         mutableState.value = BackendState.Starting("启动内嵌后端…")
         try {
             val services = KtorServiceGraph(serverPlatform)
