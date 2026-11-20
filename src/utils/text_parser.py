@@ -99,7 +99,8 @@ def _load_epub(path: Path) -> str:
     chunks: List[str] = []
     for item in book.get_items():
         if item.get_type() == 9:  # ebooklib.ITEM_DOCUMENT
-            html = item.get_content().decode("utf-8", errors="ignore")
+            content = item.get_content()
+            html = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else content
             text = _strip_html_tags(html)
             if text:
                 chunks.append(text)
