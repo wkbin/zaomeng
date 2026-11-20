@@ -106,12 +106,12 @@ fun StoryRecapScreen(
                 actions = {
                     IconButton(
                         onClick = { showExportDialog = true },
-                        enabled = !state.loading && recap != null,
+                        enabled = !state.loading && recap != null && state.projectionStatus != "failed" && state.error.isBlank(),
                     ) {
                         Icon(Icons.Default.Share, contentDescription = "导出剧场与战报")
                     }
                     IconButton(
-                        onClick = viewModel::load,
+                        onClick = viewModel::rebuild,
                         enabled = !state.loading && !state.refreshing,
                     ) {
                         if (state.refreshing) {
@@ -128,7 +128,7 @@ fun StoryRecapScreen(
         },
     ) { innerPadding ->
         when {
-            state.loading -> Box(
+            state.loading || (state.projectionStatus == "building" && recap == null) -> Box(
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -158,6 +158,23 @@ fun StoryRecapScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (state.error.isNotBlank()) {
+                    item(key = "projection-error") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                            ),
+                        ) {
+                            Text(
+                                text = "摘要已过期：${state.error}",
+                                modifier = Modifier.padding(12.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
                 item(key = "header") { RecapHeader(recap) }
                 if (recap.events.isNotEmpty()) {
                     item(key = "events") { EventTimelineCard(recap.events) }
@@ -188,7 +205,7 @@ fun StoryRecapScreen(
         }
     }
 
-    if (showExportDialog && recap != null) {
+    if (showExportDialog && recap != null && state.projectionStatus != "failed" && state.error.isBlank()) {
         RecapExportDialog(
             recap = recap,
             onDismiss = { showExportDialog = false },

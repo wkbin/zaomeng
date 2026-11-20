@@ -43,7 +43,10 @@ import java.util.prefs.Preferences
 fun main() {
     FileKit.init(appId = "top.wkbin.zaomeng")
     application {
-        startKoin { modules(sharedAppModules(DesktopAppPlatform())) }
+        // 幂等启动：无论这段代码在什么作用域被重复执行，都不会二次 startKoin。
+        if (GlobalContext.getOrNull() == null) {
+            startKoin { modules(sharedAppModules(DesktopAppPlatform())) }
+        }
         // 窗口创建前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
         val initialPreferences = runBlocking {
             GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()

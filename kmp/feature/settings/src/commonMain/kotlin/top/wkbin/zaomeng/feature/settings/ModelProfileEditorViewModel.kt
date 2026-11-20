@@ -3,12 +3,16 @@ package top.wkbin.zaomeng.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import top.wkbin.zaomeng.data.ModelSettingsRepository
+import top.wkbin.zaomeng.data.api.DiscoverModelsRequest
+import top.wkbin.zaomeng.data.api.DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+import top.wkbin.zaomeng.data.api.MAX_MODEL_REQUEST_TIMEOUT_SECONDS
 import top.wkbin.zaomeng.data.api.ModelProfileDto
 import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
@@ -20,6 +24,9 @@ data class ModelProfileEditorUiState(
     val testing: Boolean = false,
     val detecting: Boolean = false,
     val deleting: Boolean = false,
+    val discoveringModels: Boolean = false,
+    val discoveredModels: List<String> = emptyList(),
+    val modelDiscoveryError: String = "",
     val isNew: Boolean = true,
     val profileId: String = "",
     val activeProfileId: String = "",
@@ -32,6 +39,7 @@ data class ModelProfileEditorUiState(
     val apiKey: String = "",
     val apiKeyConfigured: Boolean = false,
     val maxTokens: String = "0",
+    val requestTimeoutSeconds: String = DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS.toString(),
     val reasoningEffort: String = "off",
     val tokenParameter: String = "auto",
     val responseFormatMode: String = "auto",
@@ -45,6 +53,7 @@ data class ModelProfileEditorUiState(
         get() = original?.let {
             profileName != it.profileName || selectedCatalogId != it.selectedCatalogId || provider != it.provider ||
                 model != it.model || baseUrl != it.baseUrl || maxTokens != it.maxTokens ||
+                requestTimeoutSeconds != it.requestTimeoutSeconds ||
                 reasoningEffort != it.reasoningEffort || tokenParameter != it.tokenParameter ||
                 responseFormatMode != it.responseFormatMode || apiKey.isNotBlank()
         } ?: false
@@ -57,6 +66,7 @@ data class EditorSnapshot(
     val model: String,
     val baseUrl: String,
     val maxTokens: String,
+    val requestTimeoutSeconds: String,
     val reasoningEffort: String,
     val tokenParameter: String,
     val responseFormatMode: String,
@@ -68,6 +78,7 @@ class ModelProfileEditorViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ModelProfileEditorUiState())
     val state: StateFlow<ModelProfileEditorUiState> = mutableState.asStateFlow()
+    private var modelDiscoveryJob: Job? = null
 
     init {
         load()
@@ -113,7 +124,42 @@ class ModelProfileEditorViewModel(
     fun updateApiKey(value: String) = update { copy(apiKey = value) }
     fun updateMaxTokens(value: String) = update { copy(maxTokens = value.filter(Char::isDigit).take(5)) }
     fun updateReasoningEffort(value: String) = update { copy(reasoningEffort = value) }
+    fun updateRequestTimeout(value: String) = update {
+        copy(requestTimeoutSeconds = value.filter(Char::isDigit).take(3))
+    }
     fun updateTokenParameter(value: String) = update { copy(tokenParameter = value) }
+
+    fun discoverModels() {
+        val current = state.value
+        if (current.loading || current.discoveringModels) return
+        mutableState.update {
+            it.copy(discoveringModels = true, discoveredModels = emptyList(), modelDiscoveryError = "")
+        }
+        modelDiscoveryJob = viewModelScope.launch {
+            try {
+                val models = repository.discoverModels(
+                    DiscoverModelsRequest(current.baseUrl, current.apiKey, current.profileId),
+                )
+                mutableState.update {
+                    it.copy(
+                        discoveringModels = false,
+                        discoveredModels = models,
+                        modelDiscoveryError = if (models.isEmpty()) "模型服务没有返回可选模型。" else "",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                mutableState.update {
+                    it.copy(discoveringModels = false, modelDiscoveryError = error.message ?: "无法获取模型列表。")
+                }
+            }
+        }
+    }
+
+    fun dismissDiscoveredModels() {
+        mutableState.update { it.copy(discoveredModels = emptyList()) }
+    }
 
     fun testConnection() {
         val request = validatedRequest() ?: return
@@ -129,6 +175,7 @@ class ModelProfileEditorViewModel(
                         maxTokens = request.maxTokens,
                         reasoningEffort = request.reasoningEffort,
                         tokenParameter = request.tokenParameter,
+                        requestTimeoutSeconds = request.requestTimeoutSeconds,
                         responseFormatMode = request.responseFormatMode,
                         profileId = request.profileId,
                     ),
@@ -158,6 +205,7 @@ class ModelProfileEditorViewModel(
                         maxTokens = request.maxTokens,
                         reasoningEffort = request.reasoningEffort,
                         tokenParameter = request.tokenParameter,
+                        requestTimeoutSeconds = request.requestTimeoutSeconds,
                         responseFormatMode = request.responseFormatMode,
                         profileId = request.profileId,
                     ),
@@ -268,9 +316,12 @@ class ModelProfileEditorViewModel(
     private fun validatedRequest(): SaveModelSettingsRequest? {
         val current = state.value
         val maxTokens = current.maxTokens.toIntOrNull() ?: 0
+        val requestTimeout = current.requestTimeoutSeconds.toIntOrNull()
         val error = when {
             current.profileName.trim().isBlank() -> "请填写档案名称。"
             current.model.trim().isBlank() -> "请填写或选择模型名称。"
+            requestTimeout == null || requestTimeout !in 1..MAX_MODEL_REQUEST_TIMEOUT_SECONDS ->
+                "请求超时须在 1 到 $MAX_MODEL_REQUEST_TIMEOUT_SECONDS 秒之间。"
             maxTokens !in 0..16000 -> "最大输出 Token 需要在 0 到 16000 之间。"
             else -> ""
         }
@@ -284,6 +335,7 @@ class ModelProfileEditorViewModel(
             baseUrl = current.baseUrl.trim(),
             apiKey = current.apiKey.trim(),
             maxTokens = maxTokens,
+            requestTimeoutSeconds = requestTimeout,
             reasoningEffort = normalizedReasoningEffort(
                 current.provider,
                 current.baseUrl,
@@ -299,7 +351,19 @@ class ModelProfileEditorViewModel(
     }
 
     private inline fun update(transform: ModelProfileEditorUiState.() -> ModelProfileEditorUiState) {
-        mutableState.update { it.transform().copy(error = "", message = "") }
+        val previous = state.value
+        val updated = previous.transform()
+        val serviceChanged = previous.baseUrl != updated.baseUrl || previous.apiKey != updated.apiKey ||
+            previous.provider != updated.provider
+        if (serviceChanged) modelDiscoveryJob?.cancel()
+        mutableState.value = if (serviceChanged) {
+            updated.copy(
+                error = "", message = "", discoveringModels = false,
+                discoveredModels = emptyList(), modelDiscoveryError = "",
+            )
+        } else {
+            updated.copy(error = "", message = "")
+        }
     }
 }
 
@@ -317,6 +381,7 @@ private fun ModelProfileDto.toEditorState(activeProfileId: String, profileCount:
         baseUrl = baseUrl,
         apiKeyConfigured = apiKeyConfigured,
         maxTokens = maxTokens.toString(),
+        requestTimeoutSeconds = requestTimeoutSeconds.toString(),
         reasoningEffort = normalizedReasoningEffort(provider, baseUrl, model, reasoningEffort),
         tokenParameter = tokenParameter,
         responseFormatMode = responseFormatMode,
@@ -329,6 +394,7 @@ private fun ModelProfileEditorUiState.snapshot() = EditorSnapshot(
     model,
     baseUrl,
     maxTokens,
+    requestTimeoutSeconds,
     reasoningEffort,
     tokenParameter,
     responseFormatMode,

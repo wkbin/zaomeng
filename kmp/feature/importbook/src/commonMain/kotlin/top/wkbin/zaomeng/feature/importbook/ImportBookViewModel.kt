@@ -8,6 +8,7 @@ import top.wkbin.zaomeng.data.ModelSettingsRepository
 import top.wkbin.zaomeng.data.RunRepository
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
 import top.wkbin.zaomeng.domain.distill.EstimateDistillSamplingUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,14 @@ data class ImportBookUiState(
     val fileName: String = "",
     val fileSize: Long = 0,
     val packageFile: Boolean = false,
+    val documentKind: ImportDocumentKind? = null,
+    val worldBookTargets: List<RunManifestDto> = emptyList(),
+    val targetRunId: String = "",
+    val sillyTavernPreview: SillyTavernPreviewDto? = null,
+    val previewAvatar: ByteArray? = null,
+    val previewBusy: Boolean = false,
+    val previewError: String = "",
+    val testText: String = "",
     val sourceEncoding: String = "",
     val charCount: Int = 0,
     val sentenceCount: Int = 0,
@@ -57,6 +66,7 @@ class ImportBookViewModel(
     private var selectedBytes: ByteArray? = null
     private var selectedKind: ImportDocumentKind? = null
     private var fileLoadJob: Job? = null
+    private var previewJob: Job? = null
     private var modelConfigurationJob: Job? = null
     private var samplingEstimateJob: Job? = null
     private var samplingEstimateRequestId = 0L
@@ -82,6 +92,27 @@ class ImportBookViewModel(
         mutableState.update { it.copy(readingFile = false) }
     }
 
+    fun clearDocument() {
+        if (state.value.readingFile || state.value.submitting) return
+        fileLoadJob?.cancel()
+        previewJob?.cancel()
+        samplingEstimateJob?.cancel()
+        selectedBytes = null
+        selectedKind = null
+        mutableState.update { current ->
+            ImportBookUiState(
+                characters = current.characters,
+                autoDistill = current.autoDistill,
+                maxSentences = current.maxSentences,
+                maxChars = current.maxChars,
+                advancedSamplingVisible = current.advancedSamplingVisible,
+                modelConfigured = current.modelConfigured,
+                modelConfigurationError = current.modelConfigurationError,
+                createdRunId = current.createdRunId,
+            )
+        }
+    }
+
     fun loadDocument(name: String, bytes: ByteArray, kind: ImportDocumentKind) {
         fileLoadJob?.cancel()
         fileLoadJob = viewModelScope.launch {
@@ -92,6 +123,19 @@ class ImportBookViewModel(
                         ImportDocumentLoader.prepareImportDocument(name, bytes, kind)
                     },
                 )
+                if (kind == ImportDocumentKind.WorldBook) {
+                    val targets = runs.listRuns()
+                    mutableState.update {
+                        it.copy(
+                            worldBookTargets = targets,
+                            readingFile = false,
+                            error = if (targets.isEmpty()) "请先导入角色卡或创建一个书卷。" else "",
+                        )
+                    }
+                }
+                if (kind == ImportDocumentKind.WorldBook || kind == ImportDocumentKind.CharacterCard) {
+                    refreshSillyTavernPreview()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -108,12 +152,21 @@ class ImportBookViewModel(
     private fun selectDocument(document: ImportDocument) {
         selectedBytes = document.bytes
         selectedKind = document.kind
+        previewJob?.cancel()
         samplingEstimateJob?.cancel()
         mutableState.update {
             it.copy(
                 fileName = document.fileName,
                 fileSize = document.bytes.size.toLong(),
-                packageFile = document.kind == ImportDocumentKind.RunPackage,
+                packageFile = document.kind != ImportDocumentKind.NovelText,
+                documentKind = document.kind,
+                worldBookTargets = emptyList(),
+                targetRunId = "",
+                sillyTavernPreview = null,
+                previewAvatar = null,
+                previewBusy = false,
+                previewError = "",
+                testText = "",
                 sourceEncoding = document.sourceEncoding,
                 charCount = document.charCount,
                 sentenceCount = document.sentenceCount,
@@ -121,11 +174,54 @@ class ImportBookViewModel(
                 estimatingSampling = false,
                 samplingPlan = null,
                 samplingEstimateError = "",
-                readingFile = false,
+                readingFile = document.kind == ImportDocumentKind.WorldBook,
                 error = "",
             )
         }
         scheduleSamplingEstimate()
+    }
+
+    fun selectWorldBookTarget(runId: String) {
+        if (state.value.targetRunId == runId) return
+        mutableState.update { it.copy(targetRunId = runId, sillyTavernPreview = null) }
+        refreshSillyTavernPreview(test = state.value.testText.isNotBlank())
+    }
+
+    fun updateTestText(value: String) {
+        mutableState.update {
+            it.copy(testText = value.take(2000), sillyTavernPreview = it.sillyTavernPreview?.copy(testedEntries = null))
+        }
+    }
+
+    fun refreshSillyTavernPreview(test: Boolean = false) {
+        val bytes = selectedBytes ?: return
+        val snapshot = state.value
+        val worldBook = selectedKind == ImportDocumentKind.WorldBook
+        if (!worldBook && selectedKind != ImportDocumentKind.CharacterCard) return
+        previewJob?.cancel()
+        mutableState.update { it.copy(previewBusy = true, previewError = "") }
+        previewJob = viewModelScope.launch {
+            try {
+                val result = runs.previewSillyTavern(
+                    snapshot.fileName,
+                    bytes,
+                    worldBook,
+                    snapshot.targetRunId.ifBlank { null },
+                    snapshot.testText.takeIf { test && it.isNotBlank() },
+                )
+                mutableState.update {
+                    it.copy(
+                        sillyTavernPreview = if (it.testText == snapshot.testText) result else result.copy(testedEntries = null),
+                        previewAvatar = bytes.takeIf { result.hasAvatar },
+                        previewBusy = false,
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                mutableState.update { it.copy(previewBusy = false, previewError = error.message ?: "无法预览文件。") }
+            }
+        }
     }
 
     fun updateCharacters(value: String) {
@@ -205,7 +301,14 @@ class ImportBookViewModel(
             mutableState.update { it.copy(error = "请先选择一个文件。") }
             return
         }
-        val packageFile = selectedKind == ImportDocumentKind.RunPackage
+        val kind = selectedKind ?: return
+        if ((kind == ImportDocumentKind.CharacterCard || kind == ImportDocumentKind.WorldBook) &&
+            (current.previewBusy || current.sillyTavernPreview == null)
+        ) return
+        val packageFile = kind != ImportDocumentKind.NovelText
+        val targetRunId = if (kind == ImportDocumentKind.WorldBook) {
+            current.targetRunId.takeIf(String::isNotBlank) ?: return
+        } else null
         val characters = if (packageFile) {
             emptyList()
         } else {
@@ -238,10 +341,11 @@ class ImportBookViewModel(
 
         viewModelScope.launch {
             mutableState.update { it.copy(submitting = true, error = "") }
-            val knownRunIds = captureKnownRunIds()
+            val canRecover = kind == ImportDocumentKind.RunPackage || kind == ImportDocumentKind.NovelText
+            val knownRunIds = if (canRecover) captureKnownRunIds() else null
             try {
                 val run = if (packageFile) {
-                    runs.importPackage(current.fileName, bytes)
+                    runs.importPackage(current.fileName, bytes, targetRunId = targetRunId)
                 } else {
                     runs.saveImportDefaults(current.characters, autoDistill = current.autoDistill)
                     runs.createNovel(
@@ -257,12 +361,12 @@ class ImportBookViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                val recovered = findRecoveredRun(knownRunIds) { run ->
+                val recovered = if (canRecover) findRecoveredRun(knownRunIds) { run ->
                     packageFile || (
                         run.novelSources.any { it.sourceName == current.fileName } &&
                             run.lockedCharacters.toSet() == characters.toSet()
                         )
-                }
+                } else null
                 if (recovered != null) {
                     finishCreatedRun(recovered, packageFile)
                 } else {
@@ -276,6 +380,7 @@ class ImportBookViewModel(
 
     fun consumeCreatedRun() {
         mutableState.update { it.copy(createdRunId = "") }
+        clearDocument()
     }
 
     private fun finishCreatedRun(run: RunManifestDto, packageFile: Boolean) {

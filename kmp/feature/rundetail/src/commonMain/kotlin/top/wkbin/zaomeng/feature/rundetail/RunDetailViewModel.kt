@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.PersonaRepository
 import top.wkbin.zaomeng.data.RunRepository
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
+import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
+import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
+import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.WorldBookTestDto
 import top.wkbin.zaomeng.platform.cropAvatarBytes
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.platform.platformIoDispatcher
@@ -56,6 +60,13 @@ data class AvatarCrop(
     val side: Int,
 )
 
+data class WorldBooksUiState(
+    val data: ManagedWorldBooksDto? = null,
+    val busy: Boolean = false,
+    val error: String = "",
+    val result: WorldBookTestDto? = null,
+)
+
 class RunDetailViewModel(
     private val runs: RunRepository,
     private val persona: PersonaRepository,
@@ -66,6 +77,8 @@ class RunDetailViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RunDetailUiState())
     val state: StateFlow<RunDetailUiState> = mutableState.asStateFlow()
+    private val mutableWorldBooks = MutableStateFlow(WorldBooksUiState())
+    val worldBooks: StateFlow<WorldBooksUiState> = mutableWorldBooks.asStateFlow()
 
     private var loadJob: Job? = null
     private var pollingJob: Job? = null
@@ -79,6 +92,42 @@ class RunDetailViewModel(
     fun load() = loadRun(refreshManifest = false)
 
     fun refresh() = loadRun(refreshManifest = true)
+
+    fun loadWorldBooks() = worldBookAction {
+        it.copy(data = runs.listWorldBooks(runId), result = null)
+    }
+
+    fun testWorldBooks(text: String) = worldBookAction {
+        it.copy(result = runs.testWorldBooks(runId, text))
+    }
+
+    fun clearWorldBookTest() = mutableWorldBooks.update { it.copy(result = null) }
+
+    fun setWorldBookEntry(book: ManagedWorldBookDto, index: Int, enabled: Boolean) = worldBookAction {
+        val data = runs.setWorldBookEntry(runId, book.source, index, SetWorldBookEntryRequest(book.revision, enabled))
+        it.copy(data = data, result = null)
+    }
+
+    fun removeWorldBook(book: ManagedWorldBookDto) = worldBookAction {
+        it.copy(data = runs.removeStandaloneWorldBook(runId, book.revision), result = null)
+    }
+
+    private fun worldBookAction(action: suspend (WorldBooksUiState) -> WorldBooksUiState) {
+        val current = mutableWorldBooks.value
+        if (current.busy) return
+        mutableWorldBooks.value = current.copy(busy = true, error = "")
+        viewModelScope.launch {
+            try {
+                mutableWorldBooks.value = action(current).copy(busy = false, error = "")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                mutableWorldBooks.update {
+                    it.copy(busy = false, error = error.message ?: "世界书操作失败。")
+                }
+            }
+        }
+    }
 
     fun stop() {
         val run = state.value.run ?: return
@@ -189,7 +238,20 @@ class RunDetailViewModel(
         }
     }
 
-    fun exportRun(includeDialogue: Boolean = true) {
+    fun exportRun(includeDialogue: Boolean = true) = prepareExport {
+        runs.exportRun(runId, cacheDir, includeDialogue = includeDialogue)
+    }
+
+    fun exportSillyTavernCard(character: String) = prepareExport {
+        runs.exportSillyTavernCard(runId, character, cacheDir)
+    }
+
+    fun exportWorldBook(book: ManagedWorldBookDto) = prepareExport {
+        val name = book.name.ifBlank { if (book.source == "character_book") "卡内世界书" else "独立世界书" }
+        runs.exportWorldBook(runId, book.source, name, cacheDir)
+    }
+
+    private fun prepareExport(prepare: suspend () -> ExportedRunPackage) {
         if (state.value.exporting) return
         viewModelScope.launch {
             val staleExport = state.value.exportedPackage
@@ -205,11 +267,7 @@ class RunDetailViewModel(
             withContext(platformIoDispatcher) { staleExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
             var pendingExport: ExportedRunPackage? = null
             try {
-                val exported = runs.exportRun(
-                    runId,
-                    cacheDir,
-                    includeDialogue = includeDialogue,
-                )
+                val exported = prepare()
                 pendingExport = exported
                 mutableState.update {
                     it.copy(
@@ -217,7 +275,7 @@ class RunDetailViewModel(
                         exportedPackage = exported,
                         exportRequestId = it.exportRequestId + 1,
                         exportDestinationPending = true,
-                        message = "书卷包已经准备好，请选择保存位置。",
+                        message = "导出文件已准备好，请选择保存位置。",
                     )
                 }
                 pendingExport = null
@@ -225,7 +283,7 @@ class RunDetailViewModel(
                 throw cancelled
             } catch (error: Throwable) {
                 mutableState.update {
-                    it.copy(exporting = false, error = error.message ?: "导出书卷失败。")
+                    it.copy(exporting = false, error = error.message ?: "准备导出文件失败。")
                 }
             } finally {
                 withContext(NonCancellable + platformIoDispatcher) { pendingExport?.file?.let { runCatching { FileSystem.SYSTEM.delete(it) } } }
@@ -280,7 +338,7 @@ class RunDetailViewModel(
                     exportedPackage = null,
                     exportDestinationPending = false,
                     error = "",
-                    message = "书卷已导出（不含聊天记录）。",
+                    message = "已导出 ${exported.filename}。",
                 )
             }
         } catch (cancelled: CancellationException) {

@@ -19,6 +19,10 @@ actual fun openStreamingResponse(url: String, jsonBody: String, token: String): 
         .header("Authorization", "Bearer $token")
         .build()
     val response = jvmStreamingClient.newCall(request).execute()
-    check(response.isSuccessful) { "Streaming request failed: ${response.code} ${response.message}" }
+    if (!response.isSuccessful) {
+        val body = runCatching { response.body.string() }.getOrDefault("")
+        response.close()
+        throw StreamingHttpException(response.code, "Streaming request failed: ${response.code} ${response.message}", body)
+    }
     return response.body.source()
 }

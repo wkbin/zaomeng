@@ -1,5 +1,11 @@
 package top.wkbin.zaomeng.data.api
 
+class StreamingHttpException(
+    val statusCode: Int,
+    message: String,
+    val responseBody: String,
+) : IllegalStateException(message)
+
 /**
  * 打开 SSE 流式响应（逐块流式，避免整响应缓冲）。
  *

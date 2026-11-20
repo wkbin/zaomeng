@@ -17,6 +17,7 @@ class LoadChatSessionUseCaseTest {
                 runId = "run-1",
                 sessionId = "session-1",
                 transcriptCount = 2,
+                revision = 9,
                 characterAvatars = mapOf("林冲" to "v1"),
             ),
             messages = MessagesResponse(
@@ -25,6 +26,7 @@ class LoadChatSessionUseCaseTest {
                     TranscriptItemDto(message = "old"),
                 ),
                 total = 2,
+                revision = 9,
             ),
             failOptionalData = true,
         )
@@ -37,6 +39,7 @@ class LoadChatSessionUseCaseTest {
         assertTrue(loaded.avatarBytes.isEmpty())
         assertEquals(MemoryQualityReportDto(), loaded.memoryQuality)
         assertEquals("desc", gateway.requestedMessageOrder)
+        assertEquals(9, gateway.requestedRevision)
     }
 
     @Test
@@ -66,6 +69,7 @@ private class FakeChatSessionGateway(
 ) : ChatSessionGateway {
     var recoveryRequested = false
     var requestedMessageOrder = ""
+    var requestedRevision: Long? = null
 
     override suspend fun listSessions(runId: String?): List<DialogueSessionDto> {
         if (failOptionalData) error("optional list unavailable")
@@ -84,8 +88,10 @@ private class FakeChatSessionGateway(
         offset: Int,
         limit: Int,
         order: String,
+        expectedRevision: Long?,
     ): MessagesResponse {
         requestedMessageOrder = order
+        requestedRevision = expectedRevision
         return messages
     }
 

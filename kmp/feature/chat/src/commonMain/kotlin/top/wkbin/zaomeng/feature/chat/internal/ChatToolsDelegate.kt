@@ -64,7 +64,9 @@ internal class ChatToolsDelegate(
             )
             updateState {
                 it.copy(
-                    session = session,
+                    session = it.session?.copy(
+                        pluginEnhancerStates = session.pluginEnhancerStates,
+                    ) ?: session,
                     includeInnerThoughts = if (
                         enhancer.stateKey == INNER_THOUGHTS_ENHANCER_KEY
                     ) {
@@ -187,6 +189,19 @@ internal class ChatToolsDelegate(
                     dialogue.branchDialogueTurn(runId, sessionId, turnId)
                 },
                 "已从所选轮次创建新分支。",
+                navigateToSession = true,
+            )
+        }
+    }
+
+    fun branchFromImportedSwipe(messageIndex: String, swipeIndex: Int) {
+        if (messageIndex.isBlank() || swipeIndex < 0) return
+        runTool("branch") {
+            // The server reuses one branch for this source message and version, so retrying
+            // an interrupted request can recover it without scanning the full session list.
+            acceptSession(
+                dialogue.branchImportedSwipe(runId, sessionId, messageIndex, swipeIndex),
+                "已打开此回复版本的分支。",
                 navigateToSession = true,
             )
         }
@@ -526,6 +541,10 @@ internal class ChatToolsDelegate(
         memorySaved: Boolean = false,
         clearSceneRecommendation: Boolean = false,
     ) {
+        if (navigateToSession) {
+            updateState { it.copy(navigationSession = session, notice = notice, error = "") }
+            return
+        }
         updateState {
             it.copy(
                 runId = session.runId.ifBlank { it.runId },
@@ -533,7 +552,6 @@ internal class ChatToolsDelegate(
                 session = session,
                 sendOutcomeUnknown = false,
                 sendBaselineTranscript = null,
-                navigationSession = if (navigateToSession) session else it.navigationSession,
                 memorySaveRevision = if (memorySaved) {
                     it.memorySaveRevision + 1
                 } else {
@@ -569,7 +587,13 @@ internal class ChatToolsDelegate(
         } catch (_: Throwable) {
             null
         }
-        recovered?.takeIf { it != snapshot.session } ?: throw error
+        // 不能用"与操作前快照不同"判定成功：别的客户端/后台任务也会改动会话。
+        // 只有服务端 updated_at 明确前进，才认为本次变更真的落库；否则保留原始错误。
+        val previousUpdatedAt = snapshot.session?.updatedAt ?: throw error
+        if (recovered == null || recovered.updatedAt.isBlank() || recovered.updatedAt <= previousUpdatedAt) {
+            throw error
+        }
+        recovered
     }
 
     private suspend fun ToolRequest.branchMutation(
@@ -622,7 +646,7 @@ internal class ChatToolsDelegate(
     }
 
     private fun ToolRequest.updateState(transform: (ChatUiState) -> ChatUiState) {
-        updateState { current ->
+        this@ChatToolsDelegate.updateState { current ->
             if (activeRequest?.id == id && current.matchesSession(runId, sessionId)) {
                 transform(current)
             } else {

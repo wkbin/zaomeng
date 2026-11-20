@@ -3,10 +3,11 @@ package top.wkbin.zaomeng.feature.importbook
 import top.wkbin.zaomeng.platform.decodeGb18030Strict
 import top.wkbin.zaomeng.platform.readZipFileEntries
 
-/** 导入文档分类（ZIP 魔数 -> 书卷包；其余按纯文本小说处理）。 */
 enum class ImportDocumentKind {
     NovelText,
     RunPackage,
+    CharacterCard,
+    WorldBook,
 }
 
 data class ImportDocument(
@@ -48,9 +49,26 @@ object ImportDocumentLoader {
         if (bytes.isEmpty()) {
             throw IllegalArgumentException("所选文件是空的。")
         }
+        // 上限在读取前就已声明，这里必须真正拦截，否则超大文件会先整包读进内存再崩溃。
+        val maxBytes = when (expectedKind) {
+            ImportDocumentKind.NovelText -> MAX_NOVEL_BYTES
+            ImportDocumentKind.RunPackage -> MAX_PACKAGE_BYTES
+            ImportDocumentKind.CharacterCard, ImportDocumentKind.WorldBook -> 5 * 1024 * 1024
+        }
+        if (bytes.size > maxBytes) {
+            throw IllegalArgumentException(fileTooLargeMessage(expectedKind, maxBytes))
+        }
         return when (expectedKind) {
             ImportDocumentKind.NovelText -> prepareNovel(displayName, bytes)
             ImportDocumentKind.RunPackage -> preparePackage(displayName, bytes)
+            ImportDocumentKind.CharacterCard, ImportDocumentKind.WorldBook -> {
+                val filename = sanitizeDisplayName(displayName)
+                val extension = filename.substringAfterLast('.', "").lowercase()
+                require(extension == "json" || (expectedKind == ImportDocumentKind.CharacterCard && extension == "png")) {
+                    if (expectedKind == ImportDocumentKind.WorldBook) "请选择 JSON 世界书。" else "请选择 JSON 或 PNG 角色卡。"
+                }
+                ImportDocument(filename, bytes, expectedKind)
+            }
         }
     }
 
@@ -214,6 +232,8 @@ object ImportDocumentLoader {
             "TXT 或 EPUB 小说过大，Android 客户端当前最多支持 ${maxBytes / 1024 / 1024} MB。"
         ImportDocumentKind.RunPackage ->
             "书卷包过大，Android 客户端当前最多支持 ${maxBytes / 1024 / 1024} MB 的压缩文件。"
+        ImportDocumentKind.CharacterCard, ImportDocumentKind.WorldBook ->
+            "SillyTavern 文件过大，最多支持 ${maxBytes / 1024 / 1024} MB。"
     }
 
     private fun unsupportedEncoding(): IllegalArgumentException =

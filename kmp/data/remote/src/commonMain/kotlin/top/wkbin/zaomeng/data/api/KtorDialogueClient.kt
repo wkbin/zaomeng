@@ -119,6 +119,13 @@ class KtorDialogueClient(
         },
     )
 
+    suspend fun branchFromImportedSwipe(runId: String, sessionId: String, payload: BranchImportedSwipeRequest): DialogueSessionDto =
+        decodeSession(request { endpoint ->
+            http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/branch-imported-swipe") {
+                setBody(payload)
+            }
+        })
+
     suspend fun branchFromScene(runId: String, sessionId: String, sceneIndex: Int): DialogueSessionDto = decodeSession(
         request { endpoint ->
             http.client.post("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/dialogue/sessions/$sessionId/branch") {

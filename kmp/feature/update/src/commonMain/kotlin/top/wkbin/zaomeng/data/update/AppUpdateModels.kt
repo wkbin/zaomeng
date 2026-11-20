@@ -13,6 +13,8 @@ data class AppUpdateDownloadState(
     val status: AppUpdateDownloadStatus = AppUpdateDownloadStatus.Idle,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = -1L,
+    /** 失败原因（下载中断、大小或 SHA-256 与发布清单不符等）；仅 Failed 时有意义。 */
+    val failureReason: String = "",
 )
 
 data class AppUpdateUiState(

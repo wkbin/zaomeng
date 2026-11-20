@@ -14,7 +14,9 @@ actual fun rememberShareText(): (text: String) -> Unit {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, text)
             }
-            if (sendIntent.resolveActivity(context.packageManager) != null) {
+            // Android 11+ 未声明 <queries> 时 resolveActivity 恒为 null（即使有可用分享目标），
+            // 直接交给系统 chooser；真的没有目标时由 ActivityNotFoundException 兜底。
+            runCatching {
                 context.startActivity(Intent.createChooser(sendIntent, "分享"))
             }
         }

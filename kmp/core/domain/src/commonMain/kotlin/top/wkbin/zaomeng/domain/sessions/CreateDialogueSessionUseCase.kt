@@ -17,6 +17,7 @@ data class CreateDialogueSessionCommand(
     val sceneProfile: JsonObject = JsonObject(emptyMap()),
     val selfCardId: String = "",
     val selfCardProfile: JsonObject = JsonObject(emptyMap()),
+    val cardGreetingIndex: Int? = null,
 )
 
 interface CreateDialogueSessionGateway {
@@ -70,6 +71,7 @@ class CreateDialogueSessionUseCase(
         runId == command.runId &&
             mode == command.mode &&
             participants.toSet() == command.participants.toSet() &&
+            ((cardGreetingIndex ?: 0) == (command.cardGreetingIndex ?: 0)) &&
             (command.mode != "act" || controlledCharacter == command.controlledCharacter)
 
     private fun sessionKey(session: DialogueSessionDto): String = "${session.runId}::${session.sessionId}"

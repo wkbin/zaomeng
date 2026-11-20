@@ -94,7 +94,9 @@ internal class ChatStreamEngine(
                     return
                 }
                 if (replyDeltaFlushJob?.isActive == true) return
-                replyDeltaFlushJob = scope.launch {
+                // 挂在本次 send 协程下（而不是 viewModelScope），cancel() 取消 sendJob 时一并停掉，
+                // 避免取消后仍有延迟冲刷把 delta 写回已废弃的流。
+                replyDeltaFlushJob = launch {
                     delay(STREAMING_UI_UPDATE_INTERVAL_MS)
                     flushReplyDeltas()
                 }
@@ -203,14 +205,51 @@ internal class ChatStreamEngine(
                             }
                         }
                         is DialogueStreamEvent.Complete -> {
+                            if (event.operationId.isNotBlank() && event.operationId != operationId) {
+                                throw StreamReplyException("完成事件与当前发送标识不一致，请重新核对。", true, outcomeUnknown = true)
+                            }
                             replyDeltaFlushJob?.cancel()
                             flushReplyDeltas()
                             if (!reasoningFinalized) flushReasoning(force = true)
                             val baseline = snapshot.session?.transcript.orEmpty()
                             val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
                             var appended = event.appendedTranscript
+                            if (event.turnId.isNotBlank() && appended.any {
+                                it.turnId.isNotBlank() && it.turnId != event.turnId
+                            }) {
+                                throw StreamReplyException("本轮结果与消息标识不一致，请重新同步。", true)
+                            }
                             val expectedGrowth = event.transcriptCount - baselineCount
-                            if (expectedGrowth > appended.size) {
+                            val revisionMismatch = event.committedRevision != 0L &&
+                                event.session.revision != 0L &&
+                                event.committedRevision != event.session.revision
+                            val baseMismatch = event.baseRevision != 0L &&
+                                event.baseRevision != snapshot.session?.revision
+                            val incompleteCommittedTurn = !event.replayed && event.committedRevision != 0L &&
+                                expectedGrowth != appended.size
+                            val resynced = if (baseMismatch || revisionMismatch || incompleteCommittedTurn) {
+                                val refreshed = sessions.getSession(
+                                    snapshot.runId,
+                                    snapshot.sessionId,
+                                    includeTranscript = false,
+                                )
+                                val tail = sessions.listSessionMessages(
+                                    snapshot.runId,
+                                    snapshot.sessionId,
+                                    offset = 0,
+                                    limit = baseline.size.coerceIn(100, 500),
+                                    order = "desc",
+                                    expectedRevision = refreshed.revision,
+                                )
+                                refreshed.copy(
+                                    transcript = tail.items.asReversed(),
+                                    transcriptCount = tail.total,
+                                    revision = tail.revision,
+                                )
+                            } else {
+                                null
+                            }
+                            if (resynced == null && event.committedRevision == 0L && expectedGrowth > appended.size) {
                                 val missingEnd = event.transcriptCount - appended.size
                                 val missing = if (missingEnd > baselineCount) {
                                     fetchTranscriptAppend(
@@ -218,6 +257,7 @@ internal class ChatStreamEngine(
                                         snapshot.sessionId,
                                         baselineCount,
                                         missingEnd,
+                                        event.session.revision,
                                     )
                                 } else {
                                     emptyList()
@@ -225,15 +265,16 @@ internal class ChatStreamEngine(
                                 appended = missing + appended
                             }
                             updateSendState(snapshot, operationId) { current ->
-                                val base = current.session?.transcript ?: baseline
-                                val merged = mergeTranscript(base, appended)
-                                val session = event.session.copy(
+                                val base = resynced?.transcript ?: current.session?.transcript ?: baseline
+                                val merged = if (resynced != null) base else mergeTranscript(base, appended)
+                                val session = (resynced ?: event.session).copy(
                                     transcript = merged,
-                                    transcriptCount = event.transcriptCount,
+                                    transcriptCount = resynced?.transcriptCount ?: event.transcriptCount,
                                 )
                                 current.copy(
                                     sending = false,
                                     session = session,
+                                    earlierNextOffset = session.transcript.size.takeIf { it < session.transcriptCount },
                                     draft = "",
                                     sendOutcomeUnknown = false,
                                     sendBaselineTranscript = null,
@@ -291,7 +332,7 @@ internal class ChatStreamEngine(
         if (current.transcript.isNotEmpty() && current.transcript.size == count) {
             return committedAppend(baselineCount, current.transcript)
         }
-        return fetchTranscriptAppend(runId, sessionId, baselineCount, count)
+        return fetchTranscriptAppend(runId, sessionId, baselineCount, count, current.revision)
             .takeIf(::hasCommittedContent)
             .orEmpty()
     }
@@ -301,21 +342,27 @@ internal class ChatStreamEngine(
         sessionId: String,
         fromCount: Int,
         totalCount: Int,
+        expectedRevision: Long? = null,
     ): List<TranscriptItemDto> {
         if (fromCount >= totalCount) return emptyList()
         val items = mutableListOf<TranscriptItemDto>()
-        var offset = fromCount
-        while (offset < totalCount) {
+        var offset: Int? = fromCount
+        while (offset != null && offset < totalCount) {
+            val currentOffset = offset
             val page = sessions.listSessionMessages(
                 runId,
                 sessionId,
-                offset = offset,
-                limit = (totalCount - offset).coerceIn(1, 500),
+                offset = currentOffset,
+                limit = (totalCount - currentOffset).coerceIn(1, 500),
                 order = "asc",
+                expectedRevision = expectedRevision,
             )
+            if (expectedRevision != null && page.revision != expectedRevision) {
+                throw StreamReplyException("会话已更新，请重新同步消息。", true)
+            }
             items += page.items
             if (page.items.isEmpty() || !page.hasMore) break
-            offset += page.items.size
+            offset = page.nextOffset ?: (currentOffset + page.items.size)
         }
         return items
     }
@@ -331,49 +378,107 @@ internal class ChatStreamEngine(
     ) {
         val baseline = snapshot.session?.transcript.orEmpty()
         val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
+        val terminalConflict = error is ApiRequestException && error.errorCode in setOf(
+            "OPERATION_ID_CONFLICT",
+            "SESSION_REVISION_CONFLICT",
+        )
+        val operation = if (!terminalConflict && operationId.isNotBlank()) {
+            try {
+                sessions.getSessionOperation(snapshot.runId, snapshot.sessionId, operationId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+        } else {
+            null
+        }
         val refreshed = try {
-            sessions.getSession(snapshot.runId, snapshot.sessionId, includeTranscript = false)
+            operation?.session ?: sessions.getSession(snapshot.runId, snapshot.sessionId, includeTranscript = false)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
             null
         }
-        val committed = if (refreshed != null) {
-            resolveCommittedAppend(
-                runId = snapshot.runId,
-                sessionId = snapshot.sessionId,
-                baselineCount = baselineCount,
-                current = refreshed,
-            )
-        } else {
-            emptyList()
+        var recoveryFailed = false
+        val committed = when {
+            terminalConflict -> emptyList()
+            operation?.status == "completed" -> operation.appendedTranscript
+            operation != null -> emptyList()
+            refreshed != null -> try {
+                resolveCommittedAppend(snapshot.runId, snapshot.sessionId, baselineCount, refreshed)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                recoveryFailed = true
+                emptyList()
+            }
+            else -> emptyList()
         }
-        val responseWasCommitted = refreshed?.status == "ready" && committed.isNotEmpty()
-        val retryable = when (error) {
-            is StreamReplyException -> error.retryable
-            is ApiRequestException -> error.statusCode == null ||
+        var responseWasCommitted = !terminalConflict && when {
+            operation?.status == "completed" -> operation.session != null
+            operation != null -> false
+            else -> refreshed?.status == "ready" && committed.isNotEmpty()
+        }
+        val needsWindow = refreshed != null && (
+            responseWasCommitted || snapshot.session?.revision != refreshed.revision
+        )
+        val recoveredWindow = if (needsWindow) {
+            try {
+                sessions.listSessionMessages(
+                    snapshot.runId,
+                    snapshot.sessionId,
+                    offset = 0,
+                    limit = baseline.size.coerceIn(100, 500),
+                    order = "desc",
+                    expectedRevision = refreshed.revision,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                recoveryFailed = true
+                responseWasCommitted = false
+                null
+            }
+        } else {
+            null
+        }
+        val retryable = when {
+            operation?.status == "failed" -> operation.retryable
+            error is StreamReplyException -> error.retryable
+            error is ApiRequestException && error.errorCode == "OPERATION_IN_PROGRESS" -> true
+            error is ApiRequestException && terminalConflict -> false
+            error is ApiRequestException -> error.statusCode == null ||
                 error.statusCode == 408 || error.statusCode == 429 || (error.statusCode ?: 0) >= 500
             else -> true
         }
-        val outcomeUnknown = !responseWasCommitted && error !is StreamReplyException && retryable
+        val outcomeUnknown = !responseWasCommitted && retryable &&
+            (recoveryFailed || operation?.status !in setOf("failed", "completed")) &&
+            (recoveryFailed || error !is StreamReplyException || error.outcomeUnknown)
         updateSendState(snapshot, operationId) { current ->
             val failureText = if (responseWasCommitted) {
                 ""
             } else {
-                error.readableMessage(
-                    if (retryable) {
-                        "回复生成失败，可安全重试这次发送。"
-                    } else {
-                        "回复请求失败，请检查消息或模型配置。"
-                    },
+                operation?.failureMessage?.takeIf(String::isNotBlank) ?: error.readableMessage(
+                    if (retryable) "回复生成失败，可安全重试这次发送。" else "回复请求失败，请检查消息或模型配置。",
                 )
+            }
+            val restoredSession = when {
+                recoveryFailed -> current.session
+                refreshed == null -> current.session
+                recoveredWindow != null -> refreshed.copy(
+                    transcript = recoveredWindow.items.asReversed(),
+                    transcriptCount = recoveredWindow.total,
+                    revision = recoveredWindow.revision,
+                )
+                else -> refreshed.copy(transcript = baseline)
             }
             current.copy(
                 sending = false,
-                session = refreshed?.copy(
-                    transcript = mergeTranscript(baseline, committed),
-                    transcriptCount = refreshed.transcriptCount,
-                ) ?: current.session,
+                session = restoredSession,
+                earlierNextOffset = restoredSession?.let { session ->
+                    session.transcript.size.takeIf { it < session.transcriptCount }
+                },
                 draft = if (responseWasCommitted) "" else current.draft,
                 sendOutcomeUnknown = outcomeUnknown,
                 sendBaselineTranscript = if (outcomeUnknown) baseline else null,
@@ -390,20 +495,12 @@ internal class ChatStreamEngine(
                         message = message,
                         messageKind = messageKind,
                         speakerOverride = speakerOverride,
-                        status = if (outcomeUnknown) {
-                            PendingUserMessageStatus.OutcomeUnknown
-                        } else {
-                            PendingUserMessageStatus.Failed
-                        },
+                        status = if (outcomeUnknown) PendingUserMessageStatus.OutcomeUnknown else PendingUserMessageStatus.Failed,
                         statusText = failureText,
                         retryable = retryable,
                     )
                 },
-                error = if (responseWasCommitted) {
-                    "连接中断，但已从本地恢复最新回复。"
-                } else {
-                    failureText
-                },
+                error = if (responseWasCommitted) "连接中断，但已从本地恢复最新回复。" else failureText,
             )
         }
     }

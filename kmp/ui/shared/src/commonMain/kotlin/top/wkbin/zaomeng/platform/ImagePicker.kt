@@ -7,6 +7,7 @@ import io.github.vinceglb.filekit.readBytes
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.rememberFilePickerLauncher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 
@@ -20,13 +21,17 @@ fun rememberImagePicker(filesDir: Path, onPicked: (uri: String) -> Unit): () -> 
     val launcher = rememberFilePickerLauncher(type = FileKitType.Image) { file ->
         if (file != null) {
             scope.launch {
-                runCatching {
-                    val extension = file.extension.ifBlank { "jpg" }
-                    val destination = filesDir / "chat-background.$extension"
-                    FileSystem.SYSTEM.createDirectories(filesDir)
-                    FileSystem.SYSTEM.write(destination) { write(file.readBytes()) }
-                    destination.toString()
-                }.onSuccess(onPicked)
+                // FileKit 的 readBytes 与写盘都是阻塞 IO，不能跑在主线程。
+                val destination = withContext(platformIoDispatcher) {
+                    runCatching {
+                        val extension = file.extension.ifBlank { "jpg" }
+                        val destination = filesDir / "chat-background.$extension"
+                        FileSystem.SYSTEM.createDirectories(filesDir)
+                        FileSystem.SYSTEM.write(destination) { write(file.readBytes()) }
+                        destination.toString()
+                    }.getOrNull()
+                }
+                if (destination != null) onPicked(destination)
             }
         }
     }

@@ -102,6 +102,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -169,6 +170,8 @@ internal fun Transcript(
     onPendingEdit: () -> Unit,
     onPendingReconcile: () -> Unit,
     onPendingRecover: () -> Unit,
+    onLoadImportedSwipes: suspend (messageIndex: String, offset: Int) -> ImportedSwipePageDto,
+    onBranchImportedSwipe: (messageIndex: String, swipeIndex: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -179,6 +182,20 @@ internal fun Transcript(
     val speakingId by tts.currentSpeakingId.collectAsStateWithLifecycle()
     val bottomThresholdPx = with(LocalDensity.current) { 24.dp.roundToPx() }
     val transcript = session.transcript
+    var swipeMessageIndex by rememberSaveable(session.runId, session.sessionId) { mutableStateOf<String?>(null) }
+    swipeMessageIndex?.let { index ->
+        ImportedSwipesDialog(
+            messageIndex = index,
+            load = onLoadImportedSwipes,
+            onBranch = if (actionsEnabled && transcript.any { it.sillyTavernMessageIndex == index && it.role == "character" }) {
+                { swipeIndex ->
+                    swipeMessageIndex = null
+                    onBranchImportedSwipe(index, swipeIndex)
+                }
+            } else null,
+            onDismiss = { swipeMessageIndex = null },
+        )
+    }
     val latestAssistantIndex = transcript.indexOfLast { item ->
         item.role != "user" && item.role != "scene" && item.role != "director"
     }
@@ -339,6 +356,33 @@ internal fun Transcript(
                         onRegenerate = onRegenerate,
                         onBranch = { onBranch(item.turnId) },
                     )
+                    if (item.worldBookMatches.isNotEmpty()) {
+                        var expanded by rememberSaveable { mutableStateOf(false) }
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(if (expanded) "收起世界书" else "本轮注入 ${item.worldBookMatches.size} 条世界书设定")
+                        }
+                        if (expanded) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item.worldBookMatches.forEach { match ->
+                                    Column {
+                                        val source = if (match.source == "character_book") "卡内世界书" else "独立世界书"
+                                        val trigger = match.keywords.joinToString("、").ifBlank { "常驻" }
+                                        Text("${match.title} · $source · $trigger", style = MaterialTheme.typography.labelLarge)
+                                        Text(match.excerpt, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    val importedIndex = item.sillyTavernMessageIndex
+                    if (importedIndex != null && item.sillyTavernSwipeCount != 0) {
+                        TextButton(onClick = { swipeMessageIndex = importedIndex }) {
+                            Text(item.sillyTavernSwipeCount?.let { "查看 $it 个回复版本" } ?: "查看迁移的备用回复")
+                        }
+                    }
                     if (!sending && index == latestUserIndex && modelReasoning.isNotBlank()) {
                         ModelReasoningBlock(modelReasoning, streaming = false)
                     }

@@ -122,7 +122,8 @@ actual fun rememberPlatformTts(): PlatformTts {
     val platformTts = remember { AndroidPlatformTts(context) }
     DisposableEffect(Unit) {
         onDispose {
-            platformTts.stop()
+            // 离开聊天页必须 shutdown：只 stop 会留下 TextToSpeech 引擎，反复进出会持续累积。
+            platformTts.shutdown()
         }
     }
     return platformTts

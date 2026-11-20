@@ -54,6 +54,7 @@ fun rememberFileExporter(
 private fun extensionOf(mimeType: String): String = when (mimeType.lowercase()) {
     "application/zip" -> "zip"
     "application/json" -> "json"
+    "application/x-ndjson" -> "jsonl"
     "text/markdown" -> "md"
     "text/plain" -> "txt"
     else -> mimeType.substringAfter('/', "").ifBlank { "txt" }

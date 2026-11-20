@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import top.wkbin.zaomeng.client.platform.ClientLog
+import top.wkbin.zaomeng.data.api.KtorSessionRequestException
 import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 internal val repositoryJson: Json = Json { ignoreUnknownKeys = true }
@@ -20,6 +21,8 @@ internal suspend fun <T> repositoryRequest(block: suspend () -> T): T = withCont
         throw cancelled
     } catch (error: ApiRequestException) {
         throw error
+    } catch (error: KtorSessionRequestException) {
+        throw ApiRequestException(error.message.orEmpty(), error, error.statusCode)
     } catch (error: Throwable) {
         ClientLog.e("Repository", "Repository request failed", error)
         val readable = generateSequence(error) { it.cause }
@@ -98,6 +101,7 @@ class ApiRequestException(
     message: String,
     cause: Throwable? = null,
     val statusCode: Int? = null,
+    val errorCode: String = "",
 ) : Exception(message, cause)
 
 enum class ReusableCardKind {

@@ -200,7 +200,8 @@ fun ModelProfileEditorScreen(
         val catalog = modelCatalogs.firstOrNull { it.id == state.selectedCatalogId }
         catalog?.takeIf { it.models.isNotEmpty() }?.let {
             ModelSelectionSheet(
-                catalog = it,
+                title = it.title,
+                models = it.models,
                 selectedModel = state.model,
                 onDismiss = { showModelSheet = false },
                 onSelect = {
@@ -209,6 +210,19 @@ fun ModelProfileEditorScreen(
                 },
             )
         }
+    }
+    if (state.discoveredModels.isNotEmpty()) {
+        val models = remember(state.discoveredModels) { state.discoveredModels.map { ModelChoice(it, it) } }
+        ModelSelectionSheet(
+            title = "服务商返回的模型",
+            models = models,
+            selectedModel = state.model,
+            onDismiss = viewModel::dismissDiscoveredModels,
+            onSelect = {
+                viewModel.updateModel(it)
+                viewModel.dismissDiscoveredModels()
+            },
+        )
     }
     if (showMaxTokensSheet) {
         MaxTokensSheet(
@@ -345,6 +359,18 @@ fun ModelProfileEditorScreen(
                             },
                         )
                     }
+                    OutlinedButton(
+                        onClick = viewModel::discoverModels,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.discoveringModels && !state.saving && !state.deleting &&
+                            !state.testing && !state.detecting && state.provider != "ollama",
+                    ) {
+                        if (state.discoveringModels) ProgressIcon()
+                        Text(if (state.discoveringModels) "正在拉取模型…" else "拉取模型列表")
+                    }
+                    if (state.modelDiscoveryError.isNotBlank()) {
+                        StatusMessage(state.modelDiscoveryError, true)
+                    }
                 }
             }
             if (supportsReasoningControls(state)) {
@@ -361,6 +387,14 @@ fun ModelProfileEditorScreen(
             }
             item {
                 EditorSection("高级设置") {
+                    EditorField(
+                        value = state.requestTimeoutSeconds,
+                        onValueChange = viewModel::updateRequestTimeout,
+                        label = "请求超时（秒）",
+                        placeholder = "60",
+                        supportingText = "适用于非流式模型请求和连接测试，可设为 1 到 300 秒。",
+                        keyboardType = KeyboardType.Number,
+                    )
                     SelectionRow(
                         title = "最大输出 Token",
                         subtitle = "0 表示不额外限制，范围为 0 到 16000。",
@@ -556,7 +590,8 @@ private fun CatalogSelectionSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSelectionSheet(
-    catalog: ModelCatalog,
+    title: String,
+    models: List<ModelChoice>,
     selectedModel: String,
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
@@ -568,9 +603,9 @@ private fun ModelSelectionSheet(
         ) {
             item {
                 Text("选择模型", style = MaterialTheme.typography.titleLarge)
-                Text(catalog.title, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(title, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            items(catalog.models, key = { it.id }) { model ->
+            items(models, key = { it.id }) { model ->
                 SheetChoiceRow(title = model.title, selected = model.id == selectedModel, onClick = { onSelect(model.id) })
             }
         }

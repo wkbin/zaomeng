@@ -420,6 +420,10 @@ fun ChatScreen(
                                 loadingEarlier = state.loadingEarlier,
                                 hasMoreHistory = session.transcriptCount > session.transcript.size,
                                 onLoadEarlier = viewModel::loadEarlierMessages,
+                                onLoadImportedSwipes = { index, offset ->
+                                    viewModel.listImportedSwipes(session.runId, session.sessionId, index, offset)
+                                },
+                                onBranchImportedSwipe = viewModel::branchFromImportedSwipe,
                                 modifier = Modifier.weight(1f),
                             )
                         }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.lifecycle.lifecycleScope
 import org.koin.core.context.GlobalContext
 import org.koin.compose.koinInject
@@ -26,6 +27,7 @@ import top.wkbin.zaomeng.app.shared.App
 import top.wkbin.zaomeng.app.update.AppUpdateManager
 import top.wkbin.zaomeng.app.update.AppUpdateNotifier
 import top.wkbin.zaomeng.app.update.AppUpdatePreferences
+import top.wkbin.zaomeng.data.preferences.AppPreferences
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ContentDisclaimerPreferences
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadState
@@ -46,11 +48,15 @@ class MainActivity : ComponentActivity() {
     private val appUpdateNotifier by lazy { AppUpdateNotifier(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 在 UI 组合前同步读取持久化主题，避免启动首帧闪默认主题（参考 KernelSU）。
-        val initialPreferences = runBlocking {
-            GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
-        }
         super.onCreate(savedInstanceState)
+        // 首帧主题需要同步值；读取加上限时兜底，避免 DataStore 首次读盘卡住主线程。
+        val initialPreferences = runCatching {
+            runBlocking {
+                withTimeoutOrNull(400) {
+                    GlobalContext.get().get<AppPreferencesRepository>().currentPreferences()
+                }
+            }
+        }.getOrNull() ?: AppPreferences()
         enableEdgeToEdge()
         startupUpdateCheckDisabled = AppUpdatePreferences.isStartupCheckDisabled(this)
         pendingChaptersRunId = intent.getStringExtra("open_run_id")
@@ -204,7 +210,11 @@ class MainActivity : ComponentActivity() {
                 if (generation != appUpdateDownloadGeneration) return@launch
                 appUpdateState = appUpdateState.copy(
                     downloadState = downloadState,
-                    error = if (downloadState.status == AppUpdateDownloadStatus.Failed) "更新包下载失败，请重试。" else "",
+                    error = if (downloadState.status == AppUpdateDownloadStatus.Failed) {
+                        downloadState.failureReason.ifBlank { "更新包下载失败，请重试。" }
+                    } else {
+                        ""
+                    },
                     message = if (downloadState.status == AppUpdateDownloadStatus.Downloaded) {
                         "下载完成，请点击安装。"
                     } else {

@@ -34,6 +34,8 @@ class KtorHttpClientProvider(
         install(Logging) {
             // 注意：不可使用 LogLevel.BODY —— BODY 级日志会让插件整体读取响应体（把流式 SSE 缓冲成一次性）。
             level = LogLevel.HEADERS
+            // 默认不会脱敏任何头；Bearer token 会原样进 logcat / 桌面 stdout。
+            sanitizeHeader("***") { it == HttpHeaders.Authorization }
             logger = object : Logger {
                 override fun log(message: String) {
                     ClientLog.d("KtorClient", message)

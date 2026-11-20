@@ -9,6 +9,7 @@ import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
 import top.wkbin.zaomeng.data.api.ModelConnectionTestDto
 import top.wkbin.zaomeng.data.api.ModelSettingsDto
+import top.wkbin.zaomeng.data.api.DiscoverModelsRequest
 import top.wkbin.zaomeng.data.api.PluginChatActionResponse
 import top.wkbin.zaomeng.data.api.PluginConfigResponse
 import top.wkbin.zaomeng.data.api.PluginDto
@@ -31,6 +32,7 @@ interface AppRuntimeRepository {
 }
 
 interface ModelSettingsRepository {
+    suspend fun discoverModels(request: DiscoverModelsRequest): List<String>
     suspend fun getModelSettings(): ModelSettingsDto
     suspend fun saveModelSettings(request: SaveModelSettingsRequest): ModelSettingsDto
     suspend fun testModelSettings(request: TestModelSettingsRequest): ModelConnectionTestDto

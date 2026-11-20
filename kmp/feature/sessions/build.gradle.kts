@@ -41,6 +41,7 @@ kotlin {
             implementation(libs.bundles.koin.compose)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(libs.paging.common)
             implementation(libs.paging.compose)
         }
