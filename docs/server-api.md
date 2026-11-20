@@ -299,7 +299,7 @@ SillyTavern 聊天迁移使用 UTF-8 JSONL，导入上限 8 MB、20,000 条文�
 
 `operation_id` 用于幂等和本轮 transcript 关联，建议由客户端每次操作生成稳定且非空的唯一值。
 
-会话对象及轻量响应包含 `revision`（整数），表示已提交剧情历史版本。新回合、修正、转场等历史变更使其递增；标题、记忆和后台派生状态更新不会推进该版本。旧存档缺省为 `0`。消息分页使用它固定读取快照。
+会话对象及轻量响应包含 `revision`（整数），表示已提交剧情历史版本。新回合、修正分支、转场等历史变更使其递增；标题、记忆和后台派生状态更新不会推进该版本。旧存档缺省为 `0`。消息分页使用它固定读取快照。
 
 ### 4.2 消息分页
 
@@ -490,19 +490,25 @@ preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `c
 
 记忆对象包含 `memory_id`、`text`、`category`、`pinned`、`enabled`、`source`、`source_turn_id`、`status`、命中统计和重复合并信息。自动记忆状态使用 `active`、`stale` 或 `conflict`。
 
+更新或删除不存在的 `memory_id` 返回 `400`。同一会话同时启用的可控记忆最多 20 条，超限写入返回 `400`，不会自动停用已有记忆。
+
 ### 5.4 导演、纠错、关系锁与场景
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/relation-lock` | `{"pair_key":"甲::乙","locked":true}` | `200` 会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/suggest` | `{"seed_text":"...","direction":"..."}` | `200` 建议对象 |
-| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/correct-latest` | 无 | `200` 会话 |
+| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/correct-latest` | 无 | `200` 新建的修正分支会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/deep-review` | 无 | `200` 审查结果/会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director-options` | `DialogueDirectorRequest` | `200` 导演选项 |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/tension` | 无 | `200 SceneTensionDto` |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/director/events` | 查询参数 `category`（可选） | `200 List<PlotEventPresetDto>` |
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/scene-card` | `SwitchDialogueSceneRequest` | `200` 更新后的会话 |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/scene-card/recommend` | 无 | `200` 推荐场景卡 |
+
+修正最新回合（`correct-latest`）不会修改原会话：服务端在目标回合之前创建 `kind=consistency_correction` 的修正分支，沿用该回合的用户输入重新生成回复，并返回新分支会话。分支 `branch_origin` 包含 `session_id`、`turn_id`、`kind`，同时保留 `source_session_id`、`source_turn_id`、`fork_type` 兼容字段。
+
+深度复核（`deep-review`）只检查最新角色回合，并把语义问题合并进该回合已有的确定性报告（保留 `turn_id`、重算 `status`/`score`、标记 `coverage.semantic_review`）；同一回合重复复核只保留一条历史记录。若复核期间会话已提交新回合，返回 `400` 并提示结果过期，不会覆盖最新状态。
 
 导演请求：
 
