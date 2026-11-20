@@ -18,6 +18,7 @@ import okio.FileSystem
 import okio.Path
 import okio.Sink
 import okio.buffer
+import okio.use
 import top.wkbin.zaomeng.data.api.ReusableCardDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
