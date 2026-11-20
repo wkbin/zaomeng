@@ -15,23 +15,27 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
+import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 
 /** 会话响应统一带上 transcript_count（轻量/全量响应均携带）。 */
 fun withTranscriptCount(session: JsonObject): JsonObject = buildJsonObject {
     session.forEach { (key, value) -> put(key, value) }
     put("transcript_count", transcriptSize(session))
+    put("revision", sessionHistoryRevision(session))
 }
 
 /** 轻量会话：去掉 transcript 大字段，保留 transcript_count，供聊天页增量模型使用。 */
 fun leanSession(session: JsonObject): JsonObject = buildJsonObject {
     session.forEach { (key, value) -> if (key != "transcript") put(key, value) }
     put("transcript_count", transcriptSize(session))
+    put("revision", sessionHistoryRevision(session))
 }
 
 fun transcriptSize(session: JsonObject): Int =
-    session["transcript_count"]?.jsonPrimitive?.intOrNull
-        ?: (session["transcript"] as? JsonArray)?.size
-        ?: 0
+    (session["transcript"] as? JsonArray)?.let { transcript ->
+        (session["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0) + transcript.size
+    } ?: session["transcript_count"]?.jsonPrimitive?.intOrNull
+    ?: 0
 
 fun transcriptOf(session: JsonObject): List<JsonObject> =
     (session["transcript"] as? JsonArray)
@@ -61,18 +65,37 @@ fun pageTranscript(
     val normalizedOffset = offset.coerceAtLeast(0)
     val normalizedLimit = limit.coerceIn(1, 500)
     val items = if (order == "desc") {
-        transcript.asReversed().drop(normalizedOffset).take(normalizedLimit).map(::toTranscriptItemDto)
+        transcript.mapIndexed { index, item -> index to item }.asReversed()
+            .drop(normalizedOffset).take(normalizedLimit).map { (seq, item) ->
+                toTranscriptItemDto(item, seq)
+            }
     } else {
-        transcript.drop(normalizedOffset).take(normalizedLimit).map(::toTranscriptItemDto)
+        transcript.drop(normalizedOffset).take(normalizedLimit).mapIndexed { index, item ->
+            toTranscriptItemDto(item, normalizedOffset + index)
+        }
     }
+    val hasMore = normalizedOffset + items.size < total
     return MessagesResponse(
         items = items,
         total = total,
-        hasMore = normalizedOffset + items.size < total,
+        hasMore = hasMore,
+        revision = sessionHistoryRevision(session),
+        nextOffset = if (hasMore) normalizedOffset + items.size else null,
     )
 }
 
-fun toTranscriptItemDto(item: JsonObject): TranscriptItemDto = TranscriptItemDto(
+fun toMessagesResponse(page: SessionTranscriptPage): MessagesResponse = MessagesResponse(
+    items = page.items.map { entry -> toTranscriptItemDto(entry.value, entry.seq) },
+    total = page.total,
+    hasMore = page.hasMore,
+    revision = page.revision,
+    nextOffset = page.nextOffset,
+)
+
+fun toTranscriptItemDto(item: JsonObject, seq: Int = item["seq"]?.jsonPrimitive?.intOrNull ?: -1): TranscriptItemDto = TranscriptItemDto(
+    seq = seq,
+    sillyTavernMessageIndex = (item["sillytavern_message_index"] as? JsonPrimitive)?.contentOrNull,
+    sillyTavernSwipeCount = (item["sillytavern_swipe_count"] as? JsonPrimitive)?.intOrNull,
     speaker = item.stringValue("speaker"),
     message = item.stringValue("message"),
     innerThought = item.stringValue("inner_thought"),
@@ -83,6 +106,9 @@ fun toTranscriptItemDto(item: JsonObject): TranscriptItemDto = TranscriptItemDto
         runCatching {
             sessionResponseJson.decodeFromJsonElement<OriginalKnowledgeEntryDto>(evidence)
         }.getOrNull()
+    },
+    worldBookMatches = (item["world_book_matches"] as? JsonArray).orEmpty().take(4).mapNotNull { match ->
+        runCatching { sessionResponseJson.decodeFromJsonElement<WorldBookMatchDto>(match) }.getOrNull()
     },
 )
 

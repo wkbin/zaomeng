@@ -2,15 +2,21 @@ package top.wkbin.zaomeng.data
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
+import okio.Path
+import top.wkbin.zaomeng.data.api.ExportedRunPackage
+import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
+import top.wkbin.zaomeng.data.api.CardGreetingsDto
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
+import top.wkbin.zaomeng.data.api.DialogueOperationStatusResponse
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.SessionRefDto
+import top.wkbin.zaomeng.data.api.SessionProjectionDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
 
 interface SessionRepository {
@@ -36,7 +42,13 @@ interface SessionRepository {
         sceneProfile: JsonObject = JsonObject(emptyMap()),
         selfCardId: String = "",
         selfCardProfile: JsonObject = JsonObject(emptyMap()),
+        cardGreetingIndex: Int? = null,
     ): DialogueSessionDto
+
+    suspend fun getCardGreetings(runId: String): CardGreetingsDto
+    suspend fun importSillyTavernChat(runId: String, filename: String, bytes: ByteArray): DialogueSessionDto
+    suspend fun exportSillyTavernChat(session: DialogueSessionDto, cacheDirectory: Path): ExportedRunPackage
+    suspend fun listImportedSwipes(runId: String, sessionId: String, messageIndex: String, offset: Int): ImportedSwipePageDto
 
     suspend fun getSession(
         runId: String,
@@ -50,7 +62,17 @@ interface SessionRepository {
         offset: Int,
         limit: Int,
         order: String,
+        expectedRevision: Long? = null,
     ): MessagesResponse
+
+    suspend fun getSessionProjection(runId: String, sessionId: String): SessionProjectionDto
+    suspend fun rebuildSessionProjection(runId: String, sessionId: String): SessionProjectionDto
+
+    suspend fun getSessionOperation(
+        runId: String,
+        sessionId: String,
+        operationId: String,
+    ): DialogueOperationStatusResponse
 
     suspend fun updateSessionTitle(runId: String, sessionId: String, title: String): DialogueSessionDto
 
@@ -107,6 +129,7 @@ interface DialogueRepository {
     suspend fun getPresetEvents(runId: String, sessionId: String, category: String? = null): List<top.wkbin.zaomeng.data.api.PlotEventPresetDto>
 
     suspend fun branchDialogueTurn(runId: String, sessionId: String, turnId: String): DialogueSessionDto
+    suspend fun branchImportedSwipe(runId: String, sessionId: String, messageIndex: String, swipeIndex: Int): DialogueSessionDto
     suspend fun branchDialogueScene(runId: String, sessionId: String, sceneIndex: Int): DialogueSessionDto
 
     suspend fun updateDialogueBranchMeta(

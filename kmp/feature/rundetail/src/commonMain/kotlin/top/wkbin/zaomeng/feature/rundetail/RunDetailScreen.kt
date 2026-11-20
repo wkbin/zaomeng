@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -135,7 +136,24 @@ fun RunDetailScreen(
     var confirmRedistill by rememberSaveable { mutableStateOf(false) }
     var confirmResume by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var chooseExportFormat by rememberSaveable { mutableStateOf(false) }
     var confirmExport by rememberSaveable { mutableStateOf(false) }
+    var chooseExportCharacter by rememberSaveable { mutableStateOf(false) }
+    var showWorldBooks by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(showWorldBooks) {
+        if (showWorldBooks) viewModel.loadWorldBooks()
+    }
+    if (showWorldBooks) {
+        WorldBooksDialog(
+            viewModel,
+            exportEnabled = !state.exporting,
+            onClose = { showWorldBooks = false },
+            onExport = {
+                showWorldBooks = false
+                viewModel.exportWorldBook(it)
+            },
+        )
+    }
     var selectedAvatarPersona by remember { mutableStateOf<PersonaIndexDto?>(null) }
     var avatarCropBytes by remember { mutableStateOf<ByteArray?>(null) }
     val avatarPicker = rememberDocumentPicker { name, bytes ->
@@ -177,7 +195,7 @@ fun RunDetailScreen(
         val exported = state.exportedPackage ?: return@LaunchedEffect
         if (!state.exportDestinationPending) return@LaunchedEffect
         viewModel.consumeExportDestinationRequest(state.exportRequestId)
-        fileExporter(exported.filename, "application/zip")
+        fileExporter(exported.filename, exported.mimeType)
     }
 
     LaunchedEffect(state.deleted) {
@@ -239,6 +257,33 @@ fun RunDetailScreen(
         )
     }
 
+    if (chooseExportFormat) {
+        AlertDialog(
+            onDismissRequest = { chooseExportFormat = false },
+            title = { Text("导出") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            chooseExportFormat = false
+                            confirmExport = true
+                        },
+                    ) { Text("造梦书卷包") }
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state.run?.availableCharacters.orEmpty().isNotEmpty(),
+                        onClick = {
+                            chooseExportFormat = false
+                            chooseExportCharacter = true
+                        },
+                    ) { Text("SillyTavern 角色卡") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { chooseExportFormat = false }) { Text("取消") } },
+        )
+    }
+
     if (confirmExport) {
         ExportRunPackageDialog(
             onDismiss = { confirmExport = false },
@@ -246,6 +291,28 @@ fun RunDetailScreen(
                 confirmExport = false
                 viewModel.exportRun(includeDialogue)
             },
+        )
+    }
+
+    if (chooseExportCharacter) {
+        AlertDialog(
+            onDismissRequest = { chooseExportCharacter = false },
+            title = { Text("导出 SillyTavern 角色卡") },
+            text = {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                    item { Text("V2 JSON 包含人物设定和卡内世界书。头像需在 SillyTavern 中另行设置。") }
+                    items(state.run?.availableCharacters.orEmpty(), key = { it }) { character ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                chooseExportCharacter = false
+                                viewModel.exportSillyTavernCard(character)
+                            },
+                        ) { Text(character) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { chooseExportCharacter = false }) { Text("取消") } },
         )
     }
 
@@ -327,6 +394,9 @@ fun RunDetailScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = { showWorldBooks = true }, enabled = state.run != null) {
+                        Text("世界书")
+                    }
                     IconButton(
                         onClick = viewModel::refresh,
                         enabled = !state.refreshing && !state.loading,
@@ -337,8 +407,8 @@ fun RunDetailScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "刷新详情")
                         }
                     }
-                    IconButton(onClick = { confirmExport = true }, enabled = state.run != null && !state.exporting) {
-                        Icon(Icons.Default.Download, contentDescription = "导出书卷")
+                    IconButton(onClick = { chooseExportFormat = true }, enabled = state.run != null && !state.exporting) {
+                        Icon(Icons.Default.Download, contentDescription = "导出")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -829,7 +899,12 @@ private fun RunHero(run: RunManifestDto) {
             }
 
             Text(
-                text = run.progress.message.ifBlank { run.summary.statusText.ifBlank { statusCopy(run.status) } },
+                text = run.progress.message.ifBlank {
+                    run.summary.statusText.ifBlank {
+                        if (run.isSillyTavernCharacterCard && run.status == "ready") "已导入 SillyTavern 角色卡。"
+                        else statusCopy(run.status)
+                    }
+                },
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -880,10 +955,10 @@ private fun ExportRunPackageDialog(
     var includeDialogue by rememberSaveable { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("导出书卷包") },
+        title = { Text("导出造梦书卷包") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("选择是否把已有聊天会话一起写入小说包。")
+                Text("选择是否把已有会话一起写入书卷包。")
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
@@ -1199,7 +1274,7 @@ private fun PersonaAvatar(
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.clip(CircleShape), shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-        val bitmap = bytes?.let { decodeImageBitmap(it) }
+        val bitmap = remember(bytes) { bytes?.let { decodeImageBitmap(it) } }
         if (bitmap == null) {
             Box(contentAlignment = Alignment.Center) {
                 val initial = name.trim().take(1)

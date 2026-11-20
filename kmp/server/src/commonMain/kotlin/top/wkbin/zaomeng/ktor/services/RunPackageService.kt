@@ -13,15 +13,48 @@ import kotlinx.serialization.json.put
 import okio.Path
 import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
 import top.wkbin.zaomeng.data.api.LibraryPackageImportDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewRequest
 import top.wkbin.zaomeng.platform.base64Decode
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
-import top.wkbin.zaomeng.platform.readZipEntries
+import top.wkbin.zaomeng.platform.forEachZipEntry
 
 class RunPackageService(private val storage: StorageService) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
+    internal val sillyTavern = SillyTavernImport(storage)
+
+    fun previewSillyTavern(request: SillyTavernPreviewRequest): SillyTavernPreviewDto {
+        val extension = request.filename.substringAfterLast('.', "").lowercase()
+        val png = extension == "png"
+        require(extension == "json" || (png && !request.worldBook)) { "请选择 JSON 世界书或 JSON / PNG 角色卡。" }
+        return sillyTavern.preview(
+            decodeSillyTavern(request.contentBase64),
+            png = png,
+            worldBook = request.worldBook,
+            targetRunId = request.targetRunId,
+            testText = request.testText,
+        )
+    }
+
+    private fun decodeSillyTavern(encoded: String): ByteArray {
+        require(encoded.length <= (SillyTavernImport.MAX_BYTES + 2) / 3 * 4) { "SillyTavern 文件不能超过 5 MB。" }
+        return runCatching { base64Decode(encoded) }
+            .getOrElse { throw IllegalArgumentException("SillyTavern 文件的 Base64 内容无效。") }
+    }
 
     fun importPackage(request: ImportRunPackageRequest): JsonObject {
+        val extension = request.filename.substringAfterLast('.', "").lowercase()
+        val isSillyTavern = request.libraryPackage == null && (extension == "json" || extension == "png")
+        require(request.targetRunId == null || (isSillyTavern && extension == "json")) {
+            "只有 JSON 世界书可以导入已有书卷。"
+        }
+        if (isSillyTavern) {
+            val bytes = decodeSillyTavern(request.contentBase64)
+            return request.targetRunId?.let { sillyTavern.importWorldBook(it, bytes) }
+                ?: sillyTavern.importCard(bytes, png = extension == "png")
+        }
+        require(request.contentBase64.length <= ((MAX_PACKAGE_BYTES + 2) / 3) * 4) { "archive is too large" }
         val bytes = runCatching { base64Decode(request.contentBase64) }
             .getOrElse { throw IllegalArgumentException("书卷包 Base64 内容无效。", it) }
         require(bytes.isNotEmpty()) { "导入的书卷包内容为空。" }
@@ -29,6 +62,7 @@ class RunPackageService(private val storage: StorageService) {
         val importRoot = storage.getStorageRoot() / "tmp-imports/import-${randomUuid()}"
         val newRunId = randomUuid().replace("-", "")
         val target = storage.runsDir / newRunId
+        var ownsTarget = false
         try {
             extractSafely(bytes, importRoot)
             validatePackageManifest(importRoot / "package_manifest.json")
@@ -36,6 +70,7 @@ class RunPackageService(private val storage: StorageService) {
             val sourceManifest = sourceRun / "run_manifest.json"
             require(storage.isDirectory(sourceRun) && storage.isFile(sourceManifest)) { "书卷包缺少有效的 run/run_manifest.json。" }
             check(!storage.exists(target)) { "新书卷目录已经存在，请重试。" }
+            ownsTarget = true
             check(runCatching { copyRecursively(sourceRun, target); true }.getOrDefault(false)) { "复制书卷数据失败。" }
             storage.mkdirs(target / "dialogue")
             val manifestFile = target / "run_manifest.json"
@@ -51,7 +86,7 @@ class RunPackageService(private val storage: StorageService) {
             rewriteSessionRunIds(target, newRunId)
             return rewritten
         } catch (error: Throwable) {
-            storage.deleteRecursively(target)
+            if (ownsTarget) storage.deleteRecursively(target)
             throw error
         } finally {
             storage.deleteRecursively(importRoot)
@@ -61,12 +96,9 @@ class RunPackageService(private val storage: StorageService) {
     private fun extractSafely(bytes: ByteArray, root: Path) {
         storage.mkdirs(root)
         require(bytes.size.toLong() <= MAX_PACKAGE_BYTES) { "archive is too large" }
-        val entries = readZipEntries(bytes)
         val files = HashSet<String>()
         val directories = HashSet<String>()
-        require(entries.size <= MAX_ENTRIES) { "书卷包文件数量超过限制。" }
-        var totalBytes = 0L
-        for (entry in entries) {
+        forEachZipEntry(bytes) { entry ->
             val name = normalizeArchiveEntryName(entry.name)
             val key = name.lowercase()
             require(files.add(key)) { "duplicate archive path" }
@@ -78,9 +110,6 @@ class RunPackageService(private val storage: StorageService) {
                 require(prefixKey !in files) { "archive file/directory collision" }
                 directories += prefixKey
             }
-            totalBytes += entry.content.size
-            require(entry.content.size <= MAX_ENTRY_BYTES) { "书卷包解压大小超过限制。" }
-            require(totalBytes <= MAX_TOTAL_BYTES) { "书卷包解压大小超过限制。" }
             val target = resolveSafe(root, name)
             storage.mkdirs(target.parent!!)
             storage.writeBytes(target, entry.content)
@@ -96,8 +125,10 @@ class RunPackageService(private val storage: StorageService) {
         components.forEach { component ->
             require(component.isNotEmpty() && component != "." && component != "..") { "unsafe archive path" }
             require(component.length <= MAX_COMPONENT_LENGTH) { "archive file name is too long" }
-            require(component.none { it == ':' || it.code < 0x20 }) { "invalid archive file name" }
-            val stem = component.substringBefore('.').uppercase()
+            require(component == component.trimEnd(' ', '.') && component.none { it in ":*?\"<>|" || it.code < 0x20 }) {
+                "invalid archive file name"
+            }
+            val stem = component.substringBefore('.').trimEnd().uppercase()
             require(stem !in WINDOWS_RESERVED_NAMES) { "reserved archive file name" }
         }
         return components.joinToString("/")
@@ -254,9 +285,6 @@ class RunPackageService(private val storage: StorageService) {
     }
 
     private companion object {
-        const val MAX_ENTRIES = 10_000
-        const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
-        const val MAX_TOTAL_BYTES = 512L * 1024 * 1024
         const val MAX_PACKAGE_BYTES = 128L * 1024 * 1024
         const val MAX_PATH_LENGTH = 1024
         const val MAX_PATH_DEPTH = 32

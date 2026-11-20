@@ -4,6 +4,7 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
+import androidx.room3.Transaction
 
 /** 领域实体表 DAO：runs / sessions / messages / cards / personas。 */
 @Dao
@@ -55,6 +56,46 @@ interface DomainDao {
 
     @Query("DELETE FROM messages WHERE runId = :runId")
     suspend fun deleteMessagesOfRun(runId: String)
+
+    @Query("SELECT * FROM messages WHERE runId = :runId AND sessionId = :sessionId AND seq >= :startSeq ORDER BY seq")
+    suspend fun messagesFrom(runId: String, sessionId: String, startSeq: Int): List<MessageEntity>
+
+    @Query("DELETE FROM messages WHERE id IN (:ids)")
+    suspend fun deleteMessagesById(ids: List<Long>)
+
+    @Transaction
+    suspend fun replaceSessionWindow(session: SessionEntity, startSeq: Int, messages: List<MessageEntity>) {
+        upsertSession(session)
+        if (messages.isEmpty()) {
+            deleteMessagesFrom(session.runId, session.sessionId, startSeq)
+            return
+        }
+        val previous = messagesFrom(session.runId, session.sessionId, startSeq)
+            .associateBy { it.seq }.toMutableMap()
+        val changes = messages.mapNotNull { message ->
+            val existing = previous.remove(message.seq)
+            val updated = message.copy(id = existing?.id ?: 0)
+            updated.takeUnless { it == existing }
+        }
+        for (batch in previous.values.map { it.id }.chunked(500)) {
+            deleteMessagesById(batch)
+        }
+        if (changes.isNotEmpty()) upsertMessages(changes)
+    }
+
+    @Transaction
+    suspend fun deleteRunCascade(runId: String) {
+        deleteRun(runId)
+        deleteSessionsOf(runId)
+        deleteMessagesOfRun(runId)
+        deletePersonasOf(runId)
+    }
+
+    @Transaction
+    suspend fun deleteSessionCascade(runId: String, sessionId: String) {
+        deleteSession(sessionId)
+        deleteMessagesOf(runId, sessionId)
+    }
 
     @Query("SELECT COUNT(*) FROM messages")
     suspend fun messageCount(): Long

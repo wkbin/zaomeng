@@ -100,6 +100,16 @@ class DomainStoreTest {
 
         val messageCount = kotlinx.coroutines.runBlocking { db.domainDao().messageCount() }
         assertEquals(2L, messageCount)
+        val before = kotlinx.coroutines.runBlocking { db.domainDao().messagesFrom("run-1", "dlg-1", 0) }
+        storage.updateSessionManifest("run-1", "dlg-1") { current ->
+            buildJsonObject {
+                current.forEach { (key, value) -> put(key, value) }
+                put("title", "改名")
+            }
+        }
+        val after = kotlinx.coroutines.runBlocking { db.domainDao().messagesFrom("run-1", "dlg-1", 0) }
+        assertEquals(before, after)
+        assertEquals("改名", storage.listDialogueSessions("run-1").single()["title"]?.jsonPrimitive?.content)
         db.close()
     }
 

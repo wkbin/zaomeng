@@ -26,6 +26,11 @@ import top.wkbin.zaomeng.data.api.RelationItemDto
 import top.wkbin.zaomeng.data.api.RestartRunRequest
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewRequest
+import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
+import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.WorldBookTestDto
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
 import top.wkbin.zaomeng.data.api.UpdateRelationDetailRequest
@@ -92,12 +97,14 @@ class RunRepositoryImpl(
         filename: String,
         bytes: ByteArray,
         libraryPackage: LibraryPackageImportDto?,
+        targetRunId: String?,
     ): RunManifestDto {
         val payload = withContext(Dispatchers.Default) {
             ImportRunPackageRequest(
                 filename = filename,
                 contentBase64 = clientBase64Encode(bytes),
                 libraryPackage = libraryPackage,
+                targetRunId = targetRunId,
             )
         }
         return repositoryRequest {
@@ -105,6 +112,56 @@ class RunRepositoryImpl(
             appPreferences.rememberRun(run.runId)
             run
         }
+    }
+
+    override suspend fun previewSillyTavern(
+        filename: String,
+        bytes: ByteArray,
+        worldBook: Boolean,
+        targetRunId: String?,
+        testText: String?,
+    ): SillyTavernPreviewDto {
+        val request = withContext(Dispatchers.Default) {
+            SillyTavernPreviewRequest(filename, clientBase64Encode(bytes), worldBook, targetRunId, testText)
+        }
+        return repositoryRequest { ktorRunManagement.previewSillyTavern(request) }
+    }
+
+    override suspend fun listWorldBooks(runId: String): ManagedWorldBooksDto =
+        repositoryRequest { ktorRunManagement.listWorldBooks(runId) }
+
+    override suspend fun testWorldBooks(runId: String, text: String): WorldBookTestDto =
+        repositoryRequest { ktorRunManagement.testWorldBooks(runId, text) }
+
+    override suspend fun setWorldBookEntry(
+        runId: String,
+        source: String,
+        index: Int,
+        request: SetWorldBookEntryRequest,
+    ): ManagedWorldBooksDto = repositoryRequest { ktorRunManagement.setWorldBookEntry(runId, source, index, request) }
+
+    override suspend fun removeStandaloneWorldBook(runId: String, revision: String): ManagedWorldBooksDto =
+        repositoryRequest { ktorRunManagement.removeStandaloneWorldBook(runId, revision) }
+
+    override suspend fun exportSillyTavernCard(runId: String, character: String, cacheDirectory: Path): ExportedRunPackage =
+        repositoryRequest {
+            val response = ktorRunManagement.exportSillyTavernCard(runId, character)
+            val streamed = streamChannelToTempFile(response.bodyAsChannel(), cacheDirectory)
+            ExportedRunPackage("${exportStem(character, "角色卡")}.card.json", streamed.file, streamed.byteCount, "application/json")
+        }
+
+    override suspend fun exportWorldBook(runId: String, source: String, name: String, cacheDirectory: Path): ExportedRunPackage =
+        repositoryRequest {
+            val response = ktorRunManagement.exportWorldBook(runId, source)
+            val streamed = streamChannelToTempFile(response.bodyAsChannel(), cacheDirectory)
+            ExportedRunPackage("${exportStem(name, "世界书")}.json", streamed.file, streamed.byteCount, "application/json")
+        }
+
+    private fun exportStem(name: String, fallback: String): String {
+        val stem = name.map { if (it.isISOControl() || it in "/\\<>:\"|?*") '_' else it }
+            .joinToString("").take(72).trim { it.isWhitespace() || it == '.' }.ifBlank { fallback }
+        val reserved = Regex("CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]", RegexOption.IGNORE_CASE)
+        return if (reserved.matches(stem.substringBefore('.'))) "$fallback-$stem" else stem
     }
 
     override suspend fun saveImportDefaults(characters: String, autoDistill: Boolean) {

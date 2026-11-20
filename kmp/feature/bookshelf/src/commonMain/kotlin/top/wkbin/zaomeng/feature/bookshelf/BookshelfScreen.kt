@@ -125,7 +125,7 @@ fun BookshelfScreen(
                 ExtendedFloatingActionButton(
                     onClick = onImport,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("导入小说") },
+                    text = { Text("导入") },
                 )
             }
         },
@@ -585,10 +585,10 @@ private fun EmptyBookshelf(onImport: () -> Unit) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("书架还是空的", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "放入 TXT 正文开始蒸馏人物，或者导入以前导出的书卷包。",
+                "导入小说、造梦书卷包或 SillyTavern 角色卡。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(onClick = onImport) { Text("导入第一本书") }
+            Button(onClick = onImport) { Text("导入") }
         }
     }
 }

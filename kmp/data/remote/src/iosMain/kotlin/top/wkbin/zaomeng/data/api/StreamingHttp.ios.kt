@@ -7,6 +7,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
@@ -43,7 +44,14 @@ actual fun openStreamingResponse(url: String, jsonBody: String, token: String): 
             header(HttpHeaders.Authorization, "Bearer $token")
         }.execute()
     }
-    check(response.status.isSuccess()) { "Streaming request failed: ${response.status}" }
+    if (!response.status.isSuccess()) {
+        val body = runBlocking { response.bodyAsText() }
+        throw StreamingHttpException(
+            response.status.value,
+            "Streaming request failed: ${response.status}",
+            body,
+        )
+    }
     val channel = runBlocking { response.bodyAsChannel() }
     return ByteReadChannelSource(channel).buffer()
 }

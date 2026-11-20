@@ -127,25 +127,22 @@ object DialogueResponseParser {
 
     /**
      * NDJSON is attempted first so every completed line remains independently usable.
-     * A malformed/truncated final line is ignored only when at least one earlier line is complete.
+     * Lines that are not a complete `{speaker,message}` object (truncated tail, noise,
+     * pretty-printed legacy JSON) are skipped; the legacy whole-document parser below
+     * only runs when no usable NDJSON line exists at all.
      */
     private fun loadResponseItems(text: String): List<JsonElement> {
         val stripped = stripCodeFences(text)
         val nonBlankLines = stripped.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
         if (nonBlankLines.isNotEmpty()) {
             val ndjsonItems = mutableListOf<JsonElement>()
-            var ndjsonShape = true
-            for ((index, line) in nonBlankLines.withIndex()) {
+            for (line in nonBlankLines) {
                 val item = runCatching { json.parseToJsonElement(line) as? JsonObject }.getOrNull()
-                if (item == null || item["speaker"] == null || item["message"] == null) {
-                    // Only the final line may be incomplete. Noise or pretty-printed legacy JSON
-                    // falls through to the legacy whole-document parser below.
-                    if (index != nonBlankLines.lastIndex) ndjsonShape = false
-                } else {
+                if (item != null && item["speaker"] != null && item["message"] != null) {
                     ndjsonItems += item
                 }
             }
-            if (ndjsonShape && ndjsonItems.isNotEmpty()) {
+            if (ndjsonItems.isNotEmpty()) {
                 return ndjsonItems
             }
         }

@@ -1,14 +1,22 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okio.Path.Companion.toPath
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import top.wkbin.zaomeng.ktor.models.DialogueResponse
 
 class MemoryContextServicesTest {
     @Test
@@ -114,6 +122,48 @@ class MemoryContextServicesTest {
     }
 
     @Test
+    fun committedTurnPersistsAndCompletesDerivedOperation() {
+        val root = createTempDirectory("zaomeng-derived-worker")
+        val storage = StorageService(root.toString().toPath())
+        val runId = "run-test"
+        val sessionId = "session-test"
+        storage.writeRunManifest(runId, buildJsonObject { put("run_id", runId) })
+        storage.writeTextAtomically(
+            storage.getDialogueSessionManifestFile(runId, sessionId),
+            """{"run_id":"$runId","session_id":"$sessionId","mode":"observe","participants":["林夕"],"transcript":[]}""",
+        )
+        val dialogue = DialogueService(storage)
+
+        runBlocking {
+            dialogue.commitTurn(
+                runId = runId,
+                sessionId = sessionId,
+                turnId = "turn-1",
+                message = "我们约定在旧车站见面。",
+                messageKind = "dialogue",
+                inputSpeaker = "我",
+                responses = listOf(DialogueResponse("林夕", "我会带上钥匙。")),
+            )
+        }
+        val store = DerivedOperationStore(storage)
+        val operation = runBlocking {
+            var current: DerivedOperation? = null
+            repeat(100) {
+                current = store.listAll(runId, sessionId).singleOrNull()
+                if (current?.status == DerivedOperationStatus.SUCCEEDED) return@runBlocking current
+                delay(25)
+            }
+            current
+        } ?: error("Derived operation was not persisted")
+        assertEquals(DerivedOperationStatus.SUCCEEDED, operation.status, operation.failure?.message)
+        assertEquals(1, LongTermMemoryService(storage).search(runId, sessionId, "旧车站").size)
+
+        dialogue.scheduleDerivedResult(runId, sessionId, operation.result, DerivedOperationKind.POST_TURN)
+        assertEquals(1, store.listAll(runId, sessionId).size)
+        assertEquals(1, LongTermMemoryService(storage).search(runId, sessionId, "旧车站").size)
+    }
+
+    @Test
     fun worldMemoryAcceptsCurrentKnowledgeLedgerFieldNames() {
         val root = createTempDirectory("zaomeng-world-memory")
         val storage = StorageService(root.toString().toPath())
@@ -160,5 +210,51 @@ class MemoryContextServicesTest {
         )
         val updated = service.get("run-test").facts.first { it.summary == "钥匙在旧车站" }
         assertEquals(listOf("林夕", "沈舟"), updated.characters)
+    }
+
+    @Test
+    fun knowledgeReplacementConsumesDeclaredSourcesWithoutResurrectingLegacyTurn() {
+        val root = createTempDirectory("zaomeng-world-source-replace")
+        val storage = StorageService(root.toString().toPath())
+        val service = WorldMemoryService(storage)
+        storage.writeRunManifest("run-test", buildJsonObject { put("run_id", "run-test") })
+        fun knowledge(turnId: String) = buildJsonObject {
+            put("fact", "秘密是 X")
+            put("turn_id", turnId)
+            put("source_turn_ids", buildJsonArray { add(JsonPrimitive(turnId)) })
+            put("holders", buildJsonArray { add(JsonPrimitive(turnId)) })
+        }
+        fun sync(turnId: String, replace: Boolean, ledger: List<kotlinx.serialization.json.JsonObject>) {
+            service.syncCompletedTurn(
+                runId = "run-test",
+                sessionId = "session-test",
+                turnId = turnId,
+                title = "修正",
+                participants = listOf("林夕"),
+                events = emptyList(),
+                location = "",
+                timeHint = "",
+                consistencyStatus = "pass",
+                knowledgeLedger = ledger,
+                updatedAt = "",
+                replaceSource = replace,
+            )
+        }
+        fun sourceTurnIds(): List<String> {
+            val payload = Json.parseToJsonElement(storage.readText(storage.getRunDirectory("run-test") / "world_memory.json")).jsonObject
+            return payload["facts"]?.jsonArray.orEmpty().flatMap { fact ->
+                fact.jsonObject["source_turn_ids"]?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull }
+            }
+        }
+
+        sync("turn-a", replace = false, ledger = listOf(knowledge("turn-a")))
+        sync("turn-b", replace = false, ledger = listOf(knowledge("turn-b")))
+        assertEquals(listOf("turn-a", "turn-b"), sourceTurnIds().distinct().sorted())
+
+        sync("turn-a", replace = true, ledger = listOf(knowledge("turn-b")))
+        assertEquals(listOf("turn-b"), sourceTurnIds().distinct())
+
+        sync("turn-b", replace = true, ledger = emptyList())
+        assertTrue(sourceTurnIds().isEmpty())
     }
 }

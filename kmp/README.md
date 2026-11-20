@@ -83,6 +83,14 @@ kmp/
 
 iOS：用 Xcode 打开 `iosApp/iosApp.xcodeproj`，构建脚本会自动调用 Gradle 生成 shared framework。
 
+### 发布 APK
+
+应用内更新只认 GitHub Release，不读取自建清单：
+
+- 把 `assembleRelease` 产物作为 asset 上传到 `wkbin/zaomeng` 的 Release，GitHub 会自动生成 `digest`（`sha256:<hex>`）与 `size`，客户端下载时按二者校验。
+- 已发布的 asset 不要再替换或删除：客户端会缓存同一版本的摘要，替换后旧安装包将无法通过校验。
+- `digest` 缺失时客户端退化为只校验大小，无法发现同尺寸替换，因此不要手工上传未经 GitHub 计算摘要的镜像。
+
 ## 截图
 
 | 手机端 | 桌面端 |

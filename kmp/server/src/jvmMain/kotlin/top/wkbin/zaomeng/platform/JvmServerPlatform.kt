@@ -11,7 +11,7 @@ import top.wkbin.zaomeng.db.ZaomengDatabase
 import top.wkbin.zaomeng.db.getDatabaseBuilder
 
 /** JVM 实现：数据目录/提示词优先从仓库根目录解析（开发/测试用），
- *  打包安装后自动落到用户可写目录，密钥为本地文件存储。 */
+ *  打包安装后自动落到用户可写目录，密钥走 [FileSecureKeyValueStore]（Windows DPAPI）。 */
 class JvmServerPlatform(
     override val dataRoot: Path = defaultDataRoot(),
     override val promptSource: PromptSource = JvmPromptSource(),
@@ -86,10 +86,23 @@ class JvmPromptSource(
     }
 }
 
-/** JVM 安全存储：properties 文件明文保存（开发/测试；Android 用 Keystore 加密）。 */
-class FileSecureKeyValueStore(private val file: Path) : SecureKeyValueStore {
+/**
+ * JVM 安全存储：Windows 下每个值用 DPAPI 加密后落盘；其他系统退化为 0600 权限的明文 properties。
+ *
+ * 历史明文条目在首次构造时迁移为密文，原文件保留为 `<name>.<millis>.legacy` 备份。
+ */
+class FileSecureKeyValueStore internal constructor(
+    private val file: Path,
+    private val codec: SecretCodec,
+) : SecureKeyValueStore {
+    constructor(file: Path) : this(file, SecretCodec.platformDefault())
+
     private val fs = okio.FileSystem.SYSTEM
     private val lock = Any()
+
+    init {
+        migrateLegacyPlaintext()
+    }
 
     private fun load(): Map<String, String> {
         if (!fs.exists(file)) return emptyMap()
@@ -106,14 +119,17 @@ class FileSecureKeyValueStore(private val file: Path) : SecureKeyValueStore {
             val props = Properties()
             map.forEach { (k, v) -> props.setProperty(k, v) }
             fs.sink(file).buffer().asOutputStream().use { props.store(it, null) }
+            runCatching { restrictSecretFilePermissions(secretFilePath(file.toString())) }
         }
     }
 
-    override fun get(key: String): String? = synchronized(lock) { load()[key] }
+    override fun get(key: String): String? = synchronized(lock) {
+        load()[key]?.let(codec::reveal)
+    }
 
     override fun put(key: String, value: String) {
         synchronized(lock) {
-            val next = load().toMutableMap().apply { put(key, value) }
+            val next = load().toMutableMap().apply { put(key, codec.encode(value)) }
             save(next)
         }
     }
@@ -125,7 +141,49 @@ class FileSecureKeyValueStore(private val file: Path) : SecureKeyValueStore {
         }
     }
 
-    override fun entries(): Map<String, String> = synchronized(lock) { load() }
+    override fun entries(): Map<String, String> = synchronized(lock) {
+        load().mapNotNull { (key, stored) -> codec.reveal(stored)?.let { key to it } }.toMap()
+    }
+
+    /** 已存在明文条目时整体重写为密文；备份文件只做保留，不自动删除。 */
+    private fun migrateLegacyPlaintext() {
+        if (!codec.canEncrypt) return
+        val raw = load()
+        if (raw.isEmpty() || raw.values.none { !codec.isEncoded(it) }) return
+        // 先加密到内存：任一条目加密失败就保持原文件，避免出现“备份没了、明文还在”的中间态。
+        val encoded = raw.mapValues { (_, value) -> codec.encode(value) }
+        if (encoded.values.any { !codec.isEncoded(it) }) {
+            PlatformLog.w(TAG, "Skip secret migration: OS protection unavailable")
+            return
+        }
+        synchronized(lock) {
+            val backup = file.parent!! / "${file.name}.${nowEpochMillis()}.legacy"
+            if (!writeLegacyBackup(backup)) {
+                // 备份失败就不改写：宁可继续用明文文件，也不要丢掉回滚能力。
+                PlatformLog.w(TAG, "Skip secret migration: cannot write backup")
+                return
+            }
+            // 备份里仍是明文，至少收紧到仅当前用户可读。
+            runCatching { restrictSecretFilePermissions(secretFilePath(backup.toString())) }
+            save(encoded)
+            PlatformLog.i(TAG, "Migrated ${raw.size} plaintext secret(s) to DPAPI; backup=${backup.name}")
+        }
+    }
+
+    /**
+     * 复制原文件作为备份。
+     *
+     * 这里不用 `atomicMove`：它在部分磁盘/杀软/CI 临时目录上会失败，而备份是迁移的前置条件，
+     * 失败被吞掉就会得到“已加密但没有备份”的结果。复制只要求读句柄，退路才是整文件移动。
+     */
+    private fun writeLegacyBackup(backup: Path): Boolean {
+        if (runCatching { fs.copy(file, backup) }.isSuccess) return true
+        return runCatching { fs.atomicMove(file, backup) }.isSuccess
+    }
+
+    private companion object {
+        const val TAG = "FileSecureKeyValueStore"
+    }
 }
 
 /** okio Source → java.io.InputStream（okio 3.x 已移除内置转换扩展）。 */

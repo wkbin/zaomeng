@@ -18,7 +18,7 @@ class DesktopAppPlatform : AppPlatform {
 
     override val backendController = localBackendController
 
-    override val backendEndpointProvider = LocalBackendEndpointProvider(localBackendController, backendToken)
+    override val backendEndpointProvider = LocalBackendEndpointProvider(localBackendController, localBackendController.authToken)
 
     override val secureStore = serverPlatform.secureStore()
 

@@ -66,6 +66,23 @@ internal fun mergeTranscript(
     return base.filterNot { it.turnId in appendedTurnIds } + append
 }
 
+internal fun resolveEarlierOffset(nextOffset: Int?, loadedCount: Int): Int =
+    nextOffset ?: loadedCount
+
+/** 同 revision 的更早页前插；seq 优先，旧服务端数据退回原有内容身份。 */
+internal fun mergeEarlierTranscript(
+    base: List<TranscriptItemDto>,
+    earlier: List<TranscriptItemDto>,
+): List<TranscriptItemDto> {
+    fun legacyKey(item: TranscriptItemDto) =
+        "${item.turnId}|${item.speaker}|${item.timestamp}|${item.message.hashCode()}"
+    val knownSeq = base.mapNotNullTo(mutableSetOf()) { item -> item.seq.takeIf { it >= 0 } }
+    val knownLegacy = base.filter { it.seq < 0 }.mapTo(mutableSetOf(), ::legacyKey)
+    return earlier.filterNot { item ->
+        if (item.seq >= 0) item.seq in knownSeq else legacyKey(item) in knownLegacy
+    } + base
+}
+
 internal fun hasCommittedContent(items: List<TranscriptItemDto>): Boolean =
     items.any { it.role != "user" && it.message.isNotBlank() }
 
@@ -121,4 +138,5 @@ internal fun Throwable.readableMessage(fallback: String): String = message
 internal class StreamReplyException(
     message: String,
     val retryable: Boolean,
+    val outcomeUnknown: Boolean = false,
 ) : Exception(message)

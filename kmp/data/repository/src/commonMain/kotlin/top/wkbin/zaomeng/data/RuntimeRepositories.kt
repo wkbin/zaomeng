@@ -10,6 +10,7 @@ import okio.use
 import top.wkbin.zaomeng.backend.BackendController
 import top.wkbin.zaomeng.backend.BackendState
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.DiscoverModelsRequest
 import top.wkbin.zaomeng.data.api.GeneratePluginDraftRequest
 import top.wkbin.zaomeng.data.api.InspectPluginPackageRequest
 import top.wkbin.zaomeng.data.api.InstallPluginPackageRequest
@@ -61,12 +62,18 @@ class ModelSettingsRepositoryImpl(
 
     override suspend fun saveModelSettings(request: SaveModelSettingsRequest): ModelSettingsDto = repositoryRequest {
         ktorModelSettings.save(request).also { saved ->
-            secureStore.put(
-                SecureStoreNames.secretName(request.profileId.ifBlank { saved.activeProfileId }),
-                request.apiKey,
-            )
+            // apiKey 为空表示"未修改"：档案加载时不会回填密钥，这里若照写会把已有密钥覆盖成空串。
+            if (request.apiKey.isNotBlank()) {
+                secureStore.put(
+                    SecureStoreNames.secretName(request.profileId.ifBlank { saved.activeProfileId }),
+                    request.apiKey,
+                )
+            }
         }
     }
+
+    override suspend fun discoverModels(request: DiscoverModelsRequest): List<String> =
+        repositoryRequest { ktorModelSettings.discoverModels(request).models }
 
     override suspend fun testModelSettings(request: TestModelSettingsRequest): ModelConnectionTestDto = repositoryRequest {
         ktorModelSettings.test(request)

@@ -40,6 +40,10 @@ class SessionsPagingSource(
     override fun getRefreshKey(state: PagingState<Int, DialogueSessionDto>): Int? {
         val anchor = state.anchorPosition ?: return null
         val page = state.closestPageToPosition(anchor) ?: return null
-        return page.prevKey?.plus(1) ?: page.nextKey?.minus(1) ?: 0
+        // key 是 offset（不是页号）：按当前页的数据量与 nextKey/prevKey 反推该页起点，
+        // 直接 ±1 会让刷新窗口与旧页重叠，出现重复项或漏掉首项。
+        return page.nextKey?.minus(page.data.size)
+            ?: page.prevKey?.plus(page.data.size)
+            ?: 0
     }
 }

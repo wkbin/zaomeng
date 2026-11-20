@@ -6,6 +6,7 @@ package top.wkbin.zaomeng.ktor.services
  * 全部为纯文本规则函数，无文件 IO。输入统一使用 Map<String, Any?>（从 JsonObject 转换）。
  */
 object DialoguePromptRules {
+    const val WORLD_FACT_LIMIT = 18
 
     private fun isSceneMessageKind(messageKind: String): Boolean =
         messageKind.trim() in setOf("narration", "plot", "fourth_wall")

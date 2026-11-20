@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -19,6 +20,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import top.wkbin.zaomeng.app.BuildConfig
+import top.wkbin.zaomeng.data.update.AppUpdateDigest
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadState
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadStatus
 import top.wkbin.zaomeng.data.update.AppUpdateInfo
@@ -56,6 +58,7 @@ class AppUpdateManager(
         val temporaryFile = File(updateDirectory, ".update-${update.version}.apk.part")
         finalFile.delete()
         temporaryFile.delete()
+        val hasher = MessageDigest.getInstance("SHA-256")
         try {
             val request = Request.Builder()
                 .url(update.downloadUrl)
@@ -83,6 +86,7 @@ class AppUpdateManager(
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
+                            hasher.update(buffer, 0, read)
                             downloadedBytes += read
                             if (downloadedBytes > MAX_UPDATE_BYTES) error("更新包过大，无法安全下载。")
                             reportProgress()
@@ -90,8 +94,21 @@ class AppUpdateManager(
                     }
                 }
                 reportProgress(force = true)
+                if (update.sizeBytes > 0L && downloadedBytes != update.sizeBytes) {
+                    error("更新包校验失败：实际大小与发布清单不一致。")
+                }
+                if (update.sha256.isNotBlank() &&
+                    !AppUpdateDigest.matches(update.sha256, hasher.hexDigest())
+                ) {
+                    error("更新包校验失败：SHA-256 与发布清单不一致。")
+                }
                 if (!temporaryFile.renameTo(finalFile)) error("下载更新失败：无法保存安装包")
-                AppUpdatePreferences.rememberDownload(context, finalFile.absolutePath, update.version)
+                AppUpdatePreferences.rememberDownload(
+                    context,
+                    finalFile.absolutePath,
+                    update.version,
+                    update.sha256,
+                )
                 AppUpdateDownloadState(
                     version = update.version,
                     localPath = finalFile.absolutePath,
@@ -103,11 +120,15 @@ class AppUpdateManager(
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             temporaryFile.delete()
             throw cancelled
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
             temporaryFile.delete()
             finalFile.delete()
             AppUpdatePreferences.clearDownload(context)
-            AppUpdateDownloadState(version = update.version, status = AppUpdateDownloadStatus.Failed)
+            AppUpdateDownloadState(
+                version = update.version,
+                status = AppUpdateDownloadStatus.Failed,
+                failureReason = failure.message.orEmpty(),
+            )
         }
     }
 
@@ -121,7 +142,9 @@ class AppUpdateManager(
             !apkFile.isFile ||
             apkFile.length() <= 0L ||
             apkFile.length() > MAX_UPDATE_BYTES ||
-            !isInsideUpdateDirectory(apkFile)
+            !isInsideUpdateDirectory(apkFile) ||
+            (update.sizeBytes > 0L && apkFile.length() != update.sizeBytes) ||
+            !matchesRememberedDigest(update)
         ) {
             AppUpdatePreferences.clearDownload(context)
             return@withContext AppUpdateDownloadState(version = update.version)
@@ -135,18 +158,57 @@ class AppUpdateManager(
         )
     }
 
-    fun installDownloadedUpdate(update: AppUpdateInfo): Boolean = runCatching {
+    fun installDownloadedUpdate(update: AppUpdateInfo): Boolean {
         val path = AppUpdatePreferences.downloadPath(context)
-        check(path.isNotBlank() && AppUpdatePreferences.downloadVersion(context) == update.version)
+        if (path.isBlank() || AppUpdatePreferences.downloadVersion(context) != update.version) return false
         val apkFile = File(path)
-        check(apkFile.isFile && apkFile.length() > 0L && apkFile.length() <= MAX_UPDATE_BYTES)
-        check(isInsideUpdateDirectory(apkFile))
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        })
-    }.isSuccess
+        val usable = apkFile.isFile &&
+            apkFile.length() > 0L &&
+            apkFile.length() <= MAX_UPDATE_BYTES &&
+            isInsideUpdateDirectory(apkFile) &&
+            (update.sizeBytes <= 0L || apkFile.length() == update.sizeBytes) &&
+            // 安装前重新哈希落盘文件，防止下载后被替换。
+            matchesReleaseDigest(update, apkFile)
+        if (!usable) {
+            // 安装包不完整或摘要不符：清掉缓存状态，避免用户反复点击同一个坏包。
+            AppUpdatePreferences.clearDownload(context)
+            return false
+        }
+        // 打开系统安装器失败（例如缺少“安装未知应用”权限）时保留文件，允许用户授权后重试。
+        return runCatching {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }.isSuccess
+    }
+
+    /** 启动对账用记录值比对，避免每次启动都哈希整个安装包；安装前仍会重新计算。 */
+    private fun matchesRememberedDigest(update: AppUpdateInfo): Boolean {
+        if (update.sha256.isBlank()) return true
+        return AppUpdateDigest.matches(update.sha256, AppUpdatePreferences.downloadDigest(context))
+    }
+
+    /** 发布清单未提供摘要时视为“无法校验”，不阻止安装；提供了就必须匹配。 */
+    private fun matchesReleaseDigest(update: AppUpdateInfo, file: File): Boolean {
+        if (update.sha256.isBlank()) return true
+        val actual = sha256Of(file) ?: return false
+        return AppUpdateDigest.matches(update.sha256, actual)
+    }
+
+    private fun sha256Of(file: File): String? = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        digest.hexDigest()
+    }.getOrNull()
 
     private fun isInsideUpdateDirectory(file: File): Boolean {
         val root = runCatching { updateDirectory.canonicalFile }.getOrElse { updateDirectory.absoluteFile }
@@ -192,6 +254,9 @@ internal fun parseLatestRelease(payload: String, currentVersion: String): AppUpd
         downloadUrl = downloadUrl,
         fileName = asset.stringValue("name").ifBlank { "zaomeng-$remoteVersion.apk" },
         releaseNotes = release.stringValue("body"),
+        // GitHub 会为上传的 asset 计算 digest（sha256:...）；缺失时留空，下载后只校验大小。
+        sha256 = AppUpdateDigest.normalize(asset.stringValue("digest")).orEmpty(),
+        sizeBytes = asset.stringValue("size").toLongOrNull()?.takeIf { it > 0L } ?: 0L,
     )
 }
 
@@ -217,3 +282,17 @@ private fun JsonObject.arrayValue(key: String): List<JsonObject> =
     this[key]?.jsonArray?.mapNotNull(JsonElement::asObjectOrNull).orEmpty()
 
 private fun JsonElement.asObjectOrNull(): JsonObject? = runCatching { jsonObject }.getOrNull()
+
+private const val HEX_CHARS = "0123456789abcdef"
+
+/** 32 字节摘要转小写十六进制，避免 `String.format` 的逐字节开销。 */
+private fun MessageDigest.hexDigest(): String {
+    val bytes = digest()
+    val builder = StringBuilder(bytes.size * 2)
+    for (byte in bytes) {
+        val value = byte.toInt() and 0xFF
+        builder.append(HEX_CHARS[value ushr 4])
+        builder.append(HEX_CHARS[value and 0x0F])
+    }
+    return builder.toString()
+}

@@ -159,7 +159,7 @@ internal fun ChatPersonaAvatar(
         shape = androidx.compose.foundation.shape.CircleShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
-        val bitmap = bytes?.let { decodeImageBitmap(it) }
+        val bitmap = remember(bytes) { bytes?.let { decodeImageBitmap(it) } }
         if (bitmap == null) {
             Box(contentAlignment = Alignment.Center) {
                 val initial = name.trim().take(1)

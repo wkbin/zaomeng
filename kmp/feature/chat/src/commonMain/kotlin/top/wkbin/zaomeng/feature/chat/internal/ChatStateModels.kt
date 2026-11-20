@@ -115,6 +115,8 @@ data class ChatUiState(
     val refreshing: Boolean = false,
     /** 正在向上加载更早的历史消息。 */
     val loadingEarlier: Boolean = false,
+    /** 当前 revision 下，下一页更早消息的 desc offset。 */
+    val earlierNextOffset: Int? = null,
     val sending: Boolean = false,
     val recovering: Boolean = false,
     val sendOutcomeUnknown: Boolean = false,

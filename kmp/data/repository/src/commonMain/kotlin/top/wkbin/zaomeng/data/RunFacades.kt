@@ -11,6 +11,10 @@ import top.wkbin.zaomeng.data.api.RelationDetailsDto
 import top.wkbin.zaomeng.data.api.RelationItemDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SamplingPlanDto
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
+import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
+import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.WorldBookTestDto
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldFactDto
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
@@ -39,7 +43,24 @@ interface RunRepository {
         filename: String,
         bytes: ByteArray,
         libraryPackage: LibraryPackageImportDto? = null,
+        targetRunId: String? = null,
     ): RunManifestDto
+
+    suspend fun previewSillyTavern(
+        filename: String,
+        bytes: ByteArray,
+        worldBook: Boolean,
+        targetRunId: String?,
+        testText: String?,
+    ): SillyTavernPreviewDto
+
+    suspend fun listWorldBooks(runId: String): ManagedWorldBooksDto
+    suspend fun testWorldBooks(runId: String, text: String): WorldBookTestDto
+    suspend fun setWorldBookEntry(runId: String, source: String, index: Int, request: SetWorldBookEntryRequest): ManagedWorldBooksDto
+    suspend fun removeStandaloneWorldBook(runId: String, revision: String): ManagedWorldBooksDto
+
+    suspend fun exportSillyTavernCard(runId: String, character: String, cacheDirectory: Path): ExportedRunPackage
+    suspend fun exportWorldBook(runId: String, source: String, name: String, cacheDirectory: Path): ExportedRunPackage
 
     suspend fun saveImportDefaults(characters: String, autoDistill: Boolean = true)
     suspend fun getRun(runId: String): RunManifestDto

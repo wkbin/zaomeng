@@ -3,10 +3,13 @@ import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import top.wkbin.zaomeng.data.api.SaveModelSettingsRequest
+import top.wkbin.zaomeng.data.api.DiscoverModelsRequest
+import kotlin.coroutines.cancellation.CancellationException
 import top.wkbin.zaomeng.data.api.TestModelSettingsRequest
 import top.wkbin.zaomeng.ktor.services.*
 
@@ -56,6 +59,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                 maxTokens = request.maxTokens,
                 reasoningEffort = request.reasoningEffort,
                 tokenParameter = request.tokenParameter,
+                requestTimeoutSeconds = request.requestTimeoutSeconds,
                 responseFormatMode = request.responseFormatMode,
                 profileId = request.profileId,
                 profileName = request.profileName,
@@ -67,6 +71,22 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
             call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
             call.respondError(HttpStatusCode.InternalServerError, "Failed to save settings")
+        }
+    }
+
+    post("/api/web/settings/model/discover") {
+        try {
+            call.respond(settingsService.discoverModels(call.receive<DiscoverModelsRequest>()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: BadRequestException) {
+            call.respondError(HttpStatusCode.BadRequest, "模型列表请求格式无效。")
+        } catch (e: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "模型服务配置无效。")
+        } catch (e: ModelDiscoveryException) {
+            call.respondError(HttpStatusCode.BadGateway, e.message ?: "无法获取模型列表。")
+        } catch (e: Exception) {
+            call.respondError(HttpStatusCode.InternalServerError, "无法获取模型列表。")
         }
     }
 
@@ -82,6 +102,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                 maxTokens = request.maxTokens,
                 reasoningEffort = request.reasoningEffort,
                 tokenParameter = request.tokenParameter,
+                requestTimeoutSeconds = request.requestTimeoutSeconds,
                 profileId = request.profileId
             )
             call.respond(HttpStatusCode.OK, result)
@@ -105,6 +126,7 @@ fun Route.settingsManagementRoutes(settingsService: SettingsManagementService) {
                     maxTokens = request.maxTokens,
                     reasoningEffort = request.reasoningEffort,
                     tokenParameter = request.tokenParameter,
+                    requestTimeoutSeconds = request.requestTimeoutSeconds,
                     profileId = request.profileId,
                 ),
             )

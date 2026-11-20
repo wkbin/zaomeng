@@ -11,9 +11,12 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import top.wkbin.zaomeng.data.api.UpdateRelationDetailRequest
 import top.wkbin.zaomeng.ktor.services.RelationsService
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 /**
  * 人物关系路由
@@ -51,7 +54,9 @@ fun Route.relationsRoutes(service: RelationsService) {
 
 private suspend fun relationsCall(call: ApplicationCall, block: suspend () -> JsonObject) {
     try {
-        call.respond(HttpStatusCode.OK, block())
+        call.respond(HttpStatusCode.OK, withContext(platformIoDispatcher) { block() })
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: NoSuchElementException) {
         call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
     } catch (e: IllegalArgumentException) {

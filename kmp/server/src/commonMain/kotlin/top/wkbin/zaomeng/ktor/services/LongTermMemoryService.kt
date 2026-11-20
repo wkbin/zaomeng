@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.platform.SimpleLock
+import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
@@ -19,16 +20,28 @@ import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 /** 记忆检索策略。未来可替换为语义检索或混合检索。 */
 internal interface MemoryRetrievalStrategy {
     fun score(query: String, memoryText: String): Float
+
+    /**
+     * 预先完成与查询相关的一次性工作（归一化、分词、N-Gram 特征），
+     * 返回按单条记忆打分的函数，避免对每条记忆重复处理同一个 query。
+     */
+    fun prepare(query: String): (String) -> Float = { memoryText -> score(query, memoryText) }
 }
 
 /** 默认的本地词法检索：分词重合度，并为完整短语命中加权。 */
 internal class LexicalRetrievalStrategy : MemoryRetrievalStrategy {
-    override fun score(query: String, memoryText: String): Float {
+    override fun score(query: String, memoryText: String): Float = prepare(query)(memoryText)
+
+    override fun prepare(query: String): (String) -> Float {
         val normalizedQuery = normalizeMemoryText(query)
-        if (normalizedQuery.isBlank()) return 0f
-        val normalizedMemory = memoryText.lowercase()
-        val overlap = memoryTokens(normalizedQuery).count(normalizedMemory::contains)
-        return overlap.toFloat() + if (normalizedMemory.contains(normalizedQuery.lowercase())) 5f else 0f
+        if (normalizedQuery.isBlank()) return { 0f }
+        val tokens = memoryTokens(normalizedQuery).toList()
+        val loweredQuery = normalizedQuery.lowercase()
+        return { memoryText ->
+            val normalizedMemory = memoryText.lowercase()
+            val overlap = tokens.count(normalizedMemory::contains)
+            overlap.toFloat() + if (normalizedMemory.contains(loweredQuery)) 5f else 0f
+        }
     }
 }
 
@@ -38,14 +51,21 @@ internal class HybridMemoryRetrievalStrategy(
     val semanticWeight: Float = 0.4f,
     private val lexicalStrategy: MemoryRetrievalStrategy = LexicalRetrievalStrategy(),
 ) : MemoryRetrievalStrategy {
-    override fun score(query: String, memoryText: String): Float {
-        val lexicalScore = lexicalStrategy.score(query, memoryText)
-        val semanticSimilarity = LocalSemanticVector.similarity(query, memoryText)
-        if (lexicalScore <= 0f && semanticSimilarity < 0.12f) {
-            return 0f
+    override fun score(query: String, memoryText: String): Float = prepare(query)(memoryText)
+
+    override fun prepare(query: String): (String) -> Float {
+        val lexicalScorer = lexicalStrategy.prepare(query)
+        val queryWeights = LocalSemanticVector.extractNgramWeights(query)
+        return { memoryText ->
+            val lexicalScore = lexicalScorer(memoryText)
+            val semanticSimilarity = LocalSemanticVector.similarityWithWeights(queryWeights, memoryText)
+            if (lexicalScore <= 0f && semanticSimilarity < 0.12f) {
+                0f
+            } else {
+                val scaledSemantic = semanticSimilarity * 8.0f
+                (lexicalWeight * lexicalScore) + (semanticWeight * scaledSemantic)
+            }
         }
-        val scaledSemantic = semanticSimilarity * 8.0f
-        return (lexicalWeight * lexicalScore) + (semanticWeight * scaledSemantic)
     }
 }
 
@@ -123,6 +143,7 @@ internal class LongTermMemoryService(
         if (queryText.isBlank()) return@withLock emptyList()
         val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
             .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+        val scorer = retrievalStrategy.prepare(queryText)
         val selected = entries
             .mapNotNull { raw ->
                 val entry = raw
@@ -130,7 +151,7 @@ internal class LongTermMemoryService(
                 if (entry["status"]?.jsonPrimitive?.contentOrNull in setOf("stale", "conflict")) return@mapNotNull null
                 val text = entry["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 if (text.isBlank()) return@mapNotNull null
-                val score = retrievalStrategy.score(queryText, text)
+                val score = scorer(text)
                 if (score <= 0f) return@mapNotNull null
                 score to entry
             }
@@ -168,7 +189,7 @@ internal class LongTermMemoryService(
             val automatic = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
                 .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
                 .map(::toAutomaticMemory)
-            val controlled = runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+            val controlled = runCatching { storage.loadSessionManifest(runId, sessionId) }.getOrNull()
                 ?.get("memory_ledger")?.jsonArray.orEmpty()
                 .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
                 .map(::toControlledMemory)
@@ -257,7 +278,7 @@ internal class LongTermMemoryService(
     private fun qualityReportUnlocked(runId: String, sessionId: String): MemoryQualityReportDto {
         val automatic = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
             .mapNotNull { runCatching { it.jsonObject }.getOrNull() }.map(::toAutomaticMemory)
-        val controlled = runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+        val controlled = runCatching { storage.loadSessionManifest(runId, sessionId) }.getOrNull()
             ?.get("memory_ledger")?.jsonArray.orEmpty()
             .mapNotNull { runCatching { it.jsonObject }.getOrNull() }.map(::toControlledMemory)
         val groups = automatic.filter { it.status == "active" }.groupBy { duplicateKey(it.text) }
@@ -319,8 +340,13 @@ internal class LongTermMemoryService(
     private fun read(runId: String, sessionId: String): JsonObject {
         val file = file(runId, sessionId)
         if (!storage.isFile(file)) return emptyPayload(sessionId)
-        return runCatching { json.parseToJsonElement(storage.readText(file)).jsonObject }
-            .getOrElse { emptyPayload(sessionId) }
+        return try {
+            json.parseToJsonElement(storage.readText(file)).jsonObject
+        } catch (e: Exception) {
+            // 解析失败不能回退成空 payload：下一次 appendTurn/replaceTurn 会把整份记忆覆盖成只剩新条目。
+            PlatformLog.e(TAG, "Long-term memory file is corrupt: ${file.name}", e)
+            throw IllegalStateException("长期记忆文件损坏，已停止读写以避免覆盖：${file.name}", e)
+        }
     }
 
     private fun write(runId: String, sessionId: String, payload: JsonObject) {
@@ -387,6 +413,7 @@ internal class LongTermMemoryService(
         if (value.length <= max) value else value.take(max - 1).trimEnd() + "…"
 
     companion object {
+        private const val TAG = "LongTermMemoryService"
         private val locks = HashMap<String, SimpleLock>()
         private val locksLock = SimpleLock()
         private const val MAX_ENTRIES = 400

@@ -55,9 +55,15 @@ object LocalSemanticVector {
      */
     fun similarity(text1: String, text2: String): Float {
         if (text1.isBlank() || text2.isBlank()) return 0.0f
-        val w1 = extractNgramWeights(text1)
-        val w2 = extractNgramWeights(text2)
-        if (w1.isEmpty() || w2.isEmpty()) return 0.0f
+        return similarityWithWeights(extractNgramWeights(text1), text2)
+    }
+
+    /** 复用已抽取的查询特征，避免在批量检索时对同一 query 反复计算 N-Gram。 */
+    fun similarityWithWeights(queryWeights: Map<String, Float>, text: String): Float {
+        if (queryWeights.isEmpty() || text.isBlank()) return 0.0f
+        val w1 = queryWeights
+        val w2 = extractNgramWeights(text)
+        if (w2.isEmpty()) return 0.0f
 
         var dot = 0.0f
         var magSq1 = 0.0f

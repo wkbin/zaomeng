@@ -10,6 +10,21 @@ import top.wkbin.zaomeng.data.api.RunSummaryDto
 
 class RunNextActionTest {
     @Test
+    fun `imported character card can start chatting without a distillation record`() {
+        val action = nextActionFor(
+            RunManifestDto(
+                status = "ready",
+                entrypoint = "sillytavern",
+                lockedCharacters = listOf("黛玉"),
+                artifactIndex = ArtifactIndexDto(characters = listOf(PersonaIndexDto(name = "黛玉"))),
+            ),
+        )
+
+        assertEquals(RunNextActionTarget.OpenSessions, action.target)
+        assertEquals("开始聊天", action.label)
+    }
+
+    @Test
     fun `unfinished characters take priority over all other actions`() {
         val action = nextActionFor(
             RunManifestDto(

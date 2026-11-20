@@ -25,7 +25,7 @@ object IosAppPlatform : AppPlatform {
 
     override val backendController = localBackendController
 
-    override val backendEndpointProvider = LocalBackendEndpointProvider(localBackendController, BACKEND_TOKEN)
+    override val backendEndpointProvider = LocalBackendEndpointProvider(localBackendController, localBackendController.authToken)
 
     override val secureStore = serverPlatform.secureStore()
 

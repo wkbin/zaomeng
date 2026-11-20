@@ -11,6 +11,9 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.ContinuationInterceptor
 
 actual fun createHttpClientEngine(): HttpClientEngine = Darwin.create()
 
@@ -18,24 +21,29 @@ private val streamingHttpClient by lazy {
     HttpClient(Darwin) { expectSuccess = false }
 }
 
-actual suspend fun openStreamingHttpPost(
+actual suspend fun <T> withStreamingHttpPost(
     url: String,
     headers: Map<String, String>,
     body: String,
-): PlatformStreamingResponse {
+    consume: suspend (PlatformStreamingResponse) -> T,
+): T {
     val requestHeaders = headers
-    val response = streamingHttpClient.preparePost(url) {
+    val callerDispatcher = requireNotNull(currentCoroutineContext()[ContinuationInterceptor])
+    return streamingHttpClient.preparePost(url) {
         contentType(ContentType.Application.Json)
         headers {
             requestHeaders.forEach { (name, value) -> append(name, value) }
         }
         setBody(body)
-    }.execute()
-    return DarwinStreamingResponse(
-        statusCode = response.status.value,
-        statusDescription = response.status.description,
-        channel = response.bodyAsChannel(),
-    )
+    }.execute { response ->
+        val stream = DarwinStreamingResponse(
+            statusCode = response.status.value,
+            statusDescription = response.status.description,
+            channel = response.bodyAsChannel(),
+        )
+        // Ktor invokes this block on the engine dispatcher. Keep Flow emissions on the caller's dispatcher.
+        withContext(callerDispatcher) { consume(stream) }
+    }
 }
 
 private class DarwinStreamingResponse(
@@ -53,5 +61,4 @@ private class DarwinStreamingResponse(
         }
     }
 
-    override fun close() = channel.cancel(null)
 }

@@ -7,11 +7,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.StoryRecapDto
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
 
@@ -27,6 +29,7 @@ class ChapterManagementService(
     private val sessionManagement: SessionManagementService,
     private val llm: LlmClient?,
     private val prompts: PromptLoader?,
+    private val projections: SessionProjectionService? = null,
 ) {
     companion object {
         private const val TAG = "ChapterManagement"
@@ -35,6 +38,9 @@ class ChapterManagementService(
         private const val MAX_CONTENT_LENGTH = 300_000
         private const val NOVEL_CHAPTER_MAX_CHARS = 3500
         private const val NOVEL_CONTEXT_PREVIOUS_CHARS = 1000
+        // 全文检索的会话扫描上限：避免一次搜索把整个书卷的全部会话物化 + lowercase。
+        private const val MAX_SEARCH_SESSIONS = 30
+        private const val MAX_SEARCH_TRANSCRIPT_CHARS = 200_000
     }
 
     private val json = Json {
@@ -97,11 +103,15 @@ class ChapterManagementService(
             )
             if (results.size >= limit) return buildJsonArray { results.forEach(::add) }
         }
-        for (session in storage.listDialogueSessions(runId).take(100)) {
+        var scannedChars = 0
+        for (session in storage.listDialogueSessionManifests(runId).take(MAX_SEARCH_SESSIONS)) {
+            if (scannedChars >= MAX_SEARCH_TRANSCRIPT_CHARS) break
             val sessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
             if (sessionId.isEmpty()) continue
-            val transcript = transcriptText(session)
+            val remainingBudget = MAX_SEARCH_TRANSCRIPT_CHARS - scannedChars
+            val transcript = boundedTranscriptText(runId, sessionId, session, remainingBudget)
             if (transcript.isEmpty()) continue
+            scannedChars += transcript.length
             if (!transcript.lowercase().contains(needle)) continue
             results.add(
                 buildJsonObject {
@@ -221,7 +231,11 @@ class ChapterManagementService(
             }
             updatedChapters = chapters + chapter
         }
-        writeAll(runId, normalize(updatedChapters))
+        writeAll(
+            runId = runId,
+            chapters = normalize(updatedChapters),
+            writeIds = setOfNotNull(chapter["chapter_id"]?.jsonPrimitive?.contentOrNull),
+        )
         return chapter
     }
 
@@ -258,7 +272,11 @@ class ChapterManagementService(
             put("created_at", now)
             put("updated_at", now)
         }
-        writeAll(runId, normalize(chapters + chapter))
+        writeAll(
+            runId = runId,
+            chapters = normalize(chapters + chapter),
+            writeIds = setOfNotNull(chapter["chapter_id"]?.jsonPrimitive?.contentOrNull),
+        )
         return chapter
     }
 
@@ -275,7 +293,14 @@ class ChapterManagementService(
         val chapters = list(runId)
         val previous = chapters.lastOrNull()
         val previousContent = previous?.get("content")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        val storyRecap = session["story_recap"]?.jsonObject ?: JsonObject(emptyMap())
+        val projection = projections?.get(runId, sessionId)
+        val storyRecap = when {
+            projection != null && projection.status == "fresh" && projection.sourceRevision == projection.currentRevision ->
+                projection.session?.storyRecap?.let { json.encodeToJsonElement(StoryRecapDto.serializer(), it).jsonObject }
+                    ?: JsonObject(emptyMap())
+            projections != null -> JsonObject(emptyMap())
+            else -> session["story_recap"]?.jsonObject ?: JsonObject(emptyMap())
+        }
         val contextParts = mutableListOf<String>()
         if (previous != null && previousContent.isNotEmpty()) {
             val summary = previous["context_summary"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -352,7 +377,8 @@ class ChapterManagementService(
         val chapters = list(runId)
         val remaining = chapters.filterNot { it["chapter_id"]?.jsonPrimitive?.contentOrNull == chapterId }
         if (remaining.size == chapters.size) throw NoSuchElementException("Chapter not found: $chapterId")
-        writeAll(runId, normalize(remaining))
+        // 删除会让后续章节 order 前移，需要重写剩余全部章节；但只删这一个文件。
+        writeAll(runId, normalize(remaining), deleteIds = setOf(chapterId))
         return buildJsonObject {
             put("status", "deleted")
             put("chapter_id", chapterId)
@@ -399,7 +425,7 @@ class ChapterManagementService(
             val index = indexOfFirst { it["chapter_id"]?.jsonPrimitive?.contentOrNull == chapterId }
             if (index >= 0) this[index] = updated
         }
-        writeAll(runId, normalize(updatedChapters))
+        writeAll(runId, normalize(updatedChapters), writeIds = setOf(chapterId))
         return session
     }
 
@@ -427,7 +453,7 @@ class ChapterManagementService(
             put("updated_at", nowIsoString())
         }
         val updatedChapters = chapters.toMutableList().apply { this[index] = updated }
-        writeAll(runId, normalize(updatedChapters))
+        writeAll(runId, normalize(updatedChapters), writeIds = setOf(chapterId))
         return updated
     }
 
@@ -503,9 +529,18 @@ class ChapterManagementService(
     private fun transcriptOf(session: JsonObject): List<JsonObject> =
         session["transcript"]?.jsonArray?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
 
-    private fun transcriptText(session: JsonObject): String =
-        transcriptOf(session).joinToString("\n") { item ->
-            "${item["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty()}：${item["message"]?.jsonPrimitive?.contentOrNull.orEmpty()}"
+    private fun boundedTranscriptText(runId: String, sessionId: String, session: JsonObject, maxChars: Int): String =
+        buildString {
+            for (entry in storage.sessionTranscriptEntries(runId, sessionId, session)) {
+                val item = entry as? JsonObject ?: continue
+                val speaker = (item["speaker"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val message = (item["message"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                if (isNotEmpty()) append('\n')
+                append(speaker, 0, minOf(speaker.length, maxChars - length))
+                if (length < maxChars) append('：')
+                append(message, 0, minOf(message.length, maxChars - length))
+                if (length == maxChars) break
+            }
         }
 
     private fun meaningfulTurnCount(transcript: List<JsonObject>): Int {
@@ -539,15 +574,21 @@ class ChapterManagementService(
         return normalized
     }
 
-    private fun writeAll(runId: String, chapters: List<JsonObject>) {
-        // 删除不再存在的章节文件，写入/更新现有文件
-        val existingIds = storage.listChapterIds(runId).toSet()
-        val newIds = chapters.mapNotNull { it["chapter_id"]?.jsonPrimitive?.contentOrNull }.toSet()
-        existingIds.filterNot { it in newIds }.forEach { orphan ->
-            storage.getChapterFile(runId, orphan).takeIf { storage.exists(it) }?.let { storage.deleteFile(it) }
+    private fun writeAll(
+        runId: String,
+        chapters: List<JsonObject>,
+        writeIds: Set<String> = chapters.mapNotNull { it["chapter_id"]?.jsonPrimitive?.contentOrNull }.toSet(),
+        deleteIds: Set<String> = emptySet(),
+    ) {
+        // 只删除调用方明确要求删除的章节。
+        // 不再用"本次列表里的 id 差集"推断孤儿：那样会把并发新建、但不在本次快照里的章节物理删掉。
+        deleteIds.forEach { chapterId ->
+            storage.getChapterFile(runId, chapterId).takeIf { storage.exists(it) }?.let { storage.deleteFile(it) }
         }
+        // 只重写本次真正改动的章节；reorder/delete 等会整体改 order 的操作由调用方传入全部 id。
         for (chapter in chapters) {
             val chapterId = chapter["chapter_id"]?.jsonPrimitive?.contentOrNull ?: continue
+            if (chapterId !in writeIds) continue
             val file = storage.getChapterFile(runId, chapterId)
             storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), chapter))
         }

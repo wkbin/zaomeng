@@ -11,12 +11,12 @@ interface PlatformStreamingResponse {
 
     suspend fun readUtf8Line(): String?
     suspend fun readRemainingText(): String
-    fun close()
 }
 
-/** Open a POST request whose response body must be consumed as bytes arrive. */
-expect suspend fun openStreamingHttpPost(
+/** Consume the POST response incrementally within the lifetime of the request. */
+expect suspend fun <T> withStreamingHttpPost(
     url: String,
     headers: Map<String, String>,
     body: String,
-): PlatformStreamingResponse
+    consume: suspend (PlatformStreamingResponse) -> T,
+): T

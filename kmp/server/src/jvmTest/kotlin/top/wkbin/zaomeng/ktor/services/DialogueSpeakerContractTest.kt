@@ -46,6 +46,18 @@ class DialogueSpeakerContractTest {
                 })
             }
 
+            val turnPayload = DialoguePayloadBuilder(storage).buildTurnPayload(
+                runManifest = runManifest,
+                session = session,
+                turnId = "turn",
+                message = "请坐。",
+            )
+            val action = turnPayload["host_action"] as Map<*, *>
+            val expectedOutput = action["expected_output"] as Map<*, *>
+            assertEquals("ndjson", expectedOutput["format"])
+            assertTrue(action["output_rule"].toString().contains("one complete reply object per line"))
+            assertFalse(action["output_rule"].toString().contains("field is responses"))
+
             val payload = DialoguePayloadBuilder(storage).buildSuggestionPayload(
                 runManifest = runManifest,
                 session = session,

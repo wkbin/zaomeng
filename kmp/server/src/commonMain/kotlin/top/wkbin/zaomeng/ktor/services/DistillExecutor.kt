@@ -7,9 +7,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -131,33 +134,70 @@ class DistillExecutor(
     /** 后端进程重启后，将失去内存协程的 running 任务转换为可恢复状态。 */
     fun markPersistedRunsInterrupted(reason: String = "process_ended") {
         val now = nowIsoString()
-        storage.listRunManifests().forEach { manifest ->
-            if (manifest["status"]?.jsonPrimitive?.contentOrNull != "running") return@forEach
-            val runId = manifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        storage.listRunManifests().forEach { snapshot ->
+            if (snapshot["status"]?.jsonPrimitive?.contentOrNull != "running") return@forEach
+            val runId = snapshot["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
             if (runId.isBlank()) return@forEach
-            val updated = buildJsonObject {
-                manifest.forEach { (key, value) -> put(key, value) }
-                put("status", "stopped")
-                put("updated_at", now)
-                put("progress", buildJsonObject {
-                    manifest["progress"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
-                    put("stage", "interrupted")
-                    put("message", "蒸馏进程已中断，可以继续恢复。")
-                    put("current_character", "")
-                })
-                put("control", buildJsonObject {
-                    manifest["control"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
-                    put("stop_requested", false)
-                    put("interrupted_at", now)
-                    put("interruption_reason", reason)
-                })
+            runCatching {
+                storage.updateRunManifest(runId) { manifest ->
+                    // 扫描期间清单可能已被收尾，只有仍是 running 才改写。
+                    if (manifest["status"]?.jsonPrimitive?.contentOrNull != "running") return@updateRunManifest manifest
+                    buildJsonObject {
+                        manifest.forEach { (key, value) -> put(key, value) }
+                        put("status", "stopped")
+                        put("updated_at", now)
+                        put("progress", buildJsonObject {
+                            manifest["progress"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+                            put("stage", "interrupted")
+                            put("message", "蒸馏进程已中断，可以继续恢复。")
+                            put("current_character", "")
+                        })
+                        put("control", buildJsonObject {
+                            manifest["control"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+                            put("stop_requested", false)
+                            put("interrupted_at", now)
+                            put("interruption_reason", reason)
+                        })
+                    }
+                }
+            }.onFailure { error ->
+                PlatformLog.w(TAG, "Failed to mark run $runId interrupted: ${error.message}", error)
             }
-            storage.writeRunManifest(runId, updated)
         }
     }
 
     /** 是否正在蒸馏。 */
     fun isRunning(runId: String): Boolean = runningLock.withLock { running.containsKey(runId) }
+
+    /**
+     * 请求停止并等待任务退出（删除 run 前必须先调用，否则后台任务会把目录与 manifest 写回来）。
+     * 超时后强制取消协程；返回是否在超时前自然结束。
+     */
+    suspend fun stopAndWait(runId: String, timeoutMillis: Long = 10_000): Boolean {
+        val job = runningLock.withLock { running[runId] } ?: return true
+        runCatching {
+            storage.updateRunManifest(runId) { manifest ->
+                buildJsonObject {
+                    manifest.forEach { (key, value) -> if (key != "control") put(key, value) }
+                    put("control", buildJsonObject {
+                        manifest["control"]?.jsonObject?.forEach { (key, value) -> put(key, value) }
+                        put("stop_requested", true)
+                    })
+                }
+            }
+        }.onFailure { error ->
+            PlatformLog.w(TAG, "Failed to request stop for run=$runId: ${error.message}", error)
+        }
+        val finished = withTimeoutOrNull(timeoutMillis) {
+            job.join()
+            true
+        } ?: false
+        if (!finished) {
+            PlatformLog.w(TAG, "Distill job for run=$runId did not stop in ${timeoutMillis}ms, cancelling")
+            job.cancelAndJoin()
+        }
+        return finished
+    }
 
     /** 模型是否已配置（对齐 Python restart_run_distill 的 model_is_configured 校验）。 */
     fun isConfigured(): Boolean =
@@ -240,13 +280,47 @@ class DistillExecutor(
             if (character in missingList) qualityMissing.add(character)
             ((excerptFocus["stage_presence"] as? List<*>) ?: emptyList<Any?>()).mapNotNull { it?.toString() }.forEach { qualityStagePresence.add(it) }
 
-            val (content, chunkMeta) = generateCharacterProfileMarkdown(
-                runId = runId,
-                payload = payload,
-                character = character,
-                peerCharacters = characters,
-            )
-            if (content.isBlank()) throw IllegalArgumentException("$character 的人物档案生成为空。")
+            val generated = try {
+                generateCharacterProfileMarkdown(
+                    runId = runId,
+                    payload = payload,
+                    character = character,
+                    peerCharacters = characters,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 单角色失败不再拖垮整卷：记入 failed，继续下一位，最终由 finalizeSuccess 落成"部分完成"。
+                PlatformLog.e(TAG, "Character distill failed for $character: ${e.message}", e)
+                if (character !in failed) failed.add(character)
+                applyDistillProgress(
+                    runId,
+                    "character_failed",
+                    mapOf(
+                        "character" to character,
+                        "error" to e.message.orEmpty(),
+                        "completed" to completed,
+                        "total" to characters.size,
+                    ),
+                )
+                continue
+            }
+            val (content, chunkMeta) = generated
+            if (content.isBlank()) {
+                PlatformLog.e(TAG, "Character distill produced empty profile: $character")
+                if (character !in failed) failed.add(character)
+                applyDistillProgress(
+                    runId,
+                    "character_failed",
+                    mapOf(
+                        "character" to character,
+                        "error" to "生成内容为空",
+                        "completed" to completed,
+                        "total" to characters.size,
+                    ),
+                )
+                continue
+            }
             qualityFocus[character] = mapOf(
                 "matched" to (character in matchedList),
                 "missing" to (character in missingList),
@@ -431,7 +505,7 @@ class DistillExecutor(
                 "parallel_workers" to workers,
             ),
         )
-        val drafts = runChunkDrafts(chunkEntries, workers) { entry, index ->
+        val batch = runChunkDrafts(chunkEntries, workers) { entry, index ->
             callLlm(
                 DistillPromptBuilder.buildDistillMessages(
                     entry.payload,
@@ -446,10 +520,11 @@ class DistillExecutor(
                 0.2,
             )
         }
-        if (drafts.isEmpty()) throw IllegalArgumentException("$character 的分批蒸馏结果为空。")
+        val drafts = batch.drafts
         val chunkMeta = mapOf(
             "chunked" to true,
             "chunk_count" to chunkEntries.size,
+            "failed_chunk_labels" to batch.failedLabels,
             "fallback_reason" to fallbackReason,
             "parallel_workers" to workers,
         )
@@ -470,8 +545,14 @@ class DistillExecutor(
     }
 
     private fun validateFinalProfile(character: String, payload: DistillPayload, content: String): String {
-        val allowedEvidenceIds = EVIDENCE_ID.findAll(payload.request["excerpt"]?.toString().orEmpty())
-            .map { it.value }
+        // excerpt 会被 maxChars 截断，而分块用的是未截断的 excerpt_stages；
+        // 只按 excerpt 建白名单会把分块引用的合法证据判成"不存在"，导致整卷失败。
+        val excerptSources = buildList {
+            add(payload.request["excerpt"]?.toString().orEmpty())
+            (payload.request["excerpt_stages"] as? Map<*, *>)?.values?.forEach { add(it?.toString().orEmpty()) }
+        }
+        val allowedEvidenceIds = excerptSources
+            .flatMap { text -> EVIDENCE_ID.findAll(text).map { it.value }.toList() }
             .toSet()
         val normalization = PersonaProfileNormalizer.normalize(
             markdown = stripFences(content),
@@ -631,7 +712,7 @@ class DistillExecutor(
                 "parallel_workers" to workers,
             ),
         )
-        val drafts = runChunkDrafts(chunkEntries, workers) { entry, index ->
+        val batch = runChunkDrafts(chunkEntries, workers) { entry, index ->
             callLlm(
                 DistillPromptBuilder.buildRelationMessages(
                     entry.payload,
@@ -645,10 +726,11 @@ class DistillExecutor(
                 0.2,
             )
         }
-        if (drafts.isEmpty()) throw IllegalArgumentException("分批关系图谱结果为空。")
+        val drafts = batch.drafts
         val chunkMeta = mapOf(
             "chunked" to true,
             "chunk_count" to chunkEntries.size,
+            "failed_chunk_labels" to batch.failedLabels,
             "fallback_reason" to fallbackReason,
             "parallel_workers" to workers,
         )
@@ -668,38 +750,64 @@ class DistillExecutor(
 
     // Chunk planning is pure and tested independently in DistillChunkPlanner.
 
+    private data class ChunkDraftBatch(
+        val drafts: List<Pair<String, String>>,
+        val failedLabels: List<String>,
+    )
+
     private suspend fun runChunkDrafts(
         entries: List<DistillChunkEntry>,
         workers: Int,
         runOne: suspend (DistillChunkEntry, Int) -> String,
-    ): List<Pair<String, String>> {
-        if (entries.isEmpty()) return emptyList()
-        if (workers <= 1) {
-            val results = mutableListOf<Pair<String, String>>()
-            for ((index, entry) in entries.withIndex()) {
-                val content = runOne(entry, index + 1)
-                if (content.isNotBlank()) results.add(entry.label to content)
-            }
-            return results
-        }
-        val semaphore = Semaphore(workers)
-        return coroutineScope {
-            val deferred = entries.mapIndexed { index, entry ->
-                async(platformIoDispatcher) {
-                    semaphore.acquire()
-                    try {
-                        runOne(entry, index + 1)
-                    } finally {
-                        semaphore.release()
+    ): ChunkDraftBatch {
+        if (entries.isEmpty()) return ChunkDraftBatch(emptyList(), emptyList())
+        val contents: List<String?> = if (workers <= 1) {
+            entries.mapIndexed { index, entry -> runChunkOnce(runOne, entry, index + 1) }
+        } else {
+            val semaphore = Semaphore(workers)
+            // supervisorScope：某块异常只记为该块失败，不再取消其余正在跑的分块。
+            supervisorScope {
+                entries.mapIndexed { index, entry ->
+                    async(platformIoDispatcher) {
+                        semaphore.acquire()
+                        try {
+                            runChunkOnce(runOne, entry, index + 1)
+                        } finally {
+                            semaphore.release()
+                        }
                     }
-                }
-            }
-            val contents = deferred.awaitAll()
-            entries.mapIndexedNotNull { index, entry ->
-                val content = contents.getOrNull(index).orEmpty()
-                if (content.isBlank()) null else entry.label to content
+                }.awaitAll()
             }
         }
+        val drafts = mutableListOf<Pair<String, String>>()
+        val failedLabels = mutableListOf<String>()
+        entries.forEachIndexed { index, entry ->
+            val content = contents.getOrNull(index)?.trim().orEmpty()
+            if (content.isEmpty()) failedLabels.add(entry.label) else drafts.add(entry.label to content)
+        }
+        if (failedLabels.isNotEmpty()) {
+            PlatformLog.w(
+                TAG,
+                "Chunk drafts incomplete: ${drafts.size}/${entries.size} ok, failed=${failedLabels.joinToString(",")}",
+            )
+        }
+        if (drafts.isEmpty()) {
+            throw IllegalStateException("分块生成全部失败（${failedLabels.size} 块）：${failedLabels.joinToString(",")}")
+        }
+        return ChunkDraftBatch(drafts, failedLabels)
+    }
+
+    private suspend fun runChunkOnce(
+        runOne: suspend (DistillChunkEntry, Int) -> String,
+        entry: DistillChunkEntry,
+        index: Int,
+    ): String? = try {
+        runOne(entry, index)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        PlatformLog.w(TAG, "Chunk ${entry.label} failed: ${e.message}", e)
+        null
     }
 
     // ------------------------------------------------------------------
@@ -1068,6 +1176,18 @@ class DistillExecutor(
                         put("current_character", payload["character"]?.toString().orEmpty())
                         put("message", "正在检查 ${payload["character"]} 的空字段、重复与矛盾，并回查原文证据")
                     }
+                    "character_failed" -> {
+                        put("stage", "distilling")
+                        val character = payload["character"]?.toString()?.trim().orEmpty()
+                        val completed = ((payload["completed"] as? List<*>) ?: emptyList<Any?>())
+                            .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() }
+                        put("completed_characters", buildJsonArray { completed.forEach { add(JsonPrimitive(it)) } })
+                        put("completed_count", completed.size)
+                        put("total_characters", (payload["total"] as? Number)?.toInt() ?: 0)
+                        put("current_character", "")
+                        put("last_error", "$character 生成失败：${payload["error"]?.toString().orEmpty()}")
+                        put("message", "$character 生成失败，已跳过")
+                    }
                     "character_done" -> {
                         put("stage", "distilling")
                         val character = payload["character"]?.toString()?.trim().orEmpty()
@@ -1086,7 +1206,7 @@ class DistillExecutor(
                 add(
                     buildJsonObject {
                         put("stage", stage)
-                        put("status", "running")
+                        put("status", if (stage == "character_failed") "failed" else "running")
                         put("message", progress["message"]?.jsonPrimitive?.contentOrNull ?: "")
                         put("character", payload["character"]?.toString()?.trim().orEmpty())
                         put("capability", if (stage.contains("graph")) "export_graph" else "distill")
@@ -1160,8 +1280,12 @@ class DistillExecutor(
     }
 
     private fun patchManifest(runId: String, transform: (JsonObject) -> JsonObject) {
-        val manifest = storage.readRunManifest(runId) ?: return
-        storage.writeRunManifest(runId, transform(manifest))
+        runCatching { storage.updateRunManifest(runId, transform) }
+            .onFailure { error ->
+                if (error !is NoSuchElementException) {
+                    PlatformLog.w(TAG, "Failed to patch run manifest for $runId: ${error.message}", error)
+                }
+            }
     }
 
     private fun isStopRequested(runId: String): Boolean {
@@ -1184,18 +1308,19 @@ class DistillExecutor(
         distillPayloadPaths: Map<String, String>,
         startedAt: String,
     ) {
-        val manifest = storage.readRunManifest(runId) ?: return
         if (isStopRequested(runId)) {
             finalizeStopped(runId, completed)
             return
         }
-        val refreshed = refreshArtifactIndex(runId, manifest)
         val now = nowIsoString()
         val elapsedSeconds = runCatching {
             maxOf(0.0, (Instant.parse(now) - Instant.parse(startedAt)).inWholeMilliseconds / 1000.0)
         }.getOrDefault(0.0)
-        val graphStatus = manifest["progress"]?.jsonObject?.get("graph_status")?.jsonPrimitive?.contentOrNull ?: "complete"
-        val updated = buildJsonObject {
+        val updated = runCatching {
+            storage.updateRunManifest(runId) { manifest ->
+                val refreshed = refreshArtifactIndex(runId, manifest)
+                val graphStatus = manifest["progress"]?.jsonObject?.get("graph_status")?.jsonPrimitive?.contentOrNull ?: "complete"
+                buildJsonObject {
             refreshed.forEach { (k, v) -> if (k !in setOf("status", "success", "progress", "summary", "updated_at", "timing", "capabilities", "quality", "events", "artifact_index")) put(k, v) }
             put("artifact_index", refreshed["artifact_index"] ?: manifest["artifact_index"] ?: JsonObject(emptyMap()))
             put("status", "ready")
@@ -1282,8 +1407,12 @@ class DistillExecutor(
                     put("timestamp", now)
                 })
             })
-        }
-        storage.writeRunManifest(runId, updated)
+                }
+            }
+        }.onFailure { error ->
+            PlatformLog.w(TAG, "Failed to finalize run $runId: ${error.message}", error)
+        }.getOrNull()
+        if (updated == null) return
         PlatformLog.i(TAG, "Distillation completed for run=$runId: ${completed.size}/${planned.size} characters")
     }
 
@@ -1297,78 +1426,86 @@ class DistillExecutor(
     }
 
     private fun finalizeStopped(runId: String, completed: List<String>) {
-        val manifest = storage.readRunManifest(runId) ?: return
         val now = nowIsoString()
-        val startedAt = manifest["timing"]?.jsonObject?.get("started_at")?.jsonPrimitive?.contentOrNull.orEmpty()
-        val elapsedSeconds = runCatching {
-            if (startedAt.isNotBlank()) maxOf(0.0, (Instant.parse(now) - Instant.parse(startedAt)).inWholeMilliseconds / 1000.0) else 0.0
-        }.getOrDefault(0.0)
-        val updated = buildJsonObject {
-            manifest.forEach { (k, v) -> if (k !in setOf("status", "progress", "summary", "updated_at", "timing")) put(k, v) }
-            put("status", "stopped")
-            put("success", false)
-            put("updated_at", now)
-            put("timing", buildJsonObject {
-                if (startedAt.isNotBlank()) put("started_at", startedAt)
-                put("stopped_at", now)
-                put("elapsed_seconds", kotlin.math.round(elapsedSeconds * 1000.0) / 1000.0)
-                put("elapsed_text", formatElapsedText(elapsedSeconds))
-            })
-            put("progress", buildJsonObject {
-                (manifest["progress"]?.jsonObject ?: JsonObject(emptyMap())).forEach { (k, v) -> put(k, v) }
-                put("stage", "stopped")
-                put("message", "蒸馏已停止，已完成 ${completed.size} 名人物。")
-                put("current_character", "")
-                put("completed_count", completed.size)
-                put("completed_characters", buildJsonArray { completed.forEach { add(JsonPrimitive(it)) } })
-                put("updated_at", now)
-            })
-            put("summary", buildJsonObject {
-                put("characters_total", completed.size)
-                put("characters_completed", completed.size)
-                put("graph_status", "pending")
-                put("status_text", "已停止")
-            })
+        runCatching {
+            storage.updateRunManifest(runId) { manifest ->
+                val startedAt = manifest["timing"]?.jsonObject?.get("started_at")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val elapsedSeconds = runCatching {
+                    if (startedAt.isNotBlank()) maxOf(0.0, (Instant.parse(now) - Instant.parse(startedAt)).inWholeMilliseconds / 1000.0) else 0.0
+                }.getOrDefault(0.0)
+                buildJsonObject {
+                    manifest.forEach { (k, v) -> if (k !in setOf("status", "progress", "summary", "updated_at", "timing")) put(k, v) }
+                    put("status", "stopped")
+                    put("success", false)
+                    put("updated_at", now)
+                    put("timing", buildJsonObject {
+                        if (startedAt.isNotBlank()) put("started_at", startedAt)
+                        put("stopped_at", now)
+                        put("elapsed_seconds", kotlin.math.round(elapsedSeconds * 1000.0) / 1000.0)
+                        put("elapsed_text", formatElapsedText(elapsedSeconds))
+                    })
+                    put("progress", buildJsonObject {
+                        (manifest["progress"]?.jsonObject ?: JsonObject(emptyMap())).forEach { (k, v) -> put(k, v) }
+                        put("stage", "stopped")
+                        put("message", "蒸馏已停止，已完成 ${completed.size} 名人物。")
+                        put("current_character", "")
+                        put("completed_count", completed.size)
+                        put("completed_characters", buildJsonArray { completed.forEach { add(JsonPrimitive(it)) } })
+                        put("updated_at", now)
+                    })
+                    put("summary", buildJsonObject {
+                        put("characters_total", completed.size)
+                        put("characters_completed", completed.size)
+                        put("graph_status", "pending")
+                        put("status_text", "已停止")
+                    })
+                }
+            }
+        }.onFailure { error ->
+            PlatformLog.w(TAG, "Failed to finalize stopped run $runId: ${error.message}", error)
         }
-        storage.writeRunManifest(runId, updated)
         PlatformLog.i(TAG, "Distillation stopped for run=$runId: ${completed.size} characters done")
     }
 
     private fun fail(runId: String, message: String) {
-        val manifest = storage.readRunManifest(runId) ?: return
         val now = nowIsoString()
-        val planned = (manifest["progress"]?.jsonObject?.get("total_characters")?.jsonPrimitive?.intOrNull)
-            ?: (manifest["summary"]?.jsonObject?.get("characters_total")?.jsonPrimitive?.intOrNull)
-            ?: 0
-        val startedAt = manifest["timing"]?.jsonObject?.get("started_at")?.jsonPrimitive?.contentOrNull.orEmpty()
-        val elapsedSeconds = runCatching {
-            if (startedAt.isNotBlank()) maxOf(0.0, (Instant.parse(now) - Instant.parse(startedAt)).inWholeMilliseconds / 1000.0) else 0.0
-        }.getOrDefault(0.0)
-        val updated = buildJsonObject {
-            manifest.forEach { (k, v) -> if (k !in setOf("status", "progress", "summary", "updated_at", "timing")) put(k, v) }
-            put("status", "failed")
-            put("success", false)
-            put("updated_at", now)
-            put("timing", buildJsonObject {
-                if (startedAt.isNotBlank()) put("started_at", startedAt)
-                put("failed_at", now)
-                put("elapsed_seconds", kotlin.math.round(elapsedSeconds * 1000.0) / 1000.0)
-                put("elapsed_text", formatElapsedText(elapsedSeconds))
-            })
-            put("progress", buildJsonObject {
-                (manifest["progress"]?.jsonObject ?: JsonObject(emptyMap())).forEach { (k, v) -> put(k, v) }
-                put("stage", "failed")
-                put("message", message)
-                put("error", message)
-                put("updated_at", now)
-            })
-            put("summary", buildJsonObject {
-                put("characters_total", planned)
-                put("characters_completed", 0)
-                put("graph_status", "failed")
-                put("status_text", "失败")
-            })
+        runCatching {
+            storage.updateRunManifest(runId) { manifest ->
+                val planned = (manifest["progress"]?.jsonObject?.get("total_characters")?.jsonPrimitive?.intOrNull)
+                    ?: (manifest["summary"]?.jsonObject?.get("characters_total")?.jsonPrimitive?.intOrNull)
+                    ?: 0
+                val startedAt = manifest["timing"]?.jsonObject?.get("started_at")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val elapsedSeconds = runCatching {
+                    if (startedAt.isNotBlank()) maxOf(0.0, (Instant.parse(now) - Instant.parse(startedAt)).inWholeMilliseconds / 1000.0) else 0.0
+                }.getOrDefault(0.0)
+                buildJsonObject {
+                    manifest.forEach { (k, v) -> if (k !in setOf("status", "progress", "summary", "updated_at", "timing")) put(k, v) }
+                    put("status", "failed")
+                    put("success", false)
+                    put("updated_at", now)
+                    put("timing", buildJsonObject {
+                        if (startedAt.isNotBlank()) put("started_at", startedAt)
+                        put("failed_at", now)
+                        put("elapsed_seconds", kotlin.math.round(elapsedSeconds * 1000.0) / 1000.0)
+                        put("elapsed_text", formatElapsedText(elapsedSeconds))
+                    })
+                    put("progress", buildJsonObject {
+                        (manifest["progress"]?.jsonObject ?: JsonObject(emptyMap())).forEach { (k, v) -> put(k, v) }
+                        put("stage", "failed")
+                        put("message", message)
+                        put("error", message)
+                        put("updated_at", now)
+                    })
+                    put("summary", buildJsonObject {
+                        put("characters_total", planned)
+                        put("characters_completed", 0)
+                        put("graph_status", "failed")
+                        put("status_text", "失败")
+                    })
+                }
+            }
+        }.onFailure { error ->
+            PlatformLog.w(TAG, "Failed to mark run $runId failed: ${error.message}", error)
         }
-        storage.writeRunManifest(runId, updated)
     }
 }

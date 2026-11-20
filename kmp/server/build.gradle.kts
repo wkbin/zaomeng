@@ -67,6 +67,8 @@ kotlin {
             implementation(libs.snakeyaml)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.okhttp)
+            // 桌面密钥保护：Windows DPAPI（其他系统自动退化为受限权限文件）。
+            implementation(libs.jna)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test.junit)

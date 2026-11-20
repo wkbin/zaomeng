@@ -121,7 +121,10 @@ session manifest 只保留近期 transcript。当条目超过阈值时，旧条�
 
 ## 安全边界
 
-- 模型 API key 存在平台安全存储，不进入 Room 文档或导出包。
+- 模型 API key 存在平台安全存储，不进入 Room 文档或导出包：Android 用 Keystore 加密，
+  Windows 桌面用 DPAPI（当前用户）加密后写入 `secrets.properties`，历史明文条目首次加载时
+  自动迁移并保留 `.legacy` 备份；iOS 存 Keychain（`AfterFirstUnlockThisDeviceOnly`），
+  旧明文文件在首次启动时导入并改名保留；Linux/macOS 桌面目前退化为受限目录下的文件存储。
 - ZIP、插件、模型响应、用户文本和路径参数全部视为不可信输入。
 - 本地服务只为应用提供接口，不应暴露为公共网络服务。
 - 诊断日志只记录截断文本和阶段指标，避免泄露完整原文、对话或密钥。

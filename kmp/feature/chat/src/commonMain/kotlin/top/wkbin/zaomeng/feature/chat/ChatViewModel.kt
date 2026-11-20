@@ -46,6 +46,9 @@ class ChatViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = mutableState.asStateFlow()
+
+    suspend fun listImportedSwipes(runId: String, sessionId: String, messageIndex: String, offset: Int) =
+        sessions.listImportedSwipes(runId, sessionId, messageIndex, offset)
     private val toolsDelegate = ChatToolsDelegate(
         dialogue = dialogue,
         sessions = sessions,
@@ -72,6 +75,7 @@ class ChatViewModel(
     private var loadJob: Job? = null
     private var pluginActionsJob: Job? = null
     private var loadRequestId = 0L
+    private var earlierRequestId = 0L
     private var searchJob: Job? = null
     private var recoveryJob: Job? = null
     private var nextRecoveryRequestId = 0L
@@ -124,6 +128,8 @@ class ChatViewModel(
             cancelRecoveryRequest()
         }
         val requestId = ++loadRequestId
+        // 刷新会换掉整段 transcript，任何在途的"更早消息"分页结果都必须作废。
+        earlierRequestId += 1
         mutableState.update {
             if (targetChanged) {
                 ChatUiState(
@@ -156,6 +162,7 @@ class ChatViewModel(
                         loading = false,
                         refreshing = false,
                         session = session,
+                        earlierNextOffset = session.transcript.size.takeIf { it < session.transcriptCount },
                         runSessions = loaded.runSessions,
                         avatarBytes = loaded.avatarBytes,
                         pluginActions = plugins.actions,
@@ -199,10 +206,12 @@ class ChatViewModel(
         val loaded = session.transcript.size
         val total = session.transcriptCount
         if (loaded >= total) return
-        // order=desc：offset 表示跳过最新 N 条，返回更早一页（新→旧），反转后向上追加
-        val offset = total - loaded
+        // desc offset 是已经跳过的最新条目数；首屏和后续页都使用服务端游标。
+        val offset = resolveEarlierOffset(snapshot.earlierNextOffset, loaded)
+        val expectedRevision = session.revision
+        val requestId = ++earlierRequestId
+        mutableState.update { it.copy(loadingEarlier = true, error = "") }
         viewModelScope.launch {
-            mutableState.update { it.copy(loadingEarlier = true, error = "") }
             try {
                 val page = sessions.listSessionMessages(
                     snapshot.runId,
@@ -210,23 +219,45 @@ class ChatViewModel(
                     offset = offset,
                     limit = EARLIER_TRANSCRIPT_PAGE,
                     order = "desc",
+                    expectedRevision = expectedRevision,
                 )
+                var stale = false
                 mutableState.update { current ->
+                    if (earlierRequestId != requestId) return@update current
+                    if (current.runId != snapshot.runId || current.sessionId != snapshot.sessionId) {
+                        return@update current
+                    }
                     val currentSession = current.session ?: return@update current
+                    if (currentSession.revision != page.revision) {
+                        stale = true
+                        return@update current.copy(loadingEarlier = false)
+                    }
+                    val merged = mergeEarlierTranscript(
+                        base = currentSession.transcript,
+                        earlier = page.items.asReversed(),
+                    )
                     current.copy(
                         session = currentSession.copy(
-                            transcript = page.items.asReversed() + currentSession.transcript,
+                            transcript = merged,
                             transcriptCount = page.total,
+                            revision = page.revision,
                         ),
+                        earlierNextOffset = page.nextOffset,
                         loadingEarlier = false,
                         error = "",
                     )
                 }
+                if (stale) load(snapshot.runId, snapshot.sessionId, force = true)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update {
-                    it.copy(
+                if (error is ApiRequestException && error.statusCode == 409) {
+                    load(snapshot.runId, snapshot.sessionId, force = true)
+                    return@launch
+                }
+                mutableState.update { current ->
+                    if (earlierRequestId != requestId) current
+                    else current.copy(
                         loadingEarlier = false,
                         error = error.readableMessage("更早消息加载失败，请稍后重试。"),
                     )
@@ -559,9 +590,11 @@ class ChatViewModel(
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = snapshot.sendOutcomeUnknown && !resolved,
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
-                        failedOperationId = if (resolved) "" else it.failedOperationId,
-                        failedMessage = if (resolved) "" else it.failedMessage,
-                        failedSpeakerOverride = if (resolved) "" else it.failedSpeakerOverride,
+                        // 未提交时保留失败操作标识：气泡已经显示为"可重试"，
+                        // 清空它会让重试/编辑按钮点击后静默无反应。
+                        failedOperationId = if (resolved && responseWasCommitted) "" else it.failedOperationId,
+                        failedMessage = if (resolved && responseWasCommitted) "" else it.failedMessage,
+                        failedSpeakerOverride = if (resolved && responseWasCommitted) "" else it.failedSpeakerOverride,
                         pendingUserMessage = when {
                             responseWasCommitted -> null
                             resolved -> it.pendingUserMessage?.copy(
@@ -610,12 +643,115 @@ class ChatViewModel(
                 it.copy(refreshing = false, recovering = true, error = "")
             }
             try {
+                val operation = if (snapshot.failedOperationId.isNotBlank()) {
+                    try {
+                        sessions.getSessionOperation(
+                            snapshot.runId,
+                            snapshot.sessionId,
+                            snapshot.failedOperationId,
+                        )
+                    } catch (error: ApiRequestException) {
+                        if (error.statusCode == 404) null else throw error
+                    }
+                } else {
+                    null
+                }
+                val baseline = snapshot.sendBaselineTranscript.orEmpty()
+                if (operation?.status == "completed" && operation.session != null) {
+                    val completedSession = requireNotNull(operation.session)
+                    val baseMismatch = operation.baseRevision != 0L &&
+                        operation.baseRevision != snapshot.session?.revision
+                    val needsResync = baseMismatch ||
+                        operation.committedRevision?.let { it != completedSession.revision } == true
+                    val restored = if (needsResync) {
+                        val tail = sessions.listSessionMessages(
+                            snapshot.runId,
+                            snapshot.sessionId,
+                            offset = 0,
+                            limit = baseline.size.coerceIn(100, 500),
+                            order = "desc",
+                            expectedRevision = completedSession.revision,
+                        )
+                        completedSession.copy(
+                            transcript = tail.items.asReversed(),
+                            transcriptCount = tail.total,
+                            revision = tail.revision,
+                        )
+                    } else {
+                        completedSession.copy(
+                            transcript = mergeTranscript(baseline, operation.appendedTranscript),
+                            transcriptCount = operation.transcriptCount,
+                        )
+                    }
+                    updateRecoveryState(requestId, snapshot) {
+                        it.copy(
+                            recovering = false,
+                            session = restored,
+                            earlierNextOffset = restored.transcript.size.takeIf { size -> size < restored.transcriptCount },
+                            draft = "",
+                            sendOutcomeUnknown = false,
+                            sendBaselineTranscript = null,
+                            failedOperationId = "",
+                            failedMessage = "",
+                            failedSpeakerOverride = "",
+                            pendingUserMessage = null,
+                            error = "已从本地恢复上一次发送的回复。",
+                        )
+                    }
+                    return@launch
+                }
+                if (operation?.status == "failed") {
+                    val refreshed = sessions.getSession(snapshot.runId, snapshot.sessionId, includeTranscript = false)
+                    val baseMismatch = operation.baseRevision != 0L &&
+                        operation.baseRevision != snapshot.session?.revision
+                    val restored = if (baseMismatch) {
+                        val tail = sessions.listSessionMessages(
+                            snapshot.runId,
+                            snapshot.sessionId,
+                            offset = 0,
+                            limit = baseline.size.coerceIn(100, 500),
+                            order = "desc",
+                            expectedRevision = refreshed.revision,
+                        )
+                        refreshed.copy(
+                            transcript = tail.items.asReversed(),
+                            transcriptCount = tail.total,
+                            revision = tail.revision,
+                        )
+                    } else {
+                        refreshed.copy(transcript = baseline)
+                    }
+                    updateRecoveryState(requestId, snapshot) {
+                        it.copy(
+                            recovering = false,
+                            session = restored,
+                            sendOutcomeUnknown = false,
+                            sendBaselineTranscript = null,
+                            pendingUserMessage = it.pendingUserMessage?.copy(
+                                status = PendingUserMessageStatus.Failed,
+                                statusText = operation.failureMessage,
+                                retryable = operation.retryable,
+                            ),
+                            error = operation.failureMessage.ifBlank { "这次发送失败，可以重试。" },
+                        )
+                    }
+                    return@launch
+                }
+                if (operation != null) {
+                    updateRecoveryState(requestId, snapshot) {
+                        it.copy(
+                            recovering = false,
+                            sendOutcomeUnknown = true,
+                            error = "这轮仍在处理中，可以稍后核对或恢复会话。",
+                        )
+                    }
+                    return@launch
+                }
                 val refreshed = sessions.getSession(
                     snapshot.runId,
                     snapshot.sessionId,
                     includeTranscript = false,
                 )
-                val baseline = snapshot.sendBaselineTranscript.orEmpty()
                 val baselineCount = snapshot.session?.transcriptCount ?: baseline.size
                 val committedAppend = if (snapshot.sendBaselineTranscript != null) {
                     streamEngine.resolveCommittedAppend(
@@ -629,17 +765,35 @@ class ChatViewModel(
                 }
                 val responseWasCommitted = refreshed.status == "ready" && committedAppend.isNotEmpty()
                 val resolved = refreshed.status == "ready"
+                val restored = if (responseWasCommitted || refreshed.revision != snapshot.session?.revision) {
+                    val tail = sessions.listSessionMessages(
+                        snapshot.runId,
+                        snapshot.sessionId,
+                        offset = 0,
+                        limit = baseline.size.coerceIn(100, 500),
+                        order = "desc",
+                        expectedRevision = refreshed.revision,
+                    )
+                    refreshed.copy(
+                        transcript = tail.items.asReversed(),
+                        transcriptCount = tail.total,
+                        revision = tail.revision,
+                    )
+                } else {
+                    refreshed.copy(
+                        transcript = if (refreshed.transcript.isNotEmpty()) {
+                            refreshed.transcript
+                        } else {
+                            mergeTranscript(baseline, committedAppend)
+                        },
+                        transcriptCount = refreshed.transcriptCount,
+                    )
+                }
                 updateRecoveryState(requestId, snapshot) {
                     it.copy(
                         recovering = false,
-                        session = refreshed.copy(
-                            transcript = if (refreshed.transcript.isNotEmpty()) {
-                                refreshed.transcript
-                            } else {
-                                mergeTranscript(baseline, committedAppend)
-                            },
-                            transcriptCount = refreshed.transcriptCount,
-                        ),
+                        session = restored,
+                        earlierNextOffset = restored.transcript.size.takeIf { size -> size < restored.transcriptCount },
                         draft = if (responseWasCommitted) "" else it.draft,
                         sendOutcomeUnknown = !resolved,
                         sendBaselineTranscript = if (resolved) null else it.sendBaselineTranscript,
@@ -693,6 +847,8 @@ class ChatViewModel(
     fun deepReviewLatest() = toolsDelegate.deepReviewLatest()
 
     fun branchFromTurn(turnId: String) = toolsDelegate.branchFromTurn(turnId)
+    fun branchFromImportedSwipe(messageIndex: String, swipeIndex: Int) =
+        toolsDelegate.branchFromImportedSwipe(messageIndex, swipeIndex)
 
     fun branchFromScene(sceneIndex: Int) = toolsDelegate.branchFromScene(sceneIndex)
 

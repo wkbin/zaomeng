@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import top.wkbin.zaomeng.platform.nowEpochMillis
+import top.wkbin.zaomeng.platform.nowIsoString
 
 class ChapterService(
     private val storage: StorageService,
@@ -40,7 +40,8 @@ class ChapterService(
         val updated = buildJsonObject {
             chapter.forEach { (key, value) -> put(key, value) }
             put("content", rewritten)
-            put("updated_at", nowEpochMillis())
+            // ChapterDto.updatedAt 是 ISO-8601 字符串；写 epoch 数字会让整份章节列表反序列化失败。
+            put("updated_at", nowIsoString())
         }
         storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), updated))
         return buildJsonObject {

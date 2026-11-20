@@ -1,21 +1,29 @@
 package top.wkbin.zaomeng.feature.importbook
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import top.wkbin.zaomeng.platform.formatOneDecimal
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -24,10 +32,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,12 +51,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberNotificationPermissionRequester
 
@@ -62,7 +76,13 @@ fun ImportBookScreen(
     var requestedKindName by rememberSaveable { mutableStateOf("") }
     var showEstimateConfirmation by rememberSaveable { mutableStateOf(false) }
     val distillationForeground: DistillationForeground = koinInject()
-    val documentPicker = rememberDocumentPicker { name, bytes ->
+    val documentPicker = rememberDocumentPicker(
+        onCancelled = {
+            // 用户取消选择或读取失败：必须复位 readingFile，否则导入入口会永久禁用。
+            requestedKindName = ""
+            viewModel.cancelFileSelection()
+        },
+    ) { name, bytes ->
         val kind = ImportDocumentKind.entries.firstOrNull { it.name == requestedKindName }
         requestedKindName = ""
         if (kind != null) {
@@ -98,19 +118,6 @@ fun ImportBookScreen(
     fun chooseDocument(kind: ImportDocumentKind) {
         requestedKindName = kind.name
         viewModel.beginFileSelection()
-        val mimeTypes = when (kind) {
-            ImportDocumentKind.NovelText -> arrayOf(
-                "text/plain",
-                "text/*",
-                "application/epub+zip",
-                "application/octet-stream",
-            )
-            ImportDocumentKind.RunPackage -> arrayOf(
-                "application/zip",
-                "application/x-zip-compressed",
-                "application/octet-stream",
-            )
-        }
         documentPicker()
     }
 
@@ -153,60 +160,106 @@ fun ImportBookScreen(
             )
     }
 
+    val hasDocument = state.fileName.isNotBlank()
+    val worldBook = state.documentKind == ImportDocumentKind.WorldBook
+    val needsPreview = state.documentKind == ImportDocumentKind.CharacterCard || worldBook
+    val canSubmit = hasDocument && !state.submitting && !state.readingFile &&
+        (state.packageFile || !state.autoDistill || state.modelConfigured == true) &&
+        (!needsPreview || (!state.previewBusy && state.sillyTavernPreview != null)) &&
+        (!worldBook || state.targetRunId.isNotBlank())
+
     Scaffold(
+        modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text("导入小说") },
+                title = { Text("导入") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    if (hasDocument) {
+                        TextButton(
+                            onClick = viewModel::clearDocument,
+                            enabled = !state.submitting && !state.readingFile,
+                        ) { Text("更换来源") }
+                    }
+                },
             )
         },
+        bottomBar = {
+            if (hasDocument) {
+                Surface(tonalElevation = 3.dp) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                    ) {
+                        if (state.error.isNotBlank()) {
+                            Text(state.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (worldBook && state.targetRunId.isBlank() && state.worldBookTargets.isNotEmpty()) {
+                            Text(
+                                "请先选择目标书卷",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Button(
+                            onClick = ::requestImport,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = canSubmit,
+                        ) {
+                            if (state.submitting) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            }
+                            Text(
+                                when {
+                                    state.submitting -> "处理中…"
+                                    state.documentKind == ImportDocumentKind.CharacterCard -> "导入角色卡"
+                                    worldBook -> "挂载世界书"
+                                    state.packageFile -> "导入书卷包"
+                                    state.autoDistill -> "导入并开始蒸馏"
+                                    else -> "导入到书架"
+                                },
+                                modifier = if (state.submitting) Modifier.padding(start = 10.dp) else Modifier,
+                            )
+                        }
+                    }
+                }
+            }
+        },
     ) { innerPadding ->
+        val listState = rememberLazyListState()
+        LaunchedEffect(state.documentKind, state.fileName) { listState.scrollToItem(0) }
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(innerPadding).selectableGroup(),
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item {
-                Text("从文件建立书卷", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "选择 TXT 或 EPUB 正文开始人物蒸馏，或者恢复之前导出的书卷包。数据只会写入这台手机。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            item {
-                ImportSourceCard(
-                    title = "在线书卷包",
-                    description = "浏览已蒸馏的书卷包，下载、校验后直接导入本机书架。",
-                    actionLabel = "浏览在线书卷包",
-                    icon = { Icon(Icons.Outlined.CloudDownload, contentDescription = null) },
-                    enabled = !state.submitting && !state.readingFile,
-                    onClick = onOpenOnlineLibrary,
-                )
-            }
-            item {
-                ImportSourceCard(
-                    title = "TXT / EPUB 小说",
-                    description = "TXT 支持 UTF-8、UTF-16 和 GB18030；EPUB 会在手机本机提取正文。",
-                    actionLabel = "选择 TXT 或 EPUB",
-                    icon = { Icon(Icons.Outlined.Description, contentDescription = null) },
-                    enabled = !state.submitting && !state.readingFile,
-                    onClick = { chooseDocument(ImportDocumentKind.NovelText) },
-                )
-            }
-            item {
-                ImportSourceCard(
-                    title = "造梦书卷包",
-                    description = "导入 .zaomeng-run.zip，恢复人物资料、关系和已有处理结果。",
-                    actionLabel = "选择书卷包",
-                    icon = { Icon(Icons.Outlined.Archive, contentDescription = null) },
-                    enabled = !state.submitting && !state.readingFile,
-                    onClick = { chooseDocument(ImportDocumentKind.RunPackage) },
-                )
+            val canChooseSource = !state.readingFile
+            if (!hasDocument) {
+                item {
+                    Column {
+                        ImportSourceRow("小说", "TXT / EPUB", Icons.Outlined.Description, canChooseSource) {
+                            chooseDocument(ImportDocumentKind.NovelText)
+                        }
+                        ImportSourceRow("造梦书卷包", ".zaomeng-run.zip", Icons.Outlined.Archive, canChooseSource) {
+                            chooseDocument(ImportDocumentKind.RunPackage)
+                        }
+                        ImportSourceRow("SillyTavern 角色卡", "JSON / PNG", Icons.Outlined.Badge, canChooseSource) {
+                            chooseDocument(ImportDocumentKind.CharacterCard)
+                        }
+                        ImportSourceRow("SillyTavern 世界书", "JSON · 挂载到已有书卷", Icons.AutoMirrored.Outlined.MenuBook, canChooseSource) {
+                            chooseDocument(ImportDocumentKind.WorldBook)
+                        }
+                        ImportSourceRow(
+                            "在线书卷包", "浏览并下载已蒸馏的书卷", Icons.Outlined.CloudDownload,
+                            canChooseSource, onOpenOnlineLibrary,
+                        )
+                    }
+                }
             }
             if (state.readingFile) {
                 item {
@@ -225,10 +278,11 @@ fun ImportBookScreen(
                         Column(Modifier.padding(16.dp)) {
                             Text(state.fileName, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                if (state.packageFile) {
-                                    "造梦书卷包 · ${state.fileSize.readableFileSize()}"
-                                } else {
-                                    "正文 · ${state.charCount.readableCount()} 字 · ${state.sentenceCount} 句 · ${state.sourceEncoding}"
+                                when (state.documentKind) {
+                                    ImportDocumentKind.RunPackage -> "造梦书卷包 · ${state.fileSize.readableFileSize()}"
+                                    ImportDocumentKind.CharacterCard -> "SillyTavern 角色卡 · ${state.fileSize.readableFileSize()}"
+                                    ImportDocumentKind.WorldBook -> "SillyTavern 世界书 · ${state.fileSize.readableFileSize()}"
+                                    else -> "正文 · ${state.charCount.readableCount()} 字 · ${state.sentenceCount} 句 · ${state.sourceEncoding}"
                                 },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -236,7 +290,31 @@ fun ImportBookScreen(
                     }
                 }
             }
-            if (!state.packageFile) {
+            if (state.documentKind == ImportDocumentKind.WorldBook && state.worldBookTargets.isNotEmpty()) {
+                item { Text("选择目标书卷。挂载后将替换该书卷已有的独立世界书。") }
+                items(state.worldBookTargets, key = { it.runId }) { run ->
+                    val selected = state.targetRunId == run.runId
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(
+                            selected = selected,
+                            enabled = !state.submitting,
+                            role = Role.RadioButton,
+                            onClick = { viewModel.selectWorldBookTarget(run.runId) },
+                        ).padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        RadioButton(selected = selected, onClick = null, enabled = !state.submitting)
+                        Text(run.title.ifBlank { run.runId })
+                    }
+                }
+            }
+            if (needsPreview && !state.readingFile) {
+                item {
+                    SillyTavernPreview(state, viewModel::updateTestText, viewModel::refreshSillyTavernPreview)
+                }
+            }
+            if (state.documentKind == ImportDocumentKind.NovelText) {
                 if (state.autoDistill) {
                     item {
                         ModelConfigurationNotice(
@@ -332,79 +410,27 @@ fun ImportBookScreen(
                     )
                 }
             }
-            if (state.error.isNotBlank()) {
+            if (!hasDocument && state.error.isNotBlank()) {
                 item { Text(state.error, color = MaterialTheme.colorScheme.error) }
-            }
-            item {
-                Button(
-                    onClick = ::requestImport,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = state.fileName.isNotBlank() &&
-                        !state.submitting &&
-                        !state.readingFile &&
-                        (state.packageFile || !state.autoDistill || state.modelConfigured == true),
-                ) {
-                    if (state.submitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    }
-                    Text(
-                        when {
-                            state.submitting -> "处理中…"
-                            state.packageFile -> "导入书卷包"
-                            state.autoDistill -> "导入并开始蒸馏"
-                            else -> "导入到书架"
-                        },
-                        modifier = if (state.submitting) Modifier.padding(start = 10.dp) else Modifier,
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-private fun ImportSourceCard(
+private fun ImportSourceRow(
     title: String,
     description: String,
-    actionLabel: String,
-    icon: @Composable () -> Unit,
+    icon: ImageVector,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                icon()
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            OutlinedButton(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-            ) {
-                Text(actionLabel)
-            }
-        }
-    }
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(description) },
+        leadingContent = { Icon(icon, contentDescription = null) },
+        modifier = Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+    )
 }
 
 @Composable

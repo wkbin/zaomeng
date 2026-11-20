@@ -107,7 +107,7 @@ class KtorChapterClient(
     suspend fun search(runId: String, query: String): List<SearchResultDto> {
         val body = decodeObject(
             request { endpoint ->
-                http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/search?q=${query.encodeURLParameter()}")
+                http.client.get("${endpoint.baseUrl.trimEnd('/')}/api/web/runs/$runId/search?query=${query.encodeURLParameter()}")
             },
         )
         val items = body["items"]?.jsonArray ?: return emptyList()

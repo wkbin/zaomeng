@@ -1,6 +1,10 @@
 package top.wkbin.zaomeng.data
 
+import io.ktor.client.statement.bodyAsChannel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okio.Path
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -10,16 +14,24 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.client.platform.ClientLog
+import top.wkbin.zaomeng.client.platform.clientBase64Encode
+import top.wkbin.zaomeng.data.api.ExportedRunPackage
+import top.wkbin.zaomeng.data.api.ImportSillyTavernChatRequest
+import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
+import top.wkbin.zaomeng.data.api.CardGreetingsDto
+import top.wkbin.zaomeng.data.api.BranchImportedSwipeRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
+import top.wkbin.zaomeng.data.api.DialogueOperationStatusResponse
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
 import top.wkbin.zaomeng.data.api.KtorDialogueClient
@@ -29,7 +41,9 @@ import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.PlotEventPresetDto
 import top.wkbin.zaomeng.data.api.SceneTensionDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
+import top.wkbin.zaomeng.data.api.SessionProjectionDto
 import top.wkbin.zaomeng.data.api.SessionsResponse
+import top.wkbin.zaomeng.data.api.StreamingHttpException
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
 import top.wkbin.zaomeng.data.api.toDialogueSessionDto
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
@@ -87,6 +101,7 @@ class SessionRepositoryImpl(
         sceneProfile: JsonObject,
         selfCardId: String,
         selfCardProfile: JsonObject,
+        cardGreetingIndex: Int?,
     ): DialogueSessionDto = repositoryRequest {
         val inlineSelfProfile = buildJsonObject {
             if (selfName.isNotBlank()) put("display_name", kotlinx.serialization.json.JsonPrimitive(selfName))
@@ -105,11 +120,38 @@ class SessionRepositoryImpl(
             sceneProfile = sceneProfile,
             selfCardId = selfCardId,
             selfProfile = selfProfile,
+            cardGreetingIndex = cardGreetingIndex,
         )
         val session = ktorSessions.create(runId, payload)
         appPreferences.rememberSession(runId, session.sessionId)
         session
     }
+
+    override suspend fun getCardGreetings(runId: String): CardGreetingsDto = repositoryRequest {
+        ktorSessions.getCardGreetings(runId)
+    }
+
+    override suspend fun importSillyTavernChat(runId: String, filename: String, bytes: ByteArray): DialogueSessionDto =
+        repositoryRequest {
+            val payload = withContext(Dispatchers.Default) { ImportSillyTavernChatRequest(filename, clientBase64Encode(bytes)) }
+            ktorSessions.importSillyTavernChat(runId, payload).also { appPreferences.rememberSession(runId, it.sessionId) }
+        }
+
+    override suspend fun exportSillyTavernChat(session: DialogueSessionDto, cacheDirectory: Path): ExportedRunPackage =
+        repositoryRequest {
+            val title = session.title.ifBlank { session.participants.joinToString("、") }
+                .map { if (it.isISOControl() || it in "/\\<>:\"|?*") '_' else it }
+                .joinToString("").take(64).trim { it.isWhitespace() || it == '.' }
+            ktorSessions.exportSillyTavernChat(session.runId, session.sessionId) { response ->
+                val streamed = withContext(platformIoDispatcher) {
+                    streamChannelToTempFile(response.bodyAsChannel(), cacheDirectory, suffix = ".jsonl")
+                }
+                ExportedRunPackage("会话-${title.ifBlank { session.sessionId }}.jsonl", streamed.file, streamed.byteCount, "application/x-ndjson")
+            }
+        }
+
+    override suspend fun listImportedSwipes(runId: String, sessionId: String, messageIndex: String, offset: Int): ImportedSwipePageDto =
+        repositoryRequest { ktorSessions.listImportedSwipes(runId, sessionId, messageIndex, offset) }
 
     override suspend fun getSession(
         runId: String,
@@ -125,8 +167,31 @@ class SessionRepositoryImpl(
         offset: Int,
         limit: Int,
         order: String,
+        expectedRevision: Long?,
     ): MessagesResponse = repositoryRequest {
-        ktorSessions.listMessages(runId, sessionId, offset, limit, order)
+        ktorSessions.listMessages(runId, sessionId, offset, limit, order, expectedRevision)
+    }
+
+    override suspend fun getSessionProjection(
+        runId: String,
+        sessionId: String,
+    ): SessionProjectionDto = repositoryRequest {
+        ktorSessions.getProjection(runId, sessionId)
+    }
+
+    override suspend fun rebuildSessionProjection(
+        runId: String,
+        sessionId: String,
+    ): SessionProjectionDto = repositoryRequest {
+        ktorSessions.rebuildProjection(runId, sessionId)
+    }
+
+    override suspend fun getSessionOperation(
+        runId: String,
+        sessionId: String,
+        operationId: String,
+    ): DialogueOperationStatusResponse = repositoryRequest {
+        ktorSessions.getOperation(runId, sessionId, operationId)
     }
 
     override suspend fun updateSessionTitle(
@@ -251,6 +316,13 @@ class DialogueRepositoryImpl(
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (error: StreamingHttpException) {
+            val payload = runCatching { repositoryJson.parseToJsonElement(error.responseBody).jsonObject }.getOrNull()
+            val code = payload?.get("code")?.jsonPrimitive?.contentOrNull.orEmpty()
+            val message = payload?.get("message")?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?: error.message.orEmpty()
+            throw ApiRequestException(message, error, error.statusCode, code)
         } catch (error: ApiRequestException) {
             throw error
         } catch (error: Throwable) {
@@ -289,19 +361,28 @@ class DialogueRepositoryImpl(
             "complete" -> payload["session"]?.let { session ->
                 val decodedSession = runCatching { repositoryJson.decodeFromJsonElement<DialogueSessionDto>(session) }
                     .getOrElse { error ->
-                        ClientLog.e("DialogueRepository", "Failed to decode stream complete session. Session JSON: $session", error)
+                        val preview = session.toString()
+                        ClientLog.e(
+                            "DialogueRepository",
+                            "Failed to decode stream complete session (len=${preview.length}): ${preview.take(200)}",
+                            error,
+                        )
                         throw error
                     }
                 DialogueStreamEvent.Complete(
                     session = decodedSession,
                     replayed = payload["replayed"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    operationId = payload["operation_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    turnId = payload["turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    baseRevision = payload["base_revision"]?.jsonPrimitive?.longOrNull ?: 0,
+                    committedRevision = payload["committed_revision"]?.jsonPrimitive?.longOrNull ?: 0,
                     appendedTranscript = payload["appended_transcript"]
                         ?.let { element ->
                             runCatching {
                                 repositoryJson.decodeFromJsonElement<List<TranscriptItemDto>>(element)
                             }.getOrElse { error ->
                                 ClientLog.e("DialogueRepository", "Failed to decode appended transcript", error)
-                                emptyList()
+                                throw ApiRequestException("无法解析本轮消息增量。", error)
                             }
                         }
                         .orEmpty(),
@@ -314,6 +395,8 @@ class DialogueRepositoryImpl(
                     ?: payload["detail"]?.jsonPrimitive?.contentOrNull
                     ?: "回复生成失败。",
                 retryable = payload["retryable"]?.jsonPrimitive?.booleanOrNull ?: true,
+                code = payload["code"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                operationId = payload["operation_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             )
             else -> null
         }
@@ -364,6 +447,11 @@ class DialogueRepositoryImpl(
     ): DialogueSessionDto = repositoryRequest {
         ktorDialogue.branchFromTurn(runId, sessionId, turnId)
     }
+
+    override suspend fun branchImportedSwipe(runId: String, sessionId: String, messageIndex: String, swipeIndex: Int): DialogueSessionDto =
+        repositoryRequest {
+            ktorDialogue.branchFromImportedSwipe(runId, sessionId, BranchImportedSwipeRequest(messageIndex, swipeIndex))
+        }
 
     override suspend fun branchDialogueScene(
         runId: String,
@@ -469,7 +557,8 @@ class ChatSessionGatewayImpl(
         offset: Int,
         limit: Int,
         order: String,
-    ): MessagesResponse = sessions.listSessionMessages(runId, sessionId, offset, limit, order)
+        expectedRevision: Long?,
+    ): MessagesResponse = sessions.listSessionMessages(runId, sessionId, offset, limit, order, expectedRevision)
 
     override suspend fun recoverSession(
         runId: String,
@@ -506,6 +595,7 @@ class CreateDialogueSessionGatewayImpl(
         sceneProfile = command.sceneProfile,
         selfCardId = command.selfCardId,
         selfCardProfile = command.selfCardProfile,
+        cardGreetingIndex = command.cardGreetingIndex,
     )
 }
 

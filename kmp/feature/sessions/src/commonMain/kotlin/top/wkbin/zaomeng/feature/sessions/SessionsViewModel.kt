@@ -12,6 +12,13 @@ import top.wkbin.zaomeng.data.RunRepository
 import top.wkbin.zaomeng.data.SessionRepository
 import top.wkbin.zaomeng.data.ReusableCardKind
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.ExportedRunPackage
+import top.wkbin.zaomeng.platform.platformIoDispatcher
+import okio.FileSystem
+import okio.Path
+import okio.Sink
+import okio.buffer
+import okio.use
 import top.wkbin.zaomeng.data.api.ReusableCardDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
 import top.wkbin.zaomeng.data.api.SessionRefDto
@@ -31,6 +38,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -79,6 +87,9 @@ data class SessionsUiState(
     val deletingSelection: Boolean = false,
     val deletingSessionKeys: Set<String> = emptySet(),
     val createdSession: DialogueSessionDto? = null,
+    val transferringChat: Boolean = false,
+    val exportedChat: ExportedRunPackage? = null,
+    val chatExportPending: Boolean = false,
     val error: String = "",
 ) {
     val selectedRun: RunManifestDto?
@@ -107,6 +118,7 @@ class SessionsViewModel(
     private val persona: PersonaRepository,
     private val createDialogueSession: CreateDialogueSessionUseCase,
     private val deleteDialogueSession: DeleteDialogueSessionUseCase,
+    private val cacheDir: Path,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(SessionsUiState())
     val state: StateFlow<SessionsUiState> = mutableState.asStateFlow()
@@ -542,7 +554,68 @@ class SessionsViewModel(
         }
     }
 
-    fun createSession() {
+    suspend fun getCardGreetings(runId: String) = sessionRepository.getCardGreetings(runId)
+
+    fun importSillyTavernChat(runId: String, filename: String, bytes: ByteArray) = transferChat {
+        require(filename.endsWith(".jsonl", ignoreCase = true)) { "请选择 SillyTavern JSONL 聊天记录。" }
+        require(bytes.size in 1..(8 * 1024 * 1024)) { "聊天文件为空或超过 8 MB。" }
+        val imported = sessionRepository.importSillyTavernChat(runId, filename, bytes)
+        mutableState.update { it.afterSessionCreated(imported) }
+        rebuildPagerIfNeeded()
+    }
+
+    fun exportSillyTavernChat(session: DialogueSessionDto) = transferChat {
+        val exported = sessionRepository.exportSillyTavernChat(session, cacheDir)
+        mutableState.update { it.copy(exportedChat = exported, chatExportPending = true) }
+    }
+
+    private fun transferChat(action: suspend () -> Unit) {
+        if (state.value.transferringChat || state.value.exportedChat != null) return
+        mutableState.update { it.copy(transferringChat = true, error = "") }
+        viewModelScope.launch {
+            try {
+                action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                mutableState.update { it.copy(error = error.readableMessage("SillyTavern 聊天迁移失败。")) }
+            } finally {
+                mutableState.update { it.copy(transferringChat = false) }
+            }
+        }
+    }
+
+    fun consumeChatExportDestination() {
+        mutableState.update { it.copy(chatExportPending = false) }
+    }
+
+    fun cancelChatExport() {
+        val exported = state.value.exportedChat ?: return
+        mutableState.update { it.copy(exportedChat = null, chatExportPending = false) }
+        viewModelScope.launch(platformIoDispatcher) { runCatching { FileSystem.SYSTEM.delete(exported.file) } }
+    }
+
+    suspend fun saveChatExport(destination: Sink) {
+        val exported = state.value.exportedChat ?: return
+        try {
+            withContext(platformIoDispatcher) {
+                FileSystem.SYSTEM.source(exported.file).buffer().use { destination.buffer().use { sink -> sink.writeAll(it) } }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            mutableState.update { it.copy(error = error.readableMessage("保存聊天记录失败。")) }
+        } finally {
+            cancelChatExport()
+        }
+    }
+
+    override fun onCleared() {
+        state.value.exportedChat?.let { runCatching { FileSystem.SYSTEM.delete(it.file) } }
+        super.onCleared()
+    }
+
+    fun createSession(cardGreetingIndex: Int? = null) {
         val snapshot = state.value
         if (snapshot.creating) return
         if (!snapshot.canCreate) {
@@ -577,6 +650,7 @@ class SessionsViewModel(
                         sceneProfile = draft.sceneProfile,
                         selfCardId = draft.selfCardId,
                         selfCardProfile = draft.selfProfile,
+                        cardGreetingIndex = cardGreetingIndex,
                     ),
                 )
                 mutableState.update { current ->
@@ -773,7 +847,13 @@ class SessionsViewModel(
     }
 
     private fun newDraftForRun(runs: List<RunManifestDto>, runId: String): NewSessionDraft {
-        return NewSessionDraft(runId = runId)
+        val character = runs.firstOrNull { it.runId == runId && it.isSillyTavernCharacterCard }
+            ?.availableCharacters?.singleOrNull()
+        return if (character != null) {
+            NewSessionDraft(runId = runId, mode = "insert", participants = setOf(character))
+        } else {
+            NewSessionDraft(runId = runId)
+        }
     }
 
     private suspend fun loadOptionalCards(kind: ReusableCardKind): List<ReusableCardDto> = try {

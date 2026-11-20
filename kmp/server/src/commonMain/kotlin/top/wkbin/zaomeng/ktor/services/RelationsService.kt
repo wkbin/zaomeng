@@ -34,7 +34,7 @@ class RelationsService(private val storage: StorageService) {
     fun list(runId: String): JsonObject {
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         val file = resolveRelationsFile(runId, manifest) ?: return emptyDetails(runId, manifest)
-        val payload = loadPayload(file) ?: return emptyDetails(runId, manifest)
+        val payload = parsePayload(storage.readText(file)) ?: return emptyDetails(runId, manifest)
         val relations = payload["relations"]?.jsonObject ?: JsonObject(emptyMap())
         val conflicts = payload["conflicts"]?.jsonArray ?: JsonArray(emptyList())
         val items = buildJsonArray {
@@ -95,60 +95,60 @@ class RelationsService(private val storage: StorageService) {
     ): JsonObject {
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         val file = resolveRelationsFile(runId, manifest) ?: throw NoSuchElementException("关系图谱不存在，请先导入或生成人物关系。")
-        val payload = loadPayload(file) ?: throw IllegalStateException("关系图谱解析失败。")
-        val relations = (payload["relations"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
-        val existing = relations[pairKey]?.jsonObject
-            ?: throw NoSuchElementException("Pair not found: $pairKey")
-        val updated = buildJsonObject {
-            existing.forEach { (key, value) -> put(key, value) }
-            put("trust", clamp(trust))
-            put("affection", clamp(affection))
-            put("hostility", clamp(hostility))
-            put("ambiguity", clamp(ambiguity))
-            put("relationship_type", relationshipType.trim())
-            put("relation_change", relationChange.trim())
-            put("conflict_point", conflictPoint.trim())
-            put("typical_interaction", typicalInteraction.trim())
-            put("updated_at", nowEpochMillis() / 1000)
-        }
-        relations[pairKey] = updated
-        val conflicts = detectConflicts(relations.toMap())
-        val updatedPayload = buildJsonObject {
-            put("novel_id", manifest["novel_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: runId)
-            put("relations", buildJsonObject {
-                relations.entries.sortedBy { it.key }.forEach { (key, value) -> put(key, value) }
-            })
-            put("conflicts", conflicts)
-        }
-        writePayload(file, updatedPayload)
-        return updatedPayload
+        return storage.updateText(file) { text ->
+            val payload = parsePayload(text) ?: throw IllegalStateException("关系图谱解析失败。")
+            val relations = (payload["relations"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
+            val existing = relations[pairKey]?.jsonObject
+                ?: throw NoSuchElementException("Pair not found: $pairKey")
+            val updated = buildJsonObject {
+                existing.forEach { (key, value) -> put(key, value) }
+                put("trust", clamp(trust))
+                put("affection", clamp(affection))
+                put("hostility", clamp(hostility))
+                put("ambiguity", clamp(ambiguity))
+                put("relationship_type", relationshipType.trim())
+                put("relation_change", relationChange.trim())
+                put("conflict_point", conflictPoint.trim())
+                put("typical_interaction", typicalInteraction.trim())
+                put("updated_at", nowEpochMillis() / 1000)
+            }
+            relations[pairKey] = updated
+            val conflicts = detectConflicts(relations.toMap())
+            val updatedPayload = buildJsonObject {
+                put("novel_id", manifest["novel_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: runId)
+                put("relations", buildJsonObject {
+                    relations.entries.sortedBy { it.key }.forEach { (key, value) -> put(key, value) }
+                })
+                put("conflicts", conflicts)
+            }
+            encodePayload(updatedPayload) to updatedPayload
+        } ?: throw NoSuchElementException("关系图谱不存在，请先导入或生成人物关系。")
     }
 
     /** 从关系文件中移除包含指定人物的关系对，返回新的关系图元数据；无关系文件或无匹配时返回 null。 */
     fun removeCharacter(runId: String, character: String): JsonObject? {
         val manifest = storage.readRunManifest(runId) ?: return null
         val file = resolveRelationsFile(runId, manifest) ?: return null
-        val payload = loadPayload(file) ?: return null
-        val relations = (payload["relations"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
-        val removed = relations.keys.filter { character in splitPair(it) }
-        if (removed.isEmpty()) return null
-        removed.forEach(relations::remove)
-        val conflicts = detectConflicts(relations)
-        writePayload(
-            file,
-            buildJsonObject {
+        return storage.updateText(file) { text ->
+            val payload = parsePayload(text) ?: return@updateText null
+            val relations = (payload["relations"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
+            val removed = relations.keys.filter { character in splitPair(it) }
+            if (removed.isEmpty()) return@updateText null
+            removed.forEach(relations::remove)
+            val conflicts = detectConflicts(relations)
+            val updatedPayload = buildJsonObject {
                 put("novel_id", manifest["novel_id"]?.jsonPrimitive?.contentOrNull
                     ?.takeIf(String::isNotBlank) ?: runId)
                 put("relations", buildJsonObject {
                     relations.entries.sortedBy { it.key }.forEach { (key, value) -> put(key, value) }
                 })
                 put("conflicts", conflicts)
-            },
-        )
-        return buildJsonObject {
-            put("relations_file", file.toString())
-            put("relation_count", relations.size)
-            put("has_relation_graph", relations.isNotEmpty())
+            }
+            encodePayload(updatedPayload) to buildJsonObject {
+                put("relations_file", file.toString())
+                put("relation_count", relations.size)
+                put("has_relation_graph", relations.isNotEmpty())
+            }
         }
     }
 
@@ -180,8 +180,7 @@ class RelationsService(private val storage: StorageService) {
             .firstOrNull { storage.isFile(it) && it.name.endsWith(".md") && it.name.contains("relation") && !it.name.endsWith(".mermaid.md") }
     }
 
-    private fun loadPayload(file: Path): JsonObject? {
-        val text = storage.readText(file)
+    private fun parsePayload(text: String): JsonObject? {
         val frontMatter = extractFrontMatter(text) ?: return null
         return runCatching {
             @Suppress("UNCHECKED_CAST")
@@ -198,10 +197,9 @@ class RelationsService(private val storage: StorageService) {
         return lines.drop(1).take(end).joinToString("\n")
     }
 
-    private fun writePayload(file: Path, payload: JsonObject) {
+    private fun encodePayload(payload: JsonObject): String {
         val dump = dumpYaml(toJavaMap(payload))
-        val content = "---\n$dump---\n# RELATION_GRAPH\n"
-        storage.writeTextAtomically(file, content)
+        return "---\n$dump---\n# RELATION_GRAPH\n"
     }
 
     private fun detectConflicts(relations: Map<String, JsonElement>): JsonArray {

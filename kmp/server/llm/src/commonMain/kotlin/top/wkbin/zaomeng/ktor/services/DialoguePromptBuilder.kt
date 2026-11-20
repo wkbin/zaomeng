@@ -284,7 +284,7 @@ class DialoguePromptBuilder(
                     fact["locked"]?.toString() == "true"
                 if (locked) 0 else 1
             }
-        for (item in sortedFacts.take(18)) {
+        for (item in sortedFacts.take(DialoguePromptRules.WORLD_FACT_LIMIT)) {
             val map = item.mapKeys { it.key.toString() }
             val fact = mapOf(
                 "fact_id" to (map["fact_id"]?.toString()?.trim().orEmpty()),
@@ -553,12 +553,16 @@ class DialoguePromptBuilder(
         val stableSystemPrompt = stableSystemParts.filter { it.isNotEmpty() }.joinToString("\n")
         val turnSystemPrompt = turnSystemParts.filter { it.isNotEmpty() }.joinToString("\n")
 
-        val expectedResponses: List<Any?> = if (includeInnerThoughts) {
-            listOf(mapOf("speaker" to "角色名", "message" to "回复内容", "inner_thought" to "角色没说出口的真实想法"))
-        } else {
-            listOf(mapOf("speaker" to "角色名", "message" to "回复内容"))
-        }
-        val expectedOutput = mapOf("responses" to expectedResponses)
+        // 与 json_only_rule 保持一致：主协议是 NDJSON（每行一个对象），不能再给 responses 包装示例。
+        // 优先复用 payload 里按 message_kind 生成的示例（与 Python build_dialogue_llm_messages 对齐）。
+        val expectedOutput: Any = hostAction["expected_output"] ?: mapOf(
+            "format" to "ndjson",
+            "example" to if (includeInnerThoughts) {
+                """{"speaker":"角色名","message":"回复内容","inner_thought":"角色没说出口的真实想法"}"""
+            } else {
+                """{"speaker":"角色名","message":"回复内容"}"""
+            },
+        )
         val userPayload = mapOf(
             "mode" to sessionMode,
             "message_kind" to messageKind,
@@ -578,6 +582,7 @@ class DialoguePromptBuilder(
             "speaker_plan" to speakerPlan,
             "responder_hints" to responderHints,
             "speaker_activity" to speakerActivity,
+            "history_evidence" to (payload["history_evidence"] as? List<*> ?: emptyList<Any?>()),
             "history" to history,
             "relation_excerpt" to relationExcerpt,
             "expected_output" to expectedOutput,

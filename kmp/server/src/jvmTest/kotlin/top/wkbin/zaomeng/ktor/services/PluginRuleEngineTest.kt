@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -61,6 +62,13 @@ class PluginRuleEngineTest {
             engine.afterTurn(
                 runId = "run-1",
                 sessionId = "session-a",
+                turnId = "turn-6",
+                message = "我拒绝这笔交易",
+                responses = listOf(DialogueResponse("商人", "那就下次再谈。")),
+            )
+            engine.afterTurn(
+                runId = "run-1",
+                sessionId = "session-a",
                 turnId = "turn-5",
                 message = "我拒绝这笔交易",
                 responses = listOf(DialogueResponse("商人", "那就下次再谈。")),
@@ -68,8 +76,76 @@ class PluginRuleEngineTest {
 
             val stateA = storage.loadSessionManifest("run-1", "session-a")["plugin_rule_states"]!!
                 .jsonObject[pluginId]!!.jsonObject
-            assertEquals("1", stateA["refusals"]!!.jsonPrimitive.content)
+            assertEquals("2", stateA["refusals"]!!.jsonPrimitive.content)
             assertFalse("plugin_rule_states" in storage.loadSessionManifest("run-1", "session-b"))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `turn commit keeps history revision and drops temporary directives`() = runBlocking {
+        val directory = createTempDirectory("plugin-rule-commit")
+        try {
+            val storage = StorageService(directory.toString().toPath())
+            val pluginId = "story-rules"
+            val pluginDirectory = storage.getStorageRoot() / "plugins" / pluginId
+            storage.mkdirs(pluginDirectory)
+            storage.writeTextAtomically(pluginDirectory / "plugin.json", json.encodeToString(JsonObject.serializer(), manifest(pluginId)))
+            storage.writeTextAtomically(
+                storage.getStorageRoot() / "plugins" / "enabled.json",
+                """{"enabled":["$pluginId"]}""",
+            )
+            createSession(storage, "run-1", "session-a", turnCount = 4)
+            storage.updateSessionManifest("run-1", "session-a") { session ->
+                buildJsonObject {
+                    session.forEach { (key, value) -> put(key, value) }
+                    put("plugin_enhancer_states", buildJsonObject {
+                        put("other", buildJsonObject { put("rule", true) })
+                    })
+                    put("plugin_rule_directives", buildJsonObject { put("stale/rule", "old") })
+                }
+            }
+            val engine = PluginRuleEngine(storage, PluginService(storage))
+            val prepared = engine.beforeGeneration(
+                runId = "run-1",
+                sessionId = "session-a",
+                turnId = "turn-5",
+                message = "我拒绝这笔交易",
+                session = storage.loadSessionManifest("run-1", "session-a"),
+            )
+            assertFalse("stale/rule" in prepared["plugin_rule_directives"]!!.jsonObject)
+            val dialogue = DialogueService(storage, pluginRuleEngine = engine)
+
+            val committed = dialogue.commitTurn(
+                runId = "run-1",
+                sessionId = "session-a",
+                turnId = "turn-5",
+                message = "我拒绝这笔交易",
+                messageKind = "dialogue",
+                inputSpeaker = "旅人",
+                responses = listOf(DialogueResponse("商人", "那就下次再谈。")),
+                existingSession = prepared,
+            )
+
+            assertEquals("1", committed["revision"]!!.jsonPrimitive.content)
+            assertFalse("plugin_rule_directives" in committed)
+            assertEquals(
+                "true",
+                committed["plugin_enhancer_states"]!!.jsonObject["other"]!!.jsonObject["rule"]!!.jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                committed["plugin_rule_states"]!!.jsonObject[pluginId]!!.jsonObject["refusals"]!!.jsonPrimitive.content,
+            )
+            val next = engine.beforeGeneration(
+                runId = "run-1",
+                sessionId = "session-a",
+                turnId = "turn-6",
+                message = "普通问候",
+                session = committed,
+            )
+            assertFalse("plugin_rule_directives" in next)
         } finally {
             directory.toFile().deleteRecursively()
         }

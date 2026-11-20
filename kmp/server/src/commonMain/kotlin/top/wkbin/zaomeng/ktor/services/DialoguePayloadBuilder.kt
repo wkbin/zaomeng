@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okio.Path
+import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.parseYaml
 import top.wkbin.zaomeng.platform.randomUuid
@@ -30,6 +31,7 @@ import top.wkbin.zaomeng.platform.platformIoDispatcher
  */
 class DialoguePayloadBuilder(
     private val storage: StorageService,
+    private val projections: SessionProjectionService? = null,
 ) {
     private val originalKnowledge = OriginalKnowledgeService(storage)
     private val longTermMemory = LongTermMemoryService(storage)
@@ -37,21 +39,30 @@ class DialoguePayloadBuilder(
         val personaContexts: List<Map<String, Any?>>,
         val relationExcerpt: String,
         val worldFacts: List<Map<String, Any?>>,
+        val worldBookMatches: List<WorldBookMatchDto>,
         val originalSourceContext: Map<String, Any?>,
         val retrievedMemories: List<Map<String, Any?>>,
     )
     /**
-     * 进程级文件缓存（key=绝对路径；value=Pair<mtime, 解析结果>）。
+     * 进程级文件缓存按绝对路径索引，mtime 和可选文档版本用于判断是否失效。
      * persona/关系/world_memory 等只在导入/编辑时变化，文件未变则复用解析结果，避免每回复重复读+解析。
      */
     private companion object {
-        private val fileCache = HashMap<String, Pair<Long, Any?>>()
+        private data class CachedFile(val mtime: Long, val revision: String, val value: Any?)
+        private const val MAX_CACHED_FILES = 64
+        private val fileCache = LinkedHashMap<String, CachedFile>()
         private val fileCacheLock = SimpleLock()
 
-        /** 按 mtime 缓存文件解析结果；文件未变时复用，否则重新加载并更新缓存。 */
-        fun <T> cachedFileResult(key: String, mtime: Long, loader: () -> T): T {
+        /** 文件未变时复用解析结果，否则重新加载并更新缓存。 */
+        fun <T> cachedFileResult(key: String, mtime: Long, revision: String = "", loader: () -> T): T {
             val cached = fileCacheLock.withLock {
-                fileCache[key]?.takeIf { (cachedMtime, _) -> cachedMtime == mtime }?.second
+                val entry = fileCache.remove(key)
+                if (entry != null && entry.mtime == mtime && entry.revision == revision) {
+                    fileCache[key] = entry
+                    entry.value
+                } else {
+                    null
+                }
             }
             if (cached != null) {
                 @Suppress("UNCHECKED_CAST")
@@ -59,7 +70,11 @@ class DialoguePayloadBuilder(
             }
             val loaded = loader()
             fileCacheLock.withLock {
-                fileCache[key] = mtime to loaded
+                fileCache.remove(key)
+                fileCache[key] = CachedFile(mtime, revision, loaded)
+                if (fileCache.size > MAX_CACHED_FILES) {
+                    fileCache.remove(fileCache.keys.first())
+                }
             }
             return loaded
         }
@@ -255,6 +270,22 @@ class DialoguePayloadBuilder(
         return element.mapValues { jsonValueToAny(it.value) }
     }
 
+    /** 把一个示例对象列表渲染成 NDJSON 文本：每行一个对象，与对话主协议一致。 */
+    private fun ndjsonExample(lines: List<Any?>): String = lines.joinToString("\n") { line ->
+        val entries = (line as? Map<*, *>)?.entries
+        if (entries.isNullOrEmpty()) {
+            "{}"
+        } else {
+            entries.joinToString(prefix = "{", postfix = "}", separator = ",") { (key, value) ->
+                val text = value?.toString().orEmpty()
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                "\"$key\":\"$text\""
+            }
+        }
+    }
+
     private fun jsonValueToAny(value: kotlinx.serialization.json.JsonElement?): Any? = when (value) {
         null -> null
         is JsonObject -> value.mapValues { jsonValueToAny(it.value) }
@@ -282,11 +313,7 @@ class DialoguePayloadBuilder(
             (parseYaml(source) as? Map<String, Any>)?.mapValues { normalizeYamlValue(it.value) }
         }.getOrNull()
 
-        val front = if (text.startsWith("---")) {
-            text.split("---", limit = 3).getOrNull(1)
-        } else {
-            null
-        }
+        val front = text.splitPersonaFrontmatter()?.first
         if (front != null) {
             loadYaml(front)?.let { return it }
         }
@@ -456,7 +483,7 @@ class DialoguePayloadBuilder(
         }
         return filterWorldFactsForSession(runId, facts, session)
             .sortedBy { it["locked"] != true }
-            .take(18)
+            .take(DialoguePromptRules.WORLD_FACT_LIMIT)
     }
 
     private fun loadWorldFactsUncached(file: Path): List<Map<String, Any?>> {
@@ -497,18 +524,20 @@ class DialoguePayloadBuilder(
         val currentSessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sourceSessionId = origin["source_session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sourceTurnId = origin["source_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val fromImportedSwipe = origin["fork_type"]?.jsonPrimitive?.contentOrNull == "imported_swipe"
         if (sourceSessionId.isBlank() || sourceTurnId.isBlank()) return facts
         val file = storage.getRunDirectory(runId) / "world_memory.json"
         val timeline = runCatching {
             Json.parseToJsonElement(storage.readText(file)).jsonObject["timeline"]?.jsonArray.orEmpty()
-        }.getOrElse { return facts }
+        }.getOrElse { if (fromImportedSwipe) emptyList() else return facts }
         val cutoffIndex = timeline.indexOfLast { item ->
             val entry = runCatching { item.jsonObject }.getOrNull() ?: return@indexOfLast false
             entry["source_session_id"]?.jsonPrimitive?.contentOrNull == sourceSessionId &&
                 entry["source_turn_id"]?.jsonPrimitive?.contentOrNull == sourceTurnId
         }
-        if (cutoffIndex < 0) return facts
-        val allowedPairs = timeline.take(cutoffIndex + 1).mapNotNull { item ->
+        if (cutoffIndex < 0 && !fromImportedSwipe) return facts
+        val allowedCount = (cutoffIndex + if (fromImportedSwipe) 0 else 1).coerceAtLeast(0)
+        val allowedPairs = timeline.take(allowedCount).mapNotNull { item ->
             val entry = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
             val source = entry["source_session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val turn = entry["source_turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -755,7 +784,13 @@ class DialoguePayloadBuilder(
                 "User"
             }
         }
-        val sceneCard = session["scene_profile"]?.jsonObject?.let { jsonMap(it) }
+        // switchScene 写的是 scene_card.fields，scene_profile 会保持旧值或空对象；
+        // 旧逻辑先取 scene_profile，导致切换场景卡后生成仍是旧场景。这里优先取最新卡片字段。
+        val sceneCardFields = session["scene_card"]?.let { element ->
+            runCatching { element.jsonObject["fields"]?.jsonObject }.getOrNull()
+        }
+        val sceneCard = sceneCardFields?.takeIf { it.isNotEmpty() }?.let { jsonMap(it) }
+            ?: session["scene_profile"]?.jsonObject?.takeIf { it.isNotEmpty() }?.let { jsonMap(it) }
             ?: session["scene_card"]?.jsonObject?.let { jsonMap(it) }
             ?: emptyMap()
         val selfInsert = session["self_profile"]?.jsonObject?.let { jsonMap(it) } ?: emptyMap()
@@ -816,7 +851,41 @@ class DialoguePayloadBuilder(
                     if (text.length <= 1200) text else text.take(1199).trimEnd() + "…"
                 }
             }
-            val world = async(platformIoDispatcher) { loadWorldFacts(runId, session) }
+            val world = async(platformIoDispatcher) {
+                val nativeFacts = loadWorldFacts(runId, session)
+                val root = storage.getRunDirectory(runId)
+                val cardFile = root / SillyTavernImport.CARD_FILE
+                val worldFile = root / SillyTavernImport.WORLD_BOOK
+                val loreRevision = runManifest[SillyTavernImport.REVISION_FIELD]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val card = if (storage.isFile(cardFile)) {
+                    cachedFileResult(cardFile.toString(), storage.lastModifiedMillis(cardFile), loreRevision) {
+                        runCatching { SillyTavernImport.parseCard(storage.readBytes(cardFile), stored = true) }.getOrNull()
+                    }
+                } else null
+                val standalone = if (storage.isFile(worldFile)) {
+                    cachedFileResult(worldFile.toString(), storage.lastModifiedMillis(worldFile), loreRevision) {
+                        runCatching {
+                            Json.parseToJsonElement(storage.readText(worldFile)).jsonObject.also { SillyTavernImport.loreEntries(it) }
+                        }.getOrNull()
+                    }
+                } else null
+                val embedded = card?.let {
+                    runCatching {
+                        SillyTavernImport.embeddedBook(it, participants)?.also { book -> SillyTavernImport.loreEntries(book) }
+                    }.getOrNull()
+                }
+                val scan = history.takeLast(SillyTavernImport.MAX_SCAN_DEPTH - 1).map { it["message"].orEmpty() } + message
+                val locked = nativeFacts.filter { it["locked"] == true }
+                val matches = SillyTavernImport.evaluateBooks(
+                    embedded, standalone, scan,
+                    availableSlots = DialoguePromptRules.WORLD_FACT_LIMIT - locked.size,
+                    collectDiagnostics = false,
+                )
+                val lore = matches.map {
+                    mapOf("category" to "sillytavern_lore", "summary" to it.excerpt)
+                }
+                (locked + lore + nativeFacts.filter { it["locked"] != true }) to matches
+            }
             val original = async(platformIoDispatcher) {
                 buildOriginalSourceContext(
                     runManifest = runManifest,
@@ -838,10 +907,12 @@ class DialoguePayloadBuilder(
                     currentTurnId = turnId,
                 )
             }
+            val (worldFacts, worldBookMatches) = world.await()
             TurnContextSources(
                 personaContexts = persona.await(),
                 relationExcerpt = relation.await(),
-                worldFacts = world.await(),
+                worldFacts = worldFacts,
+                worldBookMatches = worldBookMatches,
                 originalSourceContext = original.await(),
                 retrievedMemories = memories.await(),
             )
@@ -857,9 +928,10 @@ class DialoguePayloadBuilder(
         )
         val originalSourceContext = contextSources.originalSourceContext
         val retrievedMemories = contextSources.retrievedMemories
+        val promptSummaries = projections?.freshPromptSummaries(runId, sessionId)
         val memoryContext = mapOf(
-            "session_summary" to emptyMap<String, Any?>(),
-            "archived_summary" to emptyMap<String, Any?>(),
+            "session_summary" to (promptSummaries?.first ?: emptyMap<String, Any?>()),
+            "archived_summary" to (promptSummaries?.second ?: emptyMap<String, Any?>()),
             "controlled_memories" to loadControlledMemories(session),
             "world_facts" to worldFacts,
             "retrieved_memories" to retrievedMemories,
@@ -980,7 +1052,11 @@ class DialoguePayloadBuilder(
                 ).filterValues { it != null },
             )
         }
-        val expectedOutput = mapOf("responses" to expectedResponses)
+        // 与 turn_system.json_only_rule 一致：NDJSON 逐行对象，不能再用 responses 包装。
+        val expectedOutput = mapOf(
+            "format" to "ndjson",
+            "example" to ndjsonExample(expectedResponses),
+        )
         val outputRule = (
             if (normalizedMessageKind == "fourth_wall") {
                 "Return only in-character replies that may address the author directly. " +
@@ -993,7 +1069,7 @@ class DialoguePayloadBuilder(
                 "Return only in-world character replies. " +
                     "Do not split obvious small actions into standalone narration; keep them inside the speaking character's line with brief parenthetical action. "
             }
-            ) + "Return one JSON object whose only top-level field is responses. Do not explain the workflow or mention prompts."
+            ) + "Return NDJSON, one complete reply object per line, with no enclosing array or object. Do not explain the workflow or mention prompts."
 
         return mapOf(
             "kind" to "zaomeng_dialogue_turn",
@@ -1020,6 +1096,7 @@ class DialoguePayloadBuilder(
             "history" to latestHistory,
             "scene_card" to sceneCard,
             "memory_context" to memoryContext,
+            "world_book_matches" to contextSources.worldBookMatches,
             "original_source_context" to originalSourceContext,
             "knowledge_context" to knowledgeContext,
             "scene_progress" to sceneProgress,

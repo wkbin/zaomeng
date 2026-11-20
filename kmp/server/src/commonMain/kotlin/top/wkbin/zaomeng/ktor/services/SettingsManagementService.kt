@@ -11,6 +11,10 @@ import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.randomUuid
 import top.wkbin.zaomeng.ktor.models.*
 import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
+import top.wkbin.zaomeng.data.api.DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+import top.wkbin.zaomeng.data.api.MAX_MODEL_REQUEST_TIMEOUT_SECONDS
+import top.wkbin.zaomeng.data.api.AvailableModelsDto
+import top.wkbin.zaomeng.data.api.DiscoverModelsRequest
 import kotlin.time.TimeSource
 
 /**
@@ -68,7 +72,8 @@ class SettingsManagementService(
         profileId: String = "",
         profileName: String = "",
         createProfile: Boolean = false,
-        activateProfile: Boolean = true
+        activateProfile: Boolean = true,
+        requestTimeoutSeconds: Int? = null,
     ): JsonObject {
         // 验证参数
         if (provider.isBlank()) {
@@ -102,6 +107,9 @@ class SettingsManagementService(
             else -> existingSettings?.activeProfileId ?: profiles.first().profileId ?: generateId()
         }
 
+        val previousProfile = profiles.firstOrNull { it.profileId == targetProfileId }
+        val timeoutSeconds = resolveRequestTimeout(requestTimeoutSeconds, previousProfile?.requestTimeoutSeconds)
+
         // 创建或更新 profile
         val targetProfile = ModelProfile(
             profileId = targetProfileId,
@@ -113,6 +121,7 @@ class SettingsManagementService(
             reasoningEffort = reasoningEffort,
             tokenParameter = tokenParameter,
             responseFormatMode = responseFormatMode,
+            requestTimeoutSeconds = timeoutSeconds,
         )
 
         // 更新 profiles 列表
@@ -186,7 +195,8 @@ class SettingsManagementService(
         maxTokens: Int = 0,
         reasoningEffort: String = "off",
         tokenParameter: String = "auto",
-        profileId: String = ""
+        profileId: String = "",
+        requestTimeoutSeconds: Int? = null,
     ): JsonObject {
         // 验证参数
         if (provider.isBlank() || model.isBlank()) {
@@ -204,7 +214,7 @@ class SettingsManagementService(
         }
 
         val resolvedBaseUrl = baseUrl.ifBlank { "https://api.openai.com/v1" }
-        val client = LlmClient(modelApiKeyService, storageService)
+        val client = modelProbeClient(effectiveProfileId, requestTimeoutSeconds)
         val startedAt = TimeSource.Monotonic.markNow()
         val result = try {
             client.testConnection(resolvedBaseUrl, effectiveApiKey, model, tokenParameter)
@@ -221,6 +231,28 @@ class SettingsManagementService(
         )
     }
 
+    suspend fun discoverModels(request: DiscoverModelsRequest): AvailableModelsDto {
+        val endpoint = modelDiscoveryEndpoint(request.baseUrl)
+        val key = request.apiKey.trim().ifBlank {
+            val profile = storageService.readModelSettings()?.profiles?.firstOrNull {
+                request.profileId.isNotBlank() && it.profileId == request.profileId
+            }
+            if (profile != null && modelDiscoveryEndpoint(profile.baseUrl.orEmpty()) == endpoint) {
+                modelApiKeyService.getApiKey(request.profileId).orEmpty()
+            } else {
+                ""
+            }
+        }
+        require(key.isNotBlank()) { "请填写模型服务的 API Key。" }
+
+        val client = LlmClient(modelApiKeyService, storageService)
+        return try {
+            AvailableModelsDto(client.discoverModels(endpoint, key))
+        } finally {
+            client.close()
+        }
+    }
+
     suspend fun detectModelCapabilities(
         provider: String,
         model: String,
@@ -230,6 +262,7 @@ class SettingsManagementService(
         reasoningEffort: String = "auto",
         tokenParameter: String = "auto",
         profileId: String = "",
+        requestTimeoutSeconds: Int? = null,
     ): ModelCapabilityReportDto {
         require(provider.isNotBlank() && model.isNotBlank()) { "Provider and model cannot be blank" }
         val effectiveProfileId = profileId.ifBlank {
@@ -237,7 +270,7 @@ class SettingsManagementService(
         }
         val effectiveApiKey = apiKey.ifBlank { modelApiKeyService.getApiKey(effectiveProfileId).orEmpty() }
         require(effectiveApiKey.isNotBlank()) { "API key not found for profile: $effectiveProfileId" }
-        val client = LlmClient(modelApiKeyService, storageService)
+        val client = modelProbeClient(effectiveProfileId, requestTimeoutSeconds)
         return try {
             client.detectCapabilities(
                 provider = provider,
@@ -253,6 +286,19 @@ class SettingsManagementService(
         }
     }
 
+    private fun modelProbeClient(profileId: String, requested: Int?): LlmClient {
+        val saved = storageService.readModelSettings()?.profiles?.firstOrNull { it.profileId == profileId }
+        return LlmClient(modelApiKeyService, storageService, resolveRequestTimeout(requested, saved?.requestTimeoutSeconds))
+    }
+
+    private fun resolveRequestTimeout(requested: Int?, saved: Int?): Int {
+        require(requested == null || requested in 1..MAX_MODEL_REQUEST_TIMEOUT_SECONDS) {
+            "请求超时须在 1 到 $MAX_MODEL_REQUEST_TIMEOUT_SECONDS 秒之间。"
+        }
+        return requested ?: saved?.takeIf { it in 1..MAX_MODEL_REQUEST_TIMEOUT_SECONDS }
+            ?: DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+    }
+
     private fun kotlinx.serialization.json.JsonObjectBuilder.putProfileFields(profile: ModelProfile?) {
         val profileId = profile?.profileId.orEmpty()
         val keyConfigured = profileId.isNotBlank() && modelApiKeyService.hasApiKey(profileId)
@@ -263,6 +309,7 @@ class SettingsManagementService(
         put("max_tokens", profile?.maxTokens ?: 0)
         put("reasoning_effort", profile?.reasoningEffort ?: "off")
         put("token_parameter", profile?.tokenParameter ?: "auto")
+        put("request_timeout_seconds", resolveRequestTimeout(null, profile?.requestTimeoutSeconds))
         put("response_format_mode", profile?.responseFormatMode ?: "auto")
         put("api_key_configured", keyConfigured)
         put("configured", configured)

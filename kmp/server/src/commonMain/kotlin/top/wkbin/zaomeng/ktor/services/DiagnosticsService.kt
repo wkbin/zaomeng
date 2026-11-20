@@ -21,7 +21,8 @@ import top.wkbin.zaomeng.platform.systemProperty
  */
 class DiagnosticsService(
     private val storageRoot: Path,
-    private val storageService: StorageService
+    private val storageService: StorageService,
+    private val requestDiagnostics: ModelRequestDiagnostics? = null,
 ) {
     private val json = Json {
         prettyPrint = true
@@ -41,7 +42,7 @@ class DiagnosticsService(
 
         return DiagnosticsReport(
             kind = "zaomeng_diagnostics",
-            schemaVersion = 1,
+            schemaVersion = 2,
             generatedAt = nowIsoString(),
             runtime = RuntimeInfo(
                 kotlin = systemProperty("java.version") ?: "unknown",
@@ -58,9 +59,13 @@ class DiagnosticsService(
                 profiles = profiles
             ),
             startup = startupReport,
-            runs = runs
+            runs = runs,
+            modelRequests = requestDiagnostics?.exportRecent() ?: emptyList(),
         )
     }
+
+    fun latestModelRequest(runId: String, sessionId: String): ModelRequestRecord =
+        requestDiagnostics?.latest(runId, sessionId) ?: throw NoSuchElementException("Model request not found")
 
     /**
      * 获取磁盘使用信息
@@ -205,7 +210,8 @@ data class DiagnosticsReport(
     val storage: StorageInfo,
     val model: ModelInfo,
     val startup: Map<String, JsonElement>,
-    val runs: List<RunSummary>
+    val runs: List<RunSummary>,
+    val modelRequests: List<ModelRequestRecord> = emptyList(),
 )
 
 @Serializable

@@ -21,16 +21,18 @@ private val streamingHttpClient by lazy {
         .build()
 }
 
-actual suspend fun openStreamingHttpPost(
+actual suspend fun <T> withStreamingHttpPost(
     url: String,
     headers: Map<String, String>,
     body: String,
-): PlatformStreamingResponse = withContext(Dispatchers.IO) {
+    consume: suspend (PlatformStreamingResponse) -> T,
+): T {
     val requestBuilder = Request.Builder()
         .url(url)
         .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
     headers.forEach { (name, value) -> requestBuilder.header(name, value) }
-    OkHttpStreamingResponse(streamingHttpClient.newCall(requestBuilder.build()).execute())
+    val response = withContext(Dispatchers.IO) { streamingHttpClient.newCall(requestBuilder.build()).execute() }
+    return response.use { consume(OkHttpStreamingResponse(it)) }
 }
 
 private class OkHttpStreamingResponse(
@@ -49,5 +51,4 @@ private class OkHttpStreamingResponse(
         source.readUtf8()
     }
 
-    override fun close() = response.close()
 }

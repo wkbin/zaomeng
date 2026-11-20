@@ -20,6 +20,7 @@ interface ChatSessionGateway {
         offset: Int = 0,
         limit: Int = 100,
         order: String = "asc",
+        expectedRevision: Long? = null,
     ): MessagesResponse
 
     suspend fun recoverSession(
@@ -63,10 +64,12 @@ class LoadChatSessionUseCase(
                     offset = 0,
                     limit = transcriptPageSize.coerceAtLeast(1),
                     order = "desc",
+                    expectedRevision = loadedSession.revision,
                 )
                 loadedSession.copy(
                     transcript = tail.items.asReversed(),
                     transcriptCount = tail.total,
+                    revision = tail.revision,
                 )
             }
             else -> loadedSession

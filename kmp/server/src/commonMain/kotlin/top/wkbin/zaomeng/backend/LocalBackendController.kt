@@ -40,6 +40,7 @@ import top.wkbin.zaomeng.ktor.routes.suggestionsRoutes
 import top.wkbin.zaomeng.ktor.routes.worldMemoryRoutes
 import top.wkbin.zaomeng.platform.ServerPlatform
 import top.wkbin.zaomeng.platform.SimpleLock
+import top.wkbin.zaomeng.platform.randomUuid
 
 /**
  * 通用内嵌后端控制器：三端统一的 Ktor CIO server（数据走 Room）。
@@ -51,6 +52,14 @@ class LocalBackendController(
     private val port: Int = 0,
     private val token: String = "dev-token",
 ) : BackendController {
+    /**
+     * 实际生效的鉴权 token。
+     * 历史上三端都传死值（dev-token / desktop-dev-token），等于没有鉴权；
+     * 这里把这类遗留值视为"未配置"，改用进程内随机 token，只在本机进程内共享。
+     */
+    val authToken: String = token.takeIf { it.isNotBlank() && it !in LEGACY_INSECURE_TOKENS }
+        ?: "local-" + randomUuid().replace("-", "") + randomUuid().replace("-", "").take(8)
+
     private val mutableState = MutableStateFlow<BackendState>(BackendState.Idle)
 
     override val state: StateFlow<BackendState> = mutableState.asStateFlow()
@@ -108,7 +117,7 @@ class LocalBackendController(
                     )
                 }
                 configureObservability()
-                configureSecurity(token)
+                configureSecurity(authToken)
 
                 val storage = services.storage
                 routing {
@@ -119,7 +128,7 @@ class LocalBackendController(
                     sessionManagementRoutes(services.sessionManagement)
                     runManagementRoutes(services.runManagement, services.runPackages)
                     settingsManagementRoutes(services.settingsManagement)
-                    dialogueStreamRoutes(services.dialogueStream, storage)
+                    dialogueStreamRoutes(services.dialogueStream)
                     suggestionsRoutes(services.suggestions)
                     dialogueAdvancedRoutes(services.dialogueAdvanced)
                     chapterRoutes(services.chapter)
@@ -152,5 +161,10 @@ class LocalBackendController(
     override fun retry() {
         started = false
         start()
+    }
+
+    private companion object {
+        /** 旧版本写死的默认值：视为未配置，改用随机 token。 */
+        val LEGACY_INSECURE_TOKENS = setOf("dev-token", "desktop-dev-token")
     }
 }

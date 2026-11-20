@@ -21,7 +21,11 @@ sealed interface DialogueStreamEvent {
     data class Complete(
         val session: DialogueSessionDto,
         val replayed: Boolean,
-        /** include_transcript=false 时携带：本轮新增的 transcript 条目（按 turn_id）。 */
+        val operationId: String = "",
+        val turnId: String = "",
+        val baseRevision: Long = 0,
+        val committedRevision: Long = 0,
+        /** include_transcript=false 时携带：本 operation 的完整一轮条目。 */
         val appendedTranscript: List<TranscriptItemDto> = emptyList(),
         /** 会话 transcript 总条数（轻量响应仍携带）。 */
         val transcriptCount: Int = 0,
@@ -30,5 +34,7 @@ sealed interface DialogueStreamEvent {
     data class Failure(
         val message: String,
         val retryable: Boolean,
+        val code: String = "",
+        val operationId: String = "",
     ) : DialogueStreamEvent
 }

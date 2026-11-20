@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -62,6 +63,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Download
+import top.wkbin.zaomeng.platform.rememberDocumentPicker
+import top.wkbin.zaomeng.platform.rememberFileExporter
+import kotlinx.coroutines.CancellationException
+import top.wkbin.zaomeng.data.api.CardGreetingsDto
+import top.wkbin.zaomeng.data.api.expandSillyTavernNames
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -111,6 +118,17 @@ fun SessionsScreen(
     onOpenChat: (runId: String, sessionId: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val chatPicker = rememberDocumentPicker { filename, bytes ->
+        runId?.let { viewModel.importSillyTavernChat(it, filename, bytes) }
+    }
+    val chatSaver = rememberFileExporter(onSave = viewModel::saveChatExport, onCancelled = viewModel::cancelChatExport)
+    LaunchedEffect(state.chatExportPending) {
+        val exported = state.exportedChat ?: return@LaunchedEffect
+        if (state.chatExportPending) {
+            viewModel.consumeChatExportDestination()
+            chatSaver(exported.filename, exported.mimeType)
+        }
+    }
     val lazySessions = viewModel.sessions.collectAsLazyPagingItems()
     var pendingDeletion by remember { mutableStateOf<DialogueSessionDto?>(null) }
     var pendingRename by remember { mutableStateOf<DialogueSessionDto?>(null) }
@@ -173,6 +191,10 @@ fun SessionsScreen(
         viewModel.ensureAvatars(visibleSessions)
     }
 
+    var showSessionActions by remember { mutableStateOf(false) }
+    val canImportChat = !runId.isNullOrBlank() && !state.loading &&
+        !state.transferringChat && state.exportedChat == null
+
     Scaffold(
         topBar = {
             if (searchExpanded) {
@@ -188,7 +210,11 @@ fun SessionsScreen(
                         Text("已选择 ${state.selectedSessionKeys.size} 项")
                     } else {
                         Column {
-                            Text(if (runId.isNullOrBlank()) "全部会话" else "书中会话")
+                            Text(
+                                text = if (runId.isNullOrBlank()) "全部会话" else "书中会话",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             if (!runId.isNullOrBlank()) {
                                 Text(
                                     text = state.runs.firstOrNull { it.runId == runId }?.title.orEmpty(),
@@ -251,25 +277,47 @@ fun SessionsScreen(
                     } else {
                         IconButton(
                             onClick = { searchExpanded = true },
-                            enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
+                            enabled = !state.loading && state.deletingSessionKeys.isEmpty(),
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "搜索会话")
                         }
-                        IconButton(
-                            onClick = viewModel::enterSelectionMode,
-                            enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
-                        ) {
-                            Icon(Icons.Default.Checklist, contentDescription = "多选管理会话")
-                        }
-                        IconButton(
-                            onClick = viewModel::refresh,
-                            enabled = !state.loading && !state.refreshing && !state.creating &&
-                                state.deletingSessionKeys.isEmpty(),
-                        ) {
-                            if (state.refreshing) {
-                                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "刷新会话")
+                        Box {
+                            IconButton(onClick = { showSessionActions = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "更多会话操作")
+                            }
+                            DropdownMenu(
+                                expanded = showSessionActions,
+                                onDismissRequest = { showSessionActions = false },
+                            ) {
+                                if (!runId.isNullOrBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("导入聊天") },
+                                        enabled = canImportChat,
+                                        onClick = {
+                                            showSessionActions = false
+                                            chatPicker()
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("多选管理会话") },
+                                    leadingIcon = { Icon(Icons.Default.Checklist, contentDescription = null) },
+                                    enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
+                                    onClick = {
+                                        showSessionActions = false
+                                        viewModel.enterSelectionMode()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (state.refreshing) "正在刷新…" else "刷新会话") },
+                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                    enabled = !state.loading && !state.refreshing && !state.creating &&
+                                        state.deletingSessionKeys.isEmpty(),
+                                    onClick = {
+                                        showSessionActions = false
+                                        viewModel.refresh()
+                                    },
+                                )
                             }
                         }
                     }
@@ -297,7 +345,9 @@ fun SessionsScreen(
                 lazySessions = lazySessions,
                 visibleSessions = visibleSessions,
                 onOpenChat = onOpenChat,
+                onImportChat = chatPicker.takeIf { canImportChat },
                 onDelete = { pendingDeletion = it },
+                onExport = viewModel::exportSillyTavernChat,
                 onRename = {
                     pendingRename = it
                     renameTitle = it.title
@@ -327,6 +377,7 @@ fun SessionsScreen(
             onSelectSceneCard = viewModel::selectSceneCard,
             onRecommendSceneCard = viewModel::recommendSceneCard,
             onSelectSelfCard = viewModel::selectSelfCard,
+            loadCardGreetings = viewModel::getCardGreetings,
             onCreate = viewModel::createSession,
         )
     }
@@ -476,7 +527,9 @@ private fun SessionsContent(
     lazySessions: LazyPagingItems<DialogueSessionDto>,
     visibleSessions: List<DialogueSessionDto>,
     onOpenChat: (String, String) -> Unit,
+    onImportChat: (() -> Unit)?,
     onDelete: (DialogueSessionDto) -> Unit,
+    onExport: (DialogueSessionDto) -> Unit,
     onRename: (DialogueSessionDto) -> Unit,
     onToggleSelection: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
@@ -558,10 +611,21 @@ private fun SessionsContent(
                             Text("还没有聊天记录", style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "选择一本已蒸馏的书，就能让人物在新的场景里开口。",
+                                if (state.scopedRunId != null) {
+                                    "开始新会话，或导入 SillyTavern JSONL 聊天记录。"
+                                } else {
+                                    "选择一本书卷，开始新的会话。"
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (state.scopedRunId != null) {
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedButton(
+                                    enabled = onImportChat != null,
+                                    onClick = { onImportChat?.invoke() },
+                                ) { Text("导入聊天") }
+                            }
                         }
                     }
                 }
@@ -603,6 +667,8 @@ private fun SessionsContent(
                             selected = session.key in state.selectedSessionKeys,
                             onOpen = { onOpenChat(session.runId, session.sessionId) },
                             onDelete = { onDelete(session) },
+                            onExport = { onExport(session) },
+                            exportEnabled = !state.transferringChat && state.exportedChat == null,
                             onRename = { onRename(session) },
                             onToggleSelection = { onToggleSelection(session.key) },
                         )
@@ -712,6 +778,8 @@ private fun SessionCard(
     selected: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onExport: () -> Unit,
+    exportEnabled: Boolean,
     onRename: () -> Unit,
     onToggleSelection: () -> Unit,
 ) {
@@ -751,6 +819,13 @@ private fun SessionCard(
                     )
                 }
                 if (!selectionMode) {
+                    IconButton(
+                        onClick = onExport,
+                        enabled = !deleting && exportEnabled,
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = "导出 SillyTavern 聊天 JSONL", modifier = Modifier.size(18.dp))
+                    }
                     IconButton(
                         onClick = onRename,
                         enabled = !deleting,
@@ -878,7 +953,7 @@ private fun PersonaAvatar(
         color = color,
         shape = CircleShape,
     ) {
-        val bitmap = bytes?.let { decodeImageBitmap(it) }
+        val bitmap = remember(bytes) { bytes?.let { decodeImageBitmap(it) } }
         if (bitmap == null) {
             Box(contentAlignment = Alignment.Center) {
                 Text(name.trim().take(1), style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -928,8 +1003,30 @@ private fun NewSessionDialog(
     onSelectSceneCard: (String) -> Unit,
     onRecommendSceneCard: () -> Unit,
     onSelectSelfCard: (String) -> Unit,
-    onCreate: () -> Unit,
+    loadCardGreetings: suspend (String) -> CardGreetingsDto,
+    onCreate: (Int?) -> Unit,
 ) {
+    val greetingCharacter = state.draft.participants.singleOrNull()?.takeIf {
+        state.draft.mode == "insert" && state.draft.sceneCardId.isBlank() && state.draft.sceneProfile.isEmpty()
+    }
+    val greetingRun = state.draft.runId.takeIf { greetingCharacter != null && it.isNotBlank() }
+    var greetings by remember(greetingRun, greetingCharacter) { mutableStateOf<CardGreetingsDto?>(null) }
+    var greetingIndex by rememberSaveable(greetingRun, greetingCharacter) { mutableStateOf<Int?>(null) }
+    var greetingLoadError by remember(greetingRun, greetingCharacter) { mutableStateOf(false) }
+    var greetingReload by remember(greetingRun, greetingCharacter) { mutableStateOf(0) }
+    LaunchedEffect(greetingRun, greetingCharacter, greetingReload) {
+        val runId = greetingRun ?: return@LaunchedEffect
+        greetingLoadError = false
+        try {
+            greetings = loadCardGreetings(runId).takeIf { it.character == greetingCharacter }
+            if (greetings?.options?.any { it.index == greetingIndex } != true) greetingIndex = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            greetingIndex = null
+            greetingLoadError = true
+        }
+    }
     AlertDialog(
         onDismissRequest = { if (!state.creating) onDismiss() },
         title = { Text("开始一段新会话") },
@@ -1036,6 +1133,45 @@ private fun NewSessionDialog(
                     }
                 }
 
+                if (state.draft.mode == "insert") {
+                    val options = greetings?.options.orEmpty()
+                    if (greetingLoadError) item {
+                        TextButton(onClick = { greetingReload++ }, enabled = !state.creating) { Text("重试读取角色卡开场") }
+                    }
+                    if (options.isNotEmpty()) {
+                        item {
+                            Text("角色卡开场", style = MaterialTheme.typography.labelLarge)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                item {
+                                    FilterChip(
+                                        selected = greetingIndex == null,
+                                        onClick = { greetingIndex = null },
+                                        enabled = !state.creating,
+                                        label = { Text("默认") },
+                                    )
+                                }
+                                items(options.filter { it.index > 0 }, key = { it.index }) { option ->
+                                    FilterChip(
+                                        selected = greetingIndex == option.index,
+                                        onClick = { greetingIndex = option.index },
+                                        enabled = !state.creating,
+                                        label = { Text("备用开场 ${option.index}") },
+                                    )
+                                }
+                            }
+                            val text = options.firstOrNull { it.index == (greetingIndex ?: 0) }?.text
+                            Text(
+                                text = text?.let {
+                                    expandSillyTavernNames(it, greetingCharacter.orEmpty(), state.draft.selfName.trim().ifBlank { "你" })
+                                } ?: "由模型生成开场",
+                                maxLines = 8,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
                 item {
                     ReusableCardPicker(
                         label = "场景卡",
@@ -1135,7 +1271,7 @@ private fun NewSessionDialog(
         },
         confirmButton = {
             Button(
-                onClick = onCreate,
+                onClick = { onCreate(greetingIndex?.takeIf { index -> greetings?.options?.any { it.index == index } == true }) },
                 enabled = state.canCreate && !state.creating,
             ) {
                 Text(if (state.creating) "创建中" else "进入场景")
@@ -1146,6 +1282,7 @@ private fun NewSessionDialog(
         },
     )
 }
+
 
 @Composable
 private fun ReusableCardPicker(

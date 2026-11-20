@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.ktor.routes
 import top.wkbin.zaomeng.ktor.http.respondError
 
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
 import io.ktor.http.content.*
 import io.ktor.server.application.*
 import io.ktor.server.request.receive
@@ -11,6 +12,8 @@ import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.*
 import io.ktor.utils.io.toByteArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.withContext
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.ktor.models.SuggestPersonaFieldRequest
 import top.wkbin.zaomeng.ktor.services.PersonaService
@@ -19,6 +22,13 @@ fun Route.personaRoutes(service: PersonaService) {
     route("/api/web/runs/{run_id}/personas/{character}") {
         get {
             personaCall { runId, character -> call.respond(service.getReview(runId, character)) }
+        }
+        get("/sillytavern-card") {
+            personaCall { runId, character ->
+                val card = withContext(platformIoDispatcher) { service.exportSillyTavernCard(runId, character) }
+                call.response.headers.append(HttpHeaders.ContentDisposition, "attachment; filename=character-card.json")
+                call.respond(card)
+            }
         }
         put {
             personaCall { runId, character ->

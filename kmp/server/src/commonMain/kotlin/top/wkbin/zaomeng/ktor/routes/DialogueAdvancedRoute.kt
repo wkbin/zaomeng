@@ -16,6 +16,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import top.wkbin.zaomeng.data.api.BranchDialogueSceneRequest
 import top.wkbin.zaomeng.data.api.BranchDialogueTurnRequest
+import top.wkbin.zaomeng.data.api.BranchImportedSwipeRequest
 import top.wkbin.zaomeng.data.api.DialogueDirectorRequest
 import top.wkbin.zaomeng.data.api.DialogueSuggestionRequest
 import top.wkbin.zaomeng.data.api.SwitchDialogueSceneRequest
@@ -26,6 +27,8 @@ import top.wkbin.zaomeng.data.api.UpdateMemoryQualityStatusRequest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.withContext
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.ktor.services.DialogueAdvancedService
 import top.wkbin.zaomeng.ktor.services.withTranscriptCount
 
@@ -68,6 +71,16 @@ fun Route.dialogueAdvancedRoutes(service: DialogueAdvancedService) {
         val (runId, sessionId) = requireRunAndSession()
         val request = call.receive<BranchDialogueTurnRequest>()
         runRoute(call) { service.branchFromTurn(runId, sessionId, request.turnId) }
+    }
+
+    post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/branch-imported-swipe") {
+        val (runId, sessionId) = requireRunAndSession()
+        val request = call.receive<BranchImportedSwipeRequest>()
+        runRoute(call) {
+            withContext(platformIoDispatcher) {
+                service.branchFromImportedSwipe(runId, sessionId, request.messageIndex, request.swipeIndex)
+            }
+        }
     }
 
     // PATCH .../sessions/{session_id}/branch-meta

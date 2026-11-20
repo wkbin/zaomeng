@@ -42,6 +42,15 @@ internal fun nextActionFor(run: RunManifestDto): RunNextAction {
         )
     }
 
+    if (run.isSillyTavernCharacterCard && characters.isNotEmpty()) {
+        return RunNextAction(
+            title = "角色卡可以开始聊天",
+            description = "新建会话时可以查看并选择角色卡开场。",
+            label = "开始聊天",
+            target = RunNextActionTarget.OpenSessions,
+        )
+    }
+
     if (unfinishedCount > 0) {
         return RunNextAction(
             title = "还有 $unfinishedCount 位人物待完成",

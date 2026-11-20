@@ -5,8 +5,10 @@ import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -43,53 +45,58 @@ class WorldMemoryService(private val storage: StorageService) {
         require(request.summary.isNotBlank()) { "Fact summary must not be empty." }
         require(request.category in CATEGORIES) { "Unsupported world fact category." }
         if (factId.isNotBlank()) PathSafety.validateStorageId(factId, "fact_id")
-        val payload = read(runId)
-        val facts = payload["facts"]?.jsonArray?.toMutableList() ?: mutableListOf()
-        val existingIndex = if (factId.isBlank()) -1 else facts.indexOfFirst {
-            it.jsonObject["fact_id"]?.jsonPrimitive?.contentOrNull == factId
-        }
-        if (factId.isNotBlank() && existingIndex < 0) throw NoSuchElementException("Fact not found: $factId")
-        val existing = if (existingIndex >= 0) facts[existingIndex].jsonObject else JsonObject(emptyMap())
-        val resolvedId = factId.ifBlank { "fact-${randomUuid().replace("-", "").take(12)}" }
-        val now = nowIsoString()
-        val updated = buildJsonObject {
-            existing.forEach { (k, v) -> put(k, v) }
-            put("fact_id", resolvedId)
-            put("category", request.category)
-            put("summary", request.summary.trim().take(500))
-            put("characters", buildJsonArray {
-                request.characters.map(String::trim).filter(String::isNotBlank).distinct().take(20)
-                    .forEach { add(JsonPrimitive(it)) }
+        // 与 syncCompletedTurn 共用同一把 run 级锁，避免手工编辑被对话回合的整表回写覆盖。
+        return lockFor(runId).withLock {
+            val payload = read(runId)
+            val facts = payload["facts"]?.jsonArray?.toMutableList() ?: mutableListOf()
+            val existingIndex = if (factId.isBlank()) -1 else facts.indexOfFirst {
+                it.jsonObject["fact_id"]?.jsonPrimitive?.contentOrNull == factId
+            }
+            if (factId.isNotBlank() && existingIndex < 0) throw NoSuchElementException("Fact not found: $factId")
+            val existing = if (existingIndex >= 0) facts[existingIndex].jsonObject else JsonObject(emptyMap())
+            val resolvedId = factId.ifBlank { "fact-${randomUuid().replace("-", "").take(12)}" }
+            val now = nowIsoString()
+            val updated = buildJsonObject {
+                existing.forEach { (k, v) -> put(k, v) }
+                put("fact_id", resolvedId)
+                put("category", request.category)
+                put("summary", request.summary.trim().take(500))
+                put("characters", buildJsonArray {
+                    request.characters.map(String::trim).filter(String::isNotBlank).distinct().take(20)
+                        .forEach { add(JsonPrimitive(it)) }
+                })
+                put("location", request.location.trim().take(100))
+                put("time_hint", request.timeHint.trim().take(80))
+                put("source", existing["source"] ?: JsonPrimitive("manual"))
+                put("locked", request.locked)
+                put("active", request.active)
+                put("created_at", existing["created_at"] ?: JsonPrimitive(now))
+                put("updated_at", now)
+            }
+            if (existingIndex < 0) facts.add(updated) else facts[existingIndex] = updated
+            write(runId, buildJsonObject {
+                payload.forEach { (k, v) -> put(k, v) }
+                put("facts", buildJsonArray { trimFacts(facts).forEach(::add) })
+                put("updated_at", now)
             })
-            put("location", request.location.trim().take(100))
-            put("time_hint", request.timeHint.trim().take(80))
-            put("source", existing["source"] ?: JsonPrimitive("manual"))
-            put("locked", request.locked)
-            put("active", request.active)
-            put("created_at", existing["created_at"] ?: JsonPrimitive(now))
-            put("updated_at", now)
+            json.decodeFromJsonElement(WorldFactDto.serializer(), updated)
         }
-        if (existingIndex < 0) facts.add(updated) else facts[existingIndex] = updated
-        write(runId, buildJsonObject {
-            payload.forEach { (k, v) -> put(k, v) }
-            put("facts", buildJsonArray { facts.takeLast(MAX_ITEMS).forEach(::add) })
-            put("updated_at", now)
-        })
-        return json.decodeFromJsonElement(WorldFactDto.serializer(), updated)
     }
 
     fun deleteFact(runId: String, factId: String): DeleteStatusDto {
         PathSafety.validateStorageId(factId, "fact_id")
-        val payload = read(runId)
-        val facts = payload["facts"]?.jsonArray ?: JsonArray(emptyList())
-        val remaining = facts.filterNot { it.jsonObject["fact_id"]?.jsonPrimitive?.contentOrNull == factId }
-        if (remaining.size == facts.size) throw NoSuchElementException("Fact not found: $factId")
-        write(runId, buildJsonObject {
-            payload.forEach { (k, v) -> put(k, v) }
-            put("facts", buildJsonArray { remaining.forEach(::add) })
-            put("updated_at", nowIsoString())
-        })
-        return DeleteStatusDto(status = "deleted")
+        return lockFor(runId).withLock {
+            val payload = read(runId)
+            val facts = payload["facts"]?.jsonArray ?: JsonArray(emptyList())
+            val remaining = facts.filterNot { it.jsonObject["fact_id"]?.jsonPrimitive?.contentOrNull == factId }
+            if (remaining.size == facts.size) throw NoSuchElementException("Fact not found: $factId")
+            write(runId, buildJsonObject {
+                payload.forEach { (k, v) -> put(k, v) }
+                put("facts", buildJsonArray { remaining.forEach(::add) })
+                put("updated_at", nowIsoString())
+            })
+            DeleteStatusDto(status = "deleted")
+        }
     }
 
     /**
@@ -109,6 +116,7 @@ class WorldMemoryService(private val storage: StorageService) {
         consistencyStatus: String,
         knowledgeLedger: List<JsonObject>,
         updatedAt: String,
+        replaceSource: Boolean = false,
     ): JsonObject {
         val safeSessionId = PathSafety.validateStorageId(sessionId, "session_id")
         val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
@@ -120,7 +128,37 @@ class WorldMemoryService(private val storage: StorageService) {
 
         val updated = lockFor(runId).withLock {
             val payload = read(runId)
-            val facts = (payload["facts"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            var facts = (payload["facts"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            if (replaceSource) {
+                facts = facts.mapNotNull { item ->
+                    val value = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull item
+                    val locked = value["locked"]?.jsonPrimitive?.contentOrNull == "true" ||
+                        value["locked"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == true
+                    if (locked) return@mapNotNull item
+                    val sourceKey = value["source_key"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    if (sourceKey.startsWith("$turnKey:event:")) {
+                        null
+                    } else if (sourceKey.startsWith("knowledge:")) {
+                        val declaredField = value["source_turn_ids"]
+                        val sources = if (declaredField != null) {
+                            declaredField.jsonArray.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        } else {
+                            listOfNotNull(value["source_turn_id"]?.jsonPrimitive?.contentOrNull)
+                        }
+                        val remaining = sources.filter { it != safeTurnId }
+                        if (remaining.isEmpty()) {
+                            null
+                        } else {
+                            buildJsonObject {
+                                value.forEach { (key, itemValue) -> put(key, itemValue) }
+                                put("source_turn_ids", buildJsonArray { remaining.forEach { add(JsonPrimitive(it)) } })
+                            }
+                        }
+                    } else {
+                        item
+                    }
+                }.toMutableList()
+            }
             val bySourceKey = LinkedHashMap<String, Int>()
             facts.forEachIndexed { index, item ->
                 runCatching {
@@ -184,6 +222,12 @@ class WorldMemoryService(private val storage: StorageService) {
                 val knowers = ((rawSecret["knowers"] ?: rawSecret["holders"])?.jsonArray ?: JsonArray(emptyList()))
                     .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
                     .map(String::trim).filter(String::isNotBlank).distinct()
+                val declaredField = rawSecret["source_turn_ids"]
+                val sourceTurnIds = if (declaredField != null) {
+                    declaredField.jsonArray.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                } else {
+                    listOfNotNull(rawSecret["turn_id"]?.jsonPrimitive?.contentOrNull).ifEmpty { listOf(safeTurnId) }
+                }.distinct()
                 val existingIndex = bySourceKey[sourceKey]
                 if (existingIndex != null) {
                     val existing = facts[existingIndex].jsonObject
@@ -194,6 +238,15 @@ class WorldMemoryService(private val storage: StorageService) {
                             existing.forEach { (key, value) -> put(key, value) }
                             put("summary", summary)
                             put("characters", buildJsonArray { knowers.forEach { add(JsonPrimitive(it)) } })
+                            put("source_turn_ids", buildJsonArray {
+                                val existingField = existing["source_turn_ids"]
+                                val existingSources = if (existingField != null) {
+                                    existingField.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+                                } else {
+                                    listOfNotNull(existing["source_turn_id"]?.jsonPrimitive?.contentOrNull)
+                                }
+                                (existingSources + sourceTurnIds).distinct().forEach { add(JsonPrimitive(it)) }
+                            })
                             put("active", true)
                             put("updated_at", now)
                         }
@@ -208,7 +261,8 @@ class WorldMemoryService(private val storage: StorageService) {
                     put("location", "")
                     put("time_hint", "")
                     put("source_session_id", safeSessionId)
-                    put("source_turn_id", safeTurnId)
+                    put("source_turn_id", sourceTurnIds.firstOrNull() ?: safeTurnId)
+                    put("source_turn_ids", buildJsonArray { sourceTurnIds.forEach { add(JsonPrimitive(it)) } })
                     put("source_key", sourceKey)
                     put("source", "dialogue")
                     put("locked", false)
@@ -242,7 +296,7 @@ class WorldMemoryService(private val storage: StorageService) {
                 put("consistency_status", consistencyStatus.trim().ifEmpty { "pass" })
                 put("updated_at", now)
             })
-            val trimmedFacts = facts.takeLast(MAX_ITEMS)
+            val trimmedFacts = trimFacts(facts)
             val trimmedTimeline = timeline.sortedBy {
                 it.jsonObject["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty()
             }.takeLast(MAX_ITEMS)
@@ -283,6 +337,27 @@ class WorldMemoryService(private val storage: StorageService) {
                 put("updated_at", nowIsoString())
             })
         }
+    }
+
+    /**
+     * 超过上限时优先保留 `locked` 事实（用户锁定或手工录入），剩余预算留给最新的普通事实。
+     * 早先用 `takeLast` 会把位于较早位置、但被锁定的事实一并淘汰。
+     */
+    private fun trimFacts(facts: List<JsonElement>): List<JsonElement> {
+        if (facts.size <= MAX_ITEMS) return facts
+        val lockedIndices = facts.indices.filter { isLocked(facts[it]) }.toSet()
+        val remainingBudget = (MAX_ITEMS - lockedIndices.size).coerceAtLeast(0)
+        val recentIndices = facts.indices
+            .filterNot { it in lockedIndices }
+            .takeLast(remainingBudget)
+            .toSet()
+        val keep = lockedIndices + recentIndices
+        return facts.filterIndexed { index, _ -> index in keep }
+    }
+
+    private fun isLocked(item: JsonElement): Boolean {
+        val value = runCatching { item.jsonObject["locked"]?.jsonPrimitive }.getOrNull() ?: return false
+        return value.contentOrNull == "true" || value.booleanOrNull == true
     }
 
     private fun read(runId: String): JsonObject {

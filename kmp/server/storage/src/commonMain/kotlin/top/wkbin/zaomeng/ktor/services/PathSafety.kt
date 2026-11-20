@@ -17,6 +17,7 @@ class InvalidStorageIdentifierException(message: String) : IllegalArgumentExcept
 object PathSafety {
     val STORAGE_ID_PATTERN = Regex("^[A-Za-z0-9_-]+$")
     private const val MAX_STORAGE_ID_LENGTH = 128
+    private val windowsDeviceName = Regex("CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|(?:COM|LPT)[1-9¹²³]", RegexOption.IGNORE_CASE)
 
     /**
      * 验证存储标识符
@@ -49,11 +50,11 @@ object PathSafety {
         if (normalized.isEmpty() || normalized.length > MAX_STORAGE_ID_LENGTH) {
             throw InvalidStorageIdentifierException("Invalid $fieldName. Name is empty or too long.")
         }
-        if (normalized == "." || normalized == "..") {
+        if (normalized.endsWith('.') || windowsDeviceName.matches(normalized.substringBefore('.').trimEnd())) {
             throw InvalidStorageIdentifierException("Invalid $fieldName.")
         }
         val forbidden = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|', '\u0000')
-        if (normalized.any { it in forbidden }) {
+        if (normalized.any { it in forbidden || it < ' ' }) {
             throw InvalidStorageIdentifierException(
                 "Invalid $fieldName. Path separators and special characters are not allowed."
             )
