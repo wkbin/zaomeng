@@ -126,6 +126,30 @@ data class PluginReplyAsCharacterResult(
 // 宿主（由 server 实现并注入；提供插件需要的模型能力，对齐 Python ZaomengPluginHost）
 // ---------------------------------------------------------------------------
 
+/** 单个 (pluginId, key) 的数据快照；revision 只用于相等比较，不属于 session 历史版本。 */
+data class PluginDataSnapshot(
+    val value: String?,
+    val revision: Long,
+)
+
+/** 条件写期间数据已被其他调用方修改；写入不会生效，调用方应重新读取后决定。 */
+class PluginDataRevisionConflictException(
+    val expectedRevision: Long,
+    val actualRevision: Long,
+) : IllegalStateException("Plugin data revision conflict: expected=$expectedRevision, actual=$actualRevision")
+
+/** 可选的版本化插件数据能力；旧 PluginHost 不需要实现。 */
+interface VersionedPluginDataHost {
+    suspend fun readPluginDataSnapshot(pluginId: String, key: String): PluginDataSnapshot
+
+    suspend fun compareAndSetPluginData(
+        pluginId: String,
+        key: String,
+        expectedRevision: Long,
+        value: String,
+    ): PluginDataSnapshot
+}
+
 interface PluginHost {
     /** 读对话上下文并调用模型生成一段建议文本（对齐 Python read_dialogue_context + invoke_model "dialogue_suggestion"）。 */
     suspend fun invokeSuggestion(runId: String, sessionId: String, seedText: String, direction: String): String
@@ -176,7 +200,7 @@ interface PluginHost {
         muted: Boolean,
     ): JsonObject? = null
 
-    /** 插件日志（写入该插件 plugin-logs.jsonl）。 */
+    /** 写入宿主管理的插件日志。 */
     fun log(pluginId: String, level: String, message: String)
 }
 
