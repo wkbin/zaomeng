@@ -96,6 +96,7 @@ Authorization: Bearer <token>
 |---|---|---|---|
 | GET | `/api/web/health` | 无 | `200` `HealthResponse` |
 | GET | `/api/web/diagnostics/export` | 无 | `200` 诊断 JSON；下载名 `zaomeng-diagnostics.json` |
+| GET | `/api/web/diagnostics/sessions/{run_id}/{session_id}/latest-request` | 无 | `200 ModelRequestRecord`；无记录时 `404` |
 
 健康检查响应固定为：
 
@@ -103,7 +104,7 @@ Authorization: Bearer <token>
 {"status":"ok","version":"0.1.0","backend":"ktor"}
 ```
 
-诊断报告可能包含运行环境、存储概况与脱敏后的错误信息，不应包含模型 API Key。
+诊断报告 `schemaVersion=2`，可能包含运行环境、存储概况、脱敏后的错误信息和最近 40 条 `modelRequests`。请求记录包含 run/session/turn/operation 上下文、耗时、状态、usage 与缓存 diff；缓存 diff 只保存消息 slot 的 SHA-256、估算 token、第一破坏点、级联失效和截短信息，不导出提示词或模型输出明文。endpoint 仅保留脱敏展示值，模型 Key、userinfo、query 和 fragment 不导出。失败请求会展示，但不会成为下一次缓存比较的 baseline。
 
 ## 3. 书卷与蒸馏运行
 
@@ -111,10 +112,11 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
-| GET | `/api/web/runs` | 无 | `200` `{"items":[RunManifest...]}` |
+| GET | `/api/web/runs` | 无 | `200` `{"items":[RunManifest...]}`；SillyTavern 角色卡直接导入的书卷带有 `entrypoint: "sillytavern"` |
 | GET | `/api/web/runs/{run_id}` | 无 | `200` `RunManifest`；人物索引注入实时 `avatar_version` |
 | POST | `/api/web/runs` | `CreateRunRequest` | `201` 新运行 manifest |
-| POST | `/api/web/runs/import` | `ImportRunPackageRequest` | `201` 导入结果/运行 manifest |
+| POST | `/api/web/runs/import` | `ImportRunPackageRequest`，接受 ZIP 书卷包、SillyTavern JSON/PNG 角色卡或带 `target_run_id` 的 JSON 世界书 | `201` 运行 manifest，`400` 文件或参数无效，`404` 目标书卷不存在 |
+| POST | `/api/web/runs/import/sillytavern/preview` | `SillyTavernPreviewRequest` | `200` 导入预览，`400` 文件或参数无效，`404` 目标书卷不存在 |
 | POST | `/api/web/runs/{run_id}/control/stop` | 无 | `200` 停止后的运行 manifest |
 | POST | `/api/web/runs/{run_id}/stop` | 无 | 同上；旧 WebUI 兼容别名 |
 | DELETE | `/api/web/runs/{run_id}` | 无 | `200` 删除统计 |
@@ -147,6 +149,26 @@ Authorization: Bearer <token>
 ```
 
 在线书库导入时，`library_package` 可携带 `id`、`title`、`version`、`download_url`、`sha256`。
+
+SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数据的 PNG。导入会创建新的可用书卷并保留卡内世界书。在未指定场景的单人「加入对话」模式中，默认使用角色卡首句，也可选择备用开场。预览返回可选的 `alternate_greeting_count`。
+
+独立 JSON 世界书必须传 `target_run_id`，会替换该书卷之前挂载的独立世界书。世界书支持禁用、常驻、主次关键词、优先级、区分大小写和整词匹配。扫描包含当前输入，默认 6 条，条目设置可覆盖书级设置，上限 32 条；深度为 0 时只考虑常驻条目。整词匹配对含空白的短语仍按字面子串匹配。两个来源合计注入最多 4 条，每条最多 240 字符。JSON 数据上限为 1 MB，PNG 文件上限为 5 MB。
+
+预览请求包含 `filename`、`content_base64` 和 `world_book`（独立世界书传 `true`）。可选 `target_run_id` 用于查询拟替换的独立世界书，可选 `test_text`（最多 2000 字符）用于试触发。此接口只读取数据。返回人物和开场信息、可映射字段、世界书条目数及暂不支持的规则；试触发附上 `injected_count` 和最多 50 个 `tested_entries`。试触发只扫描本次输入和拟导入文件，实际对话还使用近期消息、已挂载的其他条目和锁定的世界事实。条目状态为 `injected`、`budget`、`disabled`、`empty`、`no_keyword`、`secondary` 或 `duplicate`。
+
+已挂载的世界书通过以下接口管理。书卷不存在时返回 `404`，无效参数返回 `400`。
+
+| 方法 | 路径 | 请求 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/web/runs/{run_id}/world-books` | 无 | `200 ManagedWorldBooksDto`，包含来源、版本和条目 |
+| GET | `/api/web/runs/{run_id}/world-books/{source}/export` | 来源为 `character_book` 或 `world_book` | `200` SillyTavern 独立世界书 JSON 附件；来源不存在为 `404` |
+| POST | `/api/web/runs/{run_id}/world-books/test` | `{"text":"测试台词"}`，1–2000 字符 | `200 WorldBookTestDto`，用已挂载的世界书试触发，最多返回 50 个条目结果；每项的 `source` 标明是 `character_book` 还是 `world_book` |
+| PATCH | `/api/web/runs/{run_id}/world-books/{source}/entries/{index}` | `{"revision":"…","enabled":false}`；来源为 `character_book` 或 `world_book`，序号从 0 开始 | `200 ManagedWorldBooksDto`；书或条目不存在为 `404` |
+| DELETE | `/api/web/runs/{run_id}/world-books/standalone?revision=…` | 无请求体 | `200 ManagedWorldBooksDto`；独立世界书不存在为 `404` |
+
+修改和移除使用列表返回的 `revision`。版本不匹配时返回 `409`，客户端应重新加载。条目修改保留文件中的其他设定，移除只解绑独立世界书。管理页试触发仅扫描测试台词，同时评估两个已挂载来源。
+
+世界书导出使用 SillyTavern 的 `{"entries":{"0":{…}}}` 格式。卡内世界书也可单独导出，条目启停状态、触发词、优先级和适用的扩展规则一同带出。
 
 删除响应的主要字段：`status`、`novel_id`、`deleted_run_count`、`deleted_session_count`、`deleted_run_ids`。
 
@@ -217,6 +239,11 @@ Authorization: Bearer <token>
 | DELETE | `/api/web/sessions` | `DeleteSessionsRequest` | `200` 批量删除结果 |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions` | 公共会话分页 Query | `200 SessionsPageResponse` |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions` | `CreateDialogueSessionRequest` | `201` 会话对象 |
+| GET | `/api/web/runs/{run_id}/dialogue/card-greetings` | 无 | `200 CardGreetingsDto`，含 `character` 和 `options`（每项含 `index`、`text`）；书卷不存在为 `404` |
+| POST | `/api/web/runs/{run_id}/dialogue/sessions/import-sillytavern` | `{"filename":"会话.jsonl","content_base64":"…"}` | `201` 新建轻量会话；文件或角色映射无效返回 `400`，目标不存在返回 `404` |
+| GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/export-sillytavern` | 无 | `200 application/x-ndjson`，会话不存在返回 `404` |
+| GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/imported-swipes/{message_index}` | `offset=0&limit=4`，每页 1–10 条 | `200 ImportedSwipePageDto`；参数无效返回 `400`，会话或迁移消息不存在返回 `404` |
+| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/branch-imported-swipe` | `{"message_index":"0","swipe_index":1}` | `200` 新建或复用的轻量分支会话；参数无效返回 `400`，消息或版本不存在返回 `404` |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}` | `include_transcript=true` | `200` 完整或轻量会话对象 |
 | DELETE | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}` | 无 | `200 {"status":"deleted"}` |
 | PATCH | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/title` | `{"title":"新标题"}` | `200` 更新后的会话对象 |
@@ -229,6 +256,7 @@ Authorization: Bearer <token>
   "mode": "observe",
   "participants": ["林黛玉", "贾宝玉"],
   "controlled_character": "",
+  "card_greeting_index": null,
   "scene_card_id": "",
   "scene_profile": {},
   "self_card_id": "",
@@ -237,6 +265,14 @@ Authorization: Bearer <token>
 ```
 
 `mode` 默认为 `observe`。参与者、受控人物和卡片组合的进一步约束由业务服务校验。
+
+未指定场景的单人 `insert` 会话可以传 `card_greeting_index`。`0` 对应角色卡首句，正数对应卡内备用开场的原始顺序，最多读取前 20 个。省略时使用原始首句，首句为空则生成普通开场。无效序号或不符合会话条件时返回 `400`。使用角色卡开场后，会话详情和列表返回实际使用的索引。
+
+SillyTavern 聊天迁移使用 UTF-8 JSONL，导入上限 8 MB、20,000 条文本消息、单条 16,000 字符。导入新建会话，支持私聊和群聊以及无文件头的群聊记录。按发言者名称映射到目标书卷人物；仅当来源与目标均只有一名角色时允许名称不同。发送者、文本、旁白、原始发送时间和备选回复随文件迁移。导出包括当前会话的归档历史。当在造梦里创建分支时，保留分支内消息的备选回复；每个文件对应一条会话时间线。附件和 SillyTavern 专用的聊天状态不在迁移范围内。
+
+迁移的 transcript 项可以包含 `sillytavern_message_index` 和 `sillytavern_swipe_count`。完整备用回复存放在会话的独立文档中。查看接口返回 `total`、当前选中的 `selected_index` 和 `items`（含 `index`、`text`、`truncated`）；所有索引从 0 开始。查看页每个版本最多返回 16,000 字符，JSONL 导出保留原文。
+
+从备用版本分支时，保留所选角色消息之前的记录，并在新会话里把该条回复替换为所选版本。之后的消息留在原会话。同一源会话、消息和回复版本的重复请求返回已有分支。长度超过 16,000 字符或为空的版本仍可随 JSONL 导出。
 
 批量删除请求：
 
@@ -263,6 +299,8 @@ Authorization: Bearer <token>
 
 `operation_id` 用于幂等和本轮 transcript 关联，建议由客户端每次操作生成稳定且非空的唯一值。
 
+会话对象及轻量响应包含 `revision`（整数），表示已提交剧情历史版本。新回合、修正、转场等历史变更使其递增；标题、记忆和后台派生状态更新不会推进该版本。旧存档缺省为 `0`。消息分页使用它固定读取快照。
+
 ### 4.2 消息分页
 
 `GET /api/web/runs/{run_id}/dialogue/sessions/{session_id}/messages`
@@ -272,6 +310,7 @@ Authorization: Bearer <token>
 | `offset` | int | `0` | 小于 0 时归零；`desc` 时表示跳过最新 N 条 |
 | `limit` | int | `100` | `1..500` |
 | `order` | string | `asc` | `asc` 或 `desc` |
+| `revision` | long | 不固定 | 传入后要求本页仍属于该历史版本；变化时返回 `409` |
 
 响应：
 
@@ -279,6 +318,7 @@ Authorization: Bearer <token>
 {
   "items": [
     {
+      "seq": 0,
       "speaker": "林黛玉",
       "message": "……",
       "inner_thought": "",
@@ -289,9 +329,13 @@ Authorization: Bearer <token>
     }
   ],
   "total": 1,
-  "has_more": false
+  "has_more": false,
+  "revision": 1,
+  "next_offset": null
 }
 ```
+
+`seq` 是该 revision 下的全局零基消息位置。`next_offset` 用于同方向、同 revision 的下一页；没有下一页时为 `null`。客户端不得拼接不同 revision 的页面。
 
 ### 4.3 非流式回复
 
@@ -318,7 +362,8 @@ Authorization: Bearer <token>
 - `pacing` 控制本轮回复节奏：`brief` 使用约 0.5 倍输出预算并要求每人一两句话，`normal` 保持默认节奏，`detailed` 使用约 1.5 倍预算（不超过服务端上限）并展开动作与环境；未知值按 `normal` 处理。
 - `speaker_override` 默认为空；内置“帮我回”等可信流程可传入已蒸馏人物名，使本轮输入以该人物身份进入提示词和 transcript，服务端会拒绝未知人物名。
 - `include_model_reasoning` 仅流式服务使用；非流式路由当前不会向业务服务传递该字段。
-- `include_transcript=false` 时返回轻量会话（不含完整 transcript，但含 `transcript_count`）；为 `true` 时返回带完整 transcript 的会话。
+- `include_transcript=false` 时返回轻量会话（不含完整 transcript，但含 `transcript_count` 和 `revision`）；为 `true` 时返回带完整 transcript 的会话。
+- 相同 `operation_id` 和相同请求内容会复用已提交结果，不再次调用模型；相同 ID 对应不同请求指纹时返回 `409 OPERATION_ID_CONFLICT`。生成期间历史版本变化导致提交冲突时返回 `409 SESSION_REVISION_CONFLICT`。
 
 ### 4.4 流式回复（SSE）
 
@@ -336,19 +381,58 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 
 | 事件 | 数据 | 含义 |
 |---|---|---|
-| `status` | `phase`, `message` | 已进入生成阶段；当前 `phase=generating` |
+| `status` | `phase`, `message` | `generating` 表示生成，`restoring` 表示恢复已提交结果 |
 | `reset` | `message` | 丢弃此前增量并重置可见内容 |
 | `delta` | `index`, `speaker`, `role`, `field`, `text` | 某条角色响应的字段增量；`field` 常为 `message` 或 `inner_thought` |
-| `complete` | `session`, `replayed`, `transcript_count`, 可选 `appended_transcript` | 生成及持久化完成 |
-| `error` | `message`, `retryable` | 流中失败；HTTP 状态通常已是 `200`，应按事件处理 |
+| `complete` | `session`, `operation_id`, `turn_id`, `replayed`, `base_revision`, `committed_revision`, `transcript_count`, 可选 `appended_transcript` | 生成及持久化完成，或重放已提交回执 |
+| `error` | `code`, `operation_id`, `message`, `retryable` | 流中失败；HTTP 状态通常已是 `200`，应按事件处理 |
 
 `complete` 规则：
 
 - `include_transcript=true`：`session` 包含完整 transcript，不返回 `appended_transcript`。
-- `include_transcript=false`：`session` 为轻量对象，`appended_transcript` 只含 `operation_id` 对应本轮新增项。
-- 当前 `replayed` 固定返回 `false`。
+- `include_transcript=false`：`session` 为轻量对象，`appended_transcript` 包含 `operation_id` 对应一轮的完整条目集合。
+- `replayed=true` 表示本次没有重新生成，而是返回已提交 operation 的结果。
+- `base_revision` 是生成前历史版本，`committed_revision` 是本 operation 提交后的版本。客户端快速合并前应校验本地基线；不一致时重新读取当前 header 和 tail。
+
+流式和普通对话会在本轮第一条回复的 transcript 项记录可选的 `world_book_matches`。每项含 `title`、`excerpt`、`status`（`injected`）、`keywords`（常驻条目为空）和 `source`（`character_book` 或 `world_book`），只列出实际进入该轮上下文的世界书条目。
+
+preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `code`、`message`、`retryable`。主要错误码包括 `OPERATION_ID_CONFLICT`、`OPERATION_IN_PROGRESS` 和 `SESSION_REVISION_CONFLICT`。
 
 服务端从模型响应体到 SSE 增量转发；模型侧主协议是每行一个完整对象的 NDJSON，但 HTTP 调用方只需要消费上述 SSE，不直接解析模型 NDJSON。
+
+### 4.5 operation 状态查询
+
+`GET /api/web/runs/{run_id}/dialogue/sessions/{session_id}/operations/{operation_id}`
+
+用于断线后的结果核对，不调用模型。回执不存在返回 `404`。成功响应包含：
+
+- `status`：`generating`、`committing`、`completed`、`failed`。
+- `operation_id`、`turn_id`、`base_revision`、`transcript_count`。
+- `failure_code`、`failure_message`、`retryable`。
+- `completed` 时另含 `committed_revision`、当前轻量 `session` 和该 operation 的完整 `appended_transcript`。
+
+正文提交后的派生工作使用 `derived-operations` 持久回执，状态包括 `PREPARED`、`PENDING`、`RUNNING`、`RETRY_WAIT`、`SUCCEEDED`、`FAILED`、`SUPERSEDED`、`CANCELLED`。`PREPARED` 仅在对应历史提交成功后激活为 `PENDING`；启动恢复会对账实际 transcript，未提交的 intent 不会执行。场景状态、世界记忆、长期记忆和原作索引分别记录 `DONE/FAILED/SKIPPED`，单类失败不会撤销正文。
+
+### 4.6 会话摘要 Projection
+
+| 方法 | 路径 | 成功响应 |
+|---|---|---|
+| GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/projection` | `200 SessionProjectionDto` |
+| POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/projection/rebuild` | `202 SessionProjectionDto`，后台开始或复用当前构建任务 |
+
+`SessionProjectionDto` 包含：
+
+- `status`：`fresh`、`stale`、`missing`、`building`、`failed`。
+- `source_revision`：已发布 Projection 对应的原文 revision。
+- `current_revision`：当前会话历史 revision。
+- `session`：轻量会话对象，不含完整 transcript；附可重建的 `story_recap` 和 `session_memory_summary`。
+- `error`：最近构建失败的有限长度原因。
+
+正文生成只注入 `fresh` 且 `source_revision == current_revision` 的摘要；stale/missing/failed 时继续使用近期原文，不等待摘要模型。复盘可读取最后一个有效 Projection 并显示 stale/failed 状态。`rebuild` 按 latest-wins 合并连续请求，未变化的摘要卷按范围和 `sourceHash` 复用；发布前再次校验 revision 和完整 seq 范围，旧候选不能覆盖新历史。会话或书卷删除会取消并等待派生与 Projection worker，防止删除后重建 sidecar。
+
+### 4.7 有界历史检索
+
+正文首次生成可在近期原文之外执行可选的历史检索规划。规划请求使用单对象 JSON `{"calls":[...]}`，工具仅限 `history_search` 和 `history_read`；每次生成最多 2 次搜索、2 次按 turn 读取，所有分页读取固定在本次生成的 base revision。检索结果按 seq 去重，排除当前 turn 和已经位于近期窗口的消息，只以独立 `history_evidence` 注入消息、发言者、角色、seq 和时间，不携带旧 `inner_thought`。规划超时、普通规划失败或无检索调用时回退原正文请求，不改变正文 NDJSON/SSE 协议；正文格式重试复用同一 enriched payload，不重复检索。该能力没有单独的公开 HTTP 端点。
 
 ## 5. 对话辅助与高级能力
 
@@ -510,6 +594,9 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | POST | `/evolve/apply` | `ApplyPersonaEvolutionRequest` | `200 PersonaReview` |
 | POST | `/avatar` | `multipart/form-data`，文件 part 名为 `file` | `200 {"character":"...","avatar_version":"..."}` |
 | GET | `/avatar` | 无 | `200 image/png` |
+| GET | `/sillytavern-card` | 无 | `200` Character Card V2 JSON 附件；人物不存在为 `404` |
+
+角色卡导出读取当前已保存的人物档案。对于 SillyTavern 导入的人物，会保留原卡首句、备用开场和卡内世界书。JSON 文件不含头像和会话记录。
 
 人物档案更新示例：
 
@@ -635,9 +722,14 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | GET | `/api/web/settings/model` | 无 | `200 ModelSettings` |
 | PUT | `/api/web/settings/model` | `SaveModelSettingsRequest` | `200 ModelSettings` |
 | POST | `/api/web/settings/model/test` | `TestModelSettingsRequest` | `200 ModelConnectionTest` |
+| POST | `/api/web/settings/model/discover` | `base_url`、`api_key`、`profile_id`（均可省略） | `200 {"models":["model-id"]}`，`400` 地址或密钥无效，`502` 上游请求或解析失败，`500` 内部错误 |
 | POST | `/api/web/settings/model/detect-capabilities` | `TestModelSettingsRequest` | `200 ModelCapabilityReport` |
 | POST | `/api/web/settings/model/profiles/{profile_id}/activate` | 无 | `200 ModelSettings` |
 | DELETE | `/api/web/settings/model/profiles/{profile_id}` | 无 | `200 ModelSettings` |
+
+`ModelSettings` 和各档案返回 `request_timeout_seconds`。保存、测试连接和检测模型能力的请求可提供该字段，范围为 1–300 秒，越界返回 `400`。省略时沿用对应档案值，旧档案或新档案缺省时使用 60 秒。该设置用于单次非流式模型请求，包括连接测试和非流式能力探测。
+
+模型发现向 OpenAI 兼容接口发送 `GET {base_url}/models`，读取 `data[].id` 并返回去重、排序后的模型 ID。接口地址留空时使用 `https://api.openai.com/v1`。密钥留空时，仅在指定档案的模型列表地址与请求地址一致时复用该档案的密钥。请求不会保存模型设置。
 
 保存请求：
 
@@ -676,6 +768,8 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | PUT | `/api/web/plugins/{plugin_id}/config` | `{"config":{...}}` | `200 {"config":{...}}` |
 | GET | `/api/web/plugins/{plugin_id}/logs` | 无 | `200` 插件日志列表 |
 | DELETE | `/api/web/plugins/{plugin_id}` | 无 | `200` 卸载结果；内置插件不可卸载时返回 `400` |
+
+日志接口按写入顺序返回最近 200 条可解析的日志，合并旧版日志文件和分段日志。无法解析为日志对象的行会跳过，原始文件仍保留。
 
 插件描述中的 `apiVersion`、`defaultEnabled`、`executionMode`、`capabilityNotice` 以及 `contributes.chatActions/generationEnhancers/temporaryNpcGenerators` 使用 `camelCase`，这是插件公共契约的一部分。
 
@@ -747,7 +841,7 @@ API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规�
 
 - 事件：`before_generation`、`after_turn`。
 - 条件：`keywords`（命中任一）、`everyTurns`（2–100，省略表示不限）、`chancePercent`（1–100）、配对使用的 `stateKey/stateEquals`；一条规则内的非空条件同时满足才触发。
-- 动作：生成前可用 `add_instruction`；回合结束后可用 `set_state`、`increment_state`。状态按插件、按会话隔离，同一 `turn_id` 重放不会重复修改状态。
+- 动作：生成前可用 `add_instruction`；回合结束后可用 `set_state`、`increment_state`。状态按插件、按会话隔离；每条规则保留最近 64 个 `turn_id` 回执，连续重试和延迟重放都不会重复修改状态。规则状态与 transcript 在同一次历史提交中原子写入并使用原轮 `turn_count/state`，不会留下“正文已提交、规则待补写”的恢复窗口；`plugin_rule_directives` 只在本轮准备期存在，不持久化。
 - 规则模板支持 `{{message}}`、`{{config.<key>}}`、`{{state.<key>}}`。单插件最多 8 条规则，每条最多 6 个动作；概率由会话、回合和规则 ID 稳定计算，模型重试不会改变命中结果。
 
 插件数据配方允许 `operation` 为 `storage_get` 或 `storage_set`：
@@ -760,7 +854,9 @@ API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规�
 }
 ```
 
-`key` 必须匹配 `^[A-Za-z0-9_-]+$`，文件写入 `plugins/<id>/data/<key>.txt`。`suggest`、`variants` 和 NPC 配方中还可以使用 `{{storage.<key>}}` 读取插件数据；使用前需要声明 `storage.read`，写入需要 `storage.write`。
+`key` 必须匹配 `^[A-Za-z0-9_-]+$`。旧 raw 数据仍位于 `plugins/<id>/data/<key>.txt`；版本化写入使用独立的 `data/.versions/<key>.json`，读取优先使用版本记录，不通过 JSON 内容嗅探旧 raw 值。`suggest`、`variants` 和 NPC 配方中还可以使用 `{{storage.<key>}}` 读取插件数据；使用前需要声明 `storage.read`，写入需要 `storage.write`。
+
+原生插件可将宿主识别为 `VersionedPluginDataHost`，按 `(pluginId,key)` 读取 `PluginDataSnapshot(value,revision)` 并调用 `compareAndSetPluginData`。缺失 key 和未迁移 raw 的 revision 为 `0`；每次成功写入（包括旧 `writePluginData`）在同一插件目录锁内把 revision 持久递增 `1`。CAS 的 `expectedRevision` 不一致时抛出 `PluginDataRevisionConflictException` 且不写入，调用方应重新读取后决定。revision 不属于 session 历史版本，也不是多 key 事务；保证范围为当前进程内的共享存储锁，不承诺跨进程互斥。声明式 `storage_get/storage_set` 的 HTTP 响应暂不暴露 revision。
 
 网络配方允许 `operation` 为 `http_get` 或 `http_post`：
 
@@ -856,7 +952,7 @@ API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规�
 {"confirm_permissions":true,"allow_update":false}
 ```
 
-服务端强制校验 `confirm_permissions=true`。更新采用备份后替换的方式，保留原插件的 `config.json`、`data/` 和 `plugin-logs.jsonl`；替换失败时恢复旧目录。安装或更新完成后插件保持关闭，需要用户再次显式启用。
+服务端强制校验 `confirm_permissions=true`。更新采用备份后替换的方式，保留原插件的 `config.json`、`data/`（包括 revision 记录）和 `plugin-logs.jsonl`；替换失败时恢复旧目录。插件数据读写与安装、升级、卸载通过同一插件目录生命周期锁串行化，避免状态恢复期间出现 revision 回退或成功写入被旧备份覆盖。安装包不得携带宿主管理的 `log-segments` 或 `data/.versions`。安装或更新完成后插件保持关闭，需要用户再次显式启用。
 
 ### 10.4 会话内插件动作
 
@@ -866,7 +962,7 @@ API 2 还允许在 `execution.rules` 中组合事件、条件和动作链。规�
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/npc-generators/{generator_id}` | `{"direction":"..."}` | `200` 更新后的会话、NPC 和提示 |
 | PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/plugins/{plugin_id}/enhancers/{enhancer_id}/state` | `{"enabled":true}` | `200` 更新后的 enhancer 状态/会话 |
 
-三个执行端点都会在服务端校验插件处于启用状态，并确认请求的 action、NPC generator 或 enhancer 已在该插件清单中声明；仅依赖客户端隐藏入口不构成授权。
+三个执行端点都会在服务端校验插件处于启用状态，并确认请求的 action、NPC generator 或 enhancer 已在该插件清单中声明；仅依赖客户端隐藏入口不构成授权。enhancer 状态属于会话元数据，不推进历史 revision；服务端在 latest manifest 锁内局部更新，客户端只合并 `plugin_enhancer_states`，不替换已分页加载的 transcript 或游标。
 
 聊天动作支持两阶段选择：首次请求不传 `selection`，插件可返回 `choice_prompt` 与 `choices`（每项含 `label`、`value`、`description`）；客户端展示后把所选 `value` 作为 `selection` 再次请求同一动作。响应也可返回 `suggestion`、`suggestions`、`notice`、`character` 或更新后的 `session`。
 
