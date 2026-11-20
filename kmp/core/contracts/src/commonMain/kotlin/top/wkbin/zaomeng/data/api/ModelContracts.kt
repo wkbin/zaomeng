@@ -16,6 +16,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
+const val DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS = 60
+const val MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 300
+
 @Serializable
 data class ModelSettingsDto(
     val provider: String = "openai-compatible",
@@ -25,6 +28,7 @@ data class ModelSettingsDto(
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
     @SerialName("token_parameter") val tokenParameter: String = "auto",
     @SerialName("response_format_mode") val responseFormatMode: String = "auto",
+    @SerialName("request_timeout_seconds") val requestTimeoutSeconds: Int = DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
     @SerialName("api_key_configured") val apiKeyConfigured: Boolean = false,
     val configured: Boolean = false,
     @SerialName("active_profile_id") val activeProfileId: String = "",
@@ -42,6 +46,7 @@ data class ModelProfileDto(
     @SerialName("reasoning_effort") val reasoningEffort: String = "off",
     @SerialName("token_parameter") val tokenParameter: String = "auto",
     @SerialName("response_format_mode") val responseFormatMode: String = "auto",
+    @SerialName("request_timeout_seconds") val requestTimeoutSeconds: Int = DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
     @SerialName("api_key_configured") val apiKeyConfigured: Boolean = false,
     val configured: Boolean = false,
 )
@@ -60,7 +65,18 @@ data class SaveModelSettingsRequest(
     @SerialName("profile_name") val profileName: String = "",
     @SerialName("create_profile") val createProfile: Boolean = false,
     @SerialName("activate_profile") val activateProfile: Boolean = true,
+    @SerialName("request_timeout_seconds") val requestTimeoutSeconds: Int? = null,
 )
+
+@Serializable
+class DiscoverModelsRequest(
+    @SerialName("base_url") val baseUrl: String = "",
+    @SerialName("api_key") val apiKey: String = "",
+    @SerialName("profile_id") val profileId: String = "",
+)
+
+@Serializable
+data class AvailableModelsDto(val models: List<String>)
 
 @Serializable
 data class TestModelSettingsRequest(
@@ -73,6 +89,7 @@ data class TestModelSettingsRequest(
     @SerialName("token_parameter") val tokenParameter: String = "auto",
     @SerialName("response_format_mode") val responseFormatMode: String = "auto",
     @SerialName("profile_id") val profileId: String = "",
+    @SerialName("request_timeout_seconds") val requestTimeoutSeconds: Int? = null,
 )
 
 @Serializable

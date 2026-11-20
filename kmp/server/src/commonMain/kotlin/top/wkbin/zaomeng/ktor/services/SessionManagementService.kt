@@ -14,11 +14,16 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.withContext
 import top.wkbin.zaomeng.data.api.SessionListItem
+import top.wkbin.zaomeng.data.api.CardGreetingsDto
 import top.wkbin.zaomeng.data.api.SessionManifest
+import top.wkbin.zaomeng.data.api.MessagesResponse
+import top.wkbin.zaomeng.data.api.SessionProjectionDto
 import top.wkbin.zaomeng.ktor.models.*
 import okio.Path
 import top.wkbin.zaomeng.platform.nowIsoString
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.platform.randomUuid
 
 /**
@@ -30,7 +35,10 @@ class SessionManagementService(
     private val storageService: StorageService,
     private val dialogueService: DialogueService,
     private val worldMemory: WorldMemoryService? = null,
+    private val projections: SessionProjectionService? = null,
 ) {
+    internal val sillyTavernChats = SillyTavernChatTransfer(storageService)
+
     private val json = Json {
         prettyPrint = true
         isLenient = true
@@ -122,7 +130,8 @@ class SessionManagementService(
         sceneCardId: String = "",
         sceneProfile: JsonObject = JsonObject(emptyMap()),
         selfCardId: String = "",
-        selfProfile: JsonObject = JsonObject(emptyMap())
+        selfProfile: JsonObject = JsonObject(emptyMap()),
+        cardGreetingIndex: Int? = null,
     ): JsonObject {
         val normalizedControlledCharacter = controlledCharacter.takeIf { mode == "act" }.orEmpty()
         if ((mode == "observe" || mode == "act") && participants.size < 2) {
@@ -131,6 +140,20 @@ class SessionManagementService(
         if (mode == "insert" && participants.size < 1) {
             throw IllegalArgumentException("At least one participant is required for insert mode")
         }
+        val greetingCharacter = participants.singleOrNull()?.takeIf {
+            mode == "insert" && sceneCardId.isBlank() && sceneProfile.isEmpty()
+        }
+        require(cardGreetingIndex == null || greetingCharacter != null) {
+            "角色卡开场仅适用于未指定场景的单人加入对话。"
+        }
+        val greeting = greetingCharacter?.let { character ->
+            withContext(platformIoDispatcher) {
+                val card = readSillyTavernCard(runId)
+                val user = (selfProfile["display_name"] as? JsonPrimitive)?.contentOrNull.orEmpty().ifBlank { "你" }
+                card?.let { SillyTavernImport.greeting(it, character, user, cardGreetingIndex ?: 0) }.orEmpty()
+            }
+        }.orEmpty()
+        require(cardGreetingIndex == null || greeting.isNotBlank()) { "所选角色卡开场不存在，请重新选择。" }
         val session = createDialogueSession(
             runId = runId,
             mode = mode,
@@ -142,7 +165,38 @@ class SessionManagementService(
             selfProfile = selfProfile,
         )
         val sessionId = session["session_id"]?.jsonPrimitive?.content ?: return session
+        dialogueService.resetDerivedSession(runId, sessionId)
         try {
+            if (greetingCharacter != null && greeting.isNotBlank()) {
+                return withContext(platformIoDispatcher) {
+                    val now = nowIsoString()
+                    val turnId = generateId()
+                    storageService.mutateSessionHistory(runId, sessionId) { current ->
+                        val updated = buildJsonObject {
+                            current.manifest.forEach { (key, value) -> put(key, value) }
+                            put("card_greeting_index", cardGreetingIndex ?: 0)
+                            put("turn_count", 1)
+                            put("current_turn_id", turnId)
+                            put("updated_at", now)
+                            put("last_entry_preview", greeting.take(200))
+                            put("transcript_start", 0)
+                            put("transcript_count", 1)
+                            put("transcript", buildJsonArray {
+                                add(buildJsonObject {
+                                    put("speaker", greetingCharacter)
+                                    put("message", greeting)
+                                    put("role", "character")
+                                    put("turn_id", turnId)
+                                    put("timestamp", now)
+                                })
+                            })
+                        }
+                        SessionHistoryMutation(updated, Unit)
+                    }
+                    projections?.rebuild(runId, sessionId)
+                    getDialogueSession(runId, sessionId)
+                }
+            }
             val openingMessage = buildOpeningMessage(
                 mode = mode,
                 participants = participants,
@@ -176,9 +230,22 @@ class SessionManagementService(
         } catch (e: Exception) {
             // 开场失败：删除会话（对齐 Python create_dialogue_session_payload 的删除行为）
             runCatching {
+                dialogueService.cancelDerivedSession(runId, sessionId)
                 storageService.deleteRecursively(storageService.getDialogueSessionsDirectory(runId) / sessionId)
             }
             throw e
+        }
+    }
+
+    fun getCardGreetings(runId: String): CardGreetingsDto {
+        if (storageService.readRunManifest(runId) == null) throw NoSuchElementException("书卷不存在。")
+        return readSillyTavernCard(runId)?.let { SillyTavernImport.cardGreetings(it) } ?: CardGreetingsDto()
+    }
+
+    private fun readSillyTavernCard(runId: String): SillyTavernImport.Card? {
+        val file = storageService.getRunDirectory(runId) / SillyTavernImport.CARD_FILE
+        return storageService.readTextOrNull(file)?.let {
+            runCatching { SillyTavernImport.parseCard(it.encodeToByteArray(), stored = true) }.getOrNull()
         }
     }
 
@@ -242,6 +309,41 @@ class SessionManagementService(
         return session
     }
 
+    /** 轻量会话：只读取近期 manifest，不物化 archive。 */
+    fun getDialogueSessionHeader(runId: String, sessionId: String): JsonObject {
+        val snapshot = storageService.transcriptReader.readSnapshot(runId, sessionId)
+        return storageService.withCharacterAvatars(snapshot.manifest, runId)
+    }
+
+    fun getSessionProjection(runId: String, sessionId: String): SessionProjectionDto {
+        val service = projections ?: throw IllegalStateException("Session projection service unavailable")
+        return service.get(runId, sessionId)
+    }
+
+    fun rebuildSessionProjection(runId: String, sessionId: String): SessionProjectionDto {
+        val service = projections ?: throw IllegalStateException("Session projection service unavailable")
+        return service.rebuild(runId, sessionId)
+    }
+
+    fun listDialogueSessionMessages(
+        runId: String,
+        sessionId: String,
+        offset: Int,
+        limit: Int,
+        order: String,
+        expectedRevision: Long? = null,
+    ): MessagesResponse {
+        val page = storageService.transcriptReader.readPage(
+            runId = runId,
+            sessionId = sessionId,
+            offset = offset,
+            limit = limit,
+            order = if (order == "desc") TranscriptOrder.DESC else TranscriptOrder.ASC,
+            expectedRevision = expectedRevision,
+        )
+        return toMessagesResponse(page)
+    }
+
     /**
      * 更新会话标题
      *
@@ -260,24 +362,13 @@ class SessionManagementService(
             throw IllegalArgumentException("Title too long (max 80 chars)")
         }
 
-        // 读取会话清单
-        val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
-
-        if (!storageService.exists(manifestFile)) {
-            throw NoSuchElementException("Session not found: $sessionId")
+        val updated = storageService.updateSessionManifest(runId, sessionId) { current ->
+            buildJsonObject {
+                current.forEach { (key, value) -> put(key, value) }
+                put("title", title)
+                put("updated_at", nowIsoString())
+            }
         }
-
-        val manifest = json.decodeFromString<JsonObject>(storageService.readText(manifestFile))
-
-        // 更新标题和时间戳
-        val updated = buildJsonObject {
-            manifest.forEach { (key, value) -> put(key, value) }
-            put("title", title)
-            put("updated_at", nowIsoString())
-        }
-
-        // 写回文件
-        storageService.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), updated))
 
         return storageService.withCharacterAvatars(updated, runId)
     }
@@ -296,7 +387,7 @@ class SessionManagementService(
             .firstOrNull { it["run_id"]?.jsonPrimitive?.contentOrNull == runId }
             ?.let { it["title"]?.jsonPrimitive?.contentOrNull }
             .orEmpty()
-        val sessions = storageService.listDialogueSessions(runId).map { session ->
+        val sessions = storageService.listDialogueSessionManifests(runId).map { session ->
             toSessionListItem(manifest = session, runTitle = runTitle)
         }
         return pageSessions(
@@ -326,7 +417,7 @@ class SessionManagementService(
             .asSequence()
             .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
             .flatMap { runDir ->
-                storageService.listDialogueSessions(runDir.name).asSequence().map { session ->
+                storageService.listDialogueSessionManifests(runDir.name).asSequence().map { session ->
                     toSessionListItem(manifest = session, runTitle = runTitles[runDir.name].orEmpty())
                 }
             }
@@ -413,6 +504,7 @@ class SessionManagementService(
         createdAt = manifest.stringValue("created_at"),
         updatedAt = manifest.stringValue("updated_at"),
         lastEntryPreview = manifest.stringValue("last_entry_preview"),
+        cardGreetingIndex = (manifest["card_greeting_index"] as? JsonPrimitive)?.intOrNull,
     )
 
     private fun JsonObject.stringValue(key: String): String =
@@ -428,6 +520,7 @@ class SessionManagementService(
         PathSafety.validateStorageId(runId, "run_id")
         PathSafety.validateStorageId(sessionId, "session_id")
         val directory = storageService.getDialogueSessionsDirectory(runId) / sessionId
+        dialogueService.cancelDerivedSession(runId, sessionId)
         val deleted = storageService.exists(directory) && runCatching {
             storageService.deleteRecursively(directory)
             true
@@ -457,11 +550,7 @@ class SessionManagementService(
         }
 
         // 生成轮次 ID
-        val turnId = operationId.ifBlank { generateId() }
-        // operation_id 来自请求体，需防路径穿越（如 "../x"）
-        if (turnId.contains('/') || turnId.contains('\\') || turnId.contains("..")) {
-            throw IllegalArgumentException("Invalid operation_id")
-        }
+        val turnId = PathSafety.validateStorageId(operationId.ifBlank { generateId() }, "operation_id")
         val timestamp = nowIsoString()
 
         // 读取会话清单
@@ -470,8 +559,6 @@ class SessionManagementService(
         if (!storageService.exists(manifestFile)) {
             throw NoSuchElementException("Session not found: $sessionId")
         }
-
-        val manifest = json.decodeFromString<JsonObject>(storageService.readText(manifestFile))
 
         // 创建轮次数据
         val turn = buildJsonObject {
@@ -487,17 +574,16 @@ class SessionManagementService(
         val turnFile = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turn_$turnId.json"
         storageService.writeTextAtomically(turnFile, json.encodeToString(JsonObject.serializer(), turn))
 
-        // 更新会话清单
-        val updated = buildJsonObject {
-            manifest.forEach { (key, value) -> put(key, value) }
-            val turns = manifest["turns"]?.jsonArray?.toMutableList() ?: mutableListOf()
-            turns.add(JsonPrimitive(turnId))
-            put("turns", buildJsonArray { turns.forEach { add(it) } })
-            put("current_turn_id", turnId)
-            put("updated_at", timestamp)
+        storageService.updateSessionManifest(runId, sessionId) { current ->
+            buildJsonObject {
+                current.forEach { (key, value) -> put(key, value) }
+                val recentTurns = (current["turns"] as? JsonArray).orEmpty()
+                    .filterNot { it == JsonPrimitive(turnId) }.takeLast(119)
+                put("turns", JsonArray(recentTurns + JsonPrimitive(turnId)))
+                put("current_turn_id", turnId)
+                put("updated_at", timestamp)
+            }
         }
-
-        storageService.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), updated))
 
         return turn
     }

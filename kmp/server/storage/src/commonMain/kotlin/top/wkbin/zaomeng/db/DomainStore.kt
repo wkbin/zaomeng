@@ -29,15 +29,19 @@ class DomainStore(
 
     private val rootKey = storageRoot.toString().replace('\\', '/').trimEnd('/')
 
-    private val runManifestPattern = Regex("^$rootKey/runs/([^/]+)/run_manifest\\.json$")
+    // 数据根目录可能包含 `(`、`+`、`[` 等正则元字符（例如安装在 "Zaomeng (Beta)"），
+    // 直接拼进正则会令所有实体同步静默失效。
+    private val rootKeyPattern = Regex.escape(rootKey)
+
+    private val runManifestPattern = Regex("^$rootKeyPattern/runs/([^/]+)/run_manifest\\.json$")
     private val sessionManifestPattern =
-        Regex("^$rootKey/runs/([^/]+)/dialogue/sessions/([^/]+)/session_manifest\\.json$")
+        Regex("^$rootKeyPattern/runs/([^/]+)/dialogue/sessions/([^/]+)/session_manifest\\.json$")
     private val cardMetaPattern =
-        Regex("^$rootKey/(scene-cards|self-cards|opening-presets)/([^/]+)/card\\.json$")
+        Regex("^$rootKeyPattern/(scene-cards|self-cards|opening-presets)/([^/]+)/card\\.json$")
     private val cardDataPattern =
-        Regex("^$rootKey/(scene-cards|self-cards|opening-presets)/([^/]+)/(scene-card|self-card|opening-preset)\\.json$")
+        Regex("^$rootKeyPattern/(scene-cards|self-cards|opening-presets)/([^/]+)/(scene-card|self-card|opening-preset)\\.json$")
     private val personaPattern =
-        Regex("^$rootKey/runs/([^/]+)/artifacts/characters/([^/]+)/([^/]+)/PROFILE(?:\\.generated)?\\.md$")
+        Regex("^$rootKeyPattern/runs/([^/]+)/artifacts/characters/([^/]+)/([^/]+)/PROFILE(?:\\.generated)?\\.md$")
 
     private fun keyOf(path: Path): String = path.toString().replace('\\', '/')
 
@@ -46,12 +50,11 @@ class DomainStore(
     /** StorageService 写入任意文件后调用：识别业务路径并同步实体。 */
     fun onWrite(path: Path, bytes: ByteArray, updatedAtMillis: Long) {
         val key = keyOf(path)
-        val text = runCatching { bytes.decodeToString() }.getOrNull() ?: return
         when {
-            runManifestPattern.matches(key) -> upsertRun(key, text, updatedAtMillis)
-            sessionManifestPattern.matches(key) -> upsertSession(key, text, updatedAtMillis)
+            runManifestPattern.matches(key) -> upsertRun(key, bytes.decodeToString(), updatedAtMillis)
+            sessionManifestPattern.matches(key) -> upsertSession(key, bytes.decodeToString(), updatedAtMillis)
             cardMetaPattern.matches(key) || cardDataPattern.matches(key) -> upsertCard(key)
-            personaPattern.matches(key) -> upsertPersona(key, text, updatedAtMillis)
+            personaPattern.matches(key) -> upsertPersona(key, bytes.decodeToString(), updatedAtMillis)
         }
     }
 
@@ -75,17 +78,17 @@ class DomainStore(
             return
         }
         // 目录级删除：runs/<id>、sessions/<sid>、<kindDir>/<cardId>
-        val runDir = Regex("^$rootKey/runs/([^/]+)$").matchEntire(key)
+        val runDir = Regex("^$rootKeyPattern/runs/([^/]+)$").matchEntire(key)
         if (runDir != null) {
             deleteRunCascade(runDir.groupValues[1])
             return
         }
-        val sessionDir = Regex("^$rootKey/runs/([^/]+)/dialogue/sessions/([^/]+)$").matchEntire(key)
+        val sessionDir = Regex("^$rootKeyPattern/runs/([^/]+)/dialogue/sessions/([^/]+)$").matchEntire(key)
         if (sessionDir != null) {
             deleteSessionCascade(sessionDir.groupValues[1], sessionDir.groupValues[2])
             return
         }
-        val cardDir = Regex("^$rootKey/(scene-cards|self-cards|opening-presets)/([^/]+)$").matchEntire(key)
+        val cardDir = Regex("^$rootKeyPattern/(scene-cards|self-cards|opening-presets)/([^/]+)$").matchEntire(key)
         if (cardDir != null) {
             runBlockingPlatform { dao.deleteCard(cardDir.groupValues[2]) }
         }
@@ -153,29 +156,17 @@ class DomainStore(
         val sessionId = match.groupValues[2]
         val updatedIso = manifest["updated_at"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val updated = parseIsoMillis(updatedIso) ?: updatedAtMillis
-        runBlockingPlatform {
-            dao.upsertSession(
-                SessionEntity(
-                    sessionId = sessionId,
-                    runId = runId,
-                    title = manifest["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    mode = manifest["mode"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    status = manifest["status"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    updatedAtMillis = updated,
-                    manifest = text,
-                ),
-            )
-            syncMessages(
-                runId = runId,
-                sessionId = sessionId,
-                transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList()),
-                startSeq = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0,
-            )
-        }
-    }
-
-    private suspend fun syncMessages(runId: String, sessionId: String, transcript: JsonArray, startSeq: Int) {
-        dao.deleteMessagesFrom(runId, sessionId, startSeq)
+        val session = SessionEntity(
+            sessionId = sessionId,
+            runId = runId,
+            title = manifest["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            mode = manifest["mode"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            status = manifest["status"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            updatedAtMillis = updated,
+            manifest = text,
+        )
+        val startSeq = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        val transcript = (manifest["transcript"] as? JsonArray).orEmpty()
         val messages = transcript.mapIndexedNotNull { seq, element ->
             runCatching {
                 val item = element.jsonObject
@@ -191,7 +182,7 @@ class DomainStore(
                 )
             }.getOrNull()
         }
-        if (messages.isNotEmpty()) dao.upsertMessages(messages)
+        runBlockingPlatform { dao.replaceSessionWindow(session, startSeq, messages) }
     }
 
     private fun upsertCard(key: String) {
@@ -267,19 +258,11 @@ class DomainStore(
     }
 
     private fun deleteRunCascade(runId: String) {
-        runBlockingPlatform {
-            dao.deleteRun(runId)
-            dao.deleteSessionsOf(runId)
-            dao.deleteMessagesOfRun(runId)
-            dao.deletePersonasOf(runId)
-        }
+        runBlockingPlatform { dao.deleteRunCascade(runId) }
     }
 
     private fun deleteSessionCascade(runId: String, sessionId: String) {
-        runBlockingPlatform {
-            dao.deleteSession(sessionId)
-            dao.deleteMessagesOf(runId, sessionId)
-        }
+        runBlockingPlatform { dao.deleteSessionCascade(runId, sessionId) }
     }
 
     private fun readText(path: Path): String? = documents.readBytes(path)?.decodeToString()

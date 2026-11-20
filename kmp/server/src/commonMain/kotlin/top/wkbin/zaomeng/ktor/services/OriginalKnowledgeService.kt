@@ -35,6 +35,8 @@ class OriginalKnowledgeService(private val storage: StorageService) {
 
     fun get(runId: String): JsonObject = lockFor(runId).withLock { read(runId) }
 
+    fun hasSource(runManifest: JsonObject): Boolean = resolveSource(runManifest) != null
+
     fun rebuild(runManifest: JsonObject): JsonObject = ensure(runManifest, force = true)
 
     fun ensure(

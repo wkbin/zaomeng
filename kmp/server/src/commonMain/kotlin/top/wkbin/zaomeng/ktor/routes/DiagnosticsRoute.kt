@@ -18,6 +18,18 @@ fun Route.diagnosticsRoute(
     diagnosticsService: DiagnosticsService
 ) {
     route("/api/web/diagnostics") {
+        get("/sessions/{run_id}/{session_id}/latest-request") {
+            val runId = call.parameters["run_id"].orEmpty()
+            val sessionId = call.parameters["session_id"].orEmpty()
+            try {
+                call.respond(diagnosticsService.latestModelRequest(runId, sessionId))
+            } catch (error: NoSuchElementException) {
+                call.respondError(HttpStatusCode.NotFound, "Model request not found")
+            } catch (error: Exception) {
+                call.respondError(HttpStatusCode.InternalServerError, "Failed to read model request")
+            }
+        }
+
         // GET /api/web/diagnostics/export - 导出诊断报告
         get("/export") {
             try {

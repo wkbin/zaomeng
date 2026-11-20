@@ -24,6 +24,7 @@ import top.wkbin.zaomeng.platform.randomUuid
 class RunManagementService(
     private val storageService: StorageService,
     private val distillExecutor: DistillExecutor? = null,
+    private val dialogueService: DialogueService? = null,
 ) {
     private val json = Json {
         prettyPrint = true
@@ -163,25 +164,26 @@ class RunManagementService(
      * 对应 Python: run_service.stop_run()
      */
     fun stopRun(runId: String): JsonObject {
-        val manifest = storageService.readRunManifest(runId)
-            ?: throw IllegalArgumentException("Run not found: $runId")
-
-        // 更新状态
-        val updatedAt = nowIsoString()
-        val updatedManifest = buildJsonObject {
-            manifest.forEach { (key, value) -> put(key, value) }
-            put("status", "stopped")
-            put("updated_at", updatedAt)
-            put("control", buildJsonObject {
-                manifest["control"]?.let { existing ->
-                    if (existing is JsonObject) existing.forEach { (key, value) -> put(key, value) }
-                }
-                put("stop_requested", true)
-                put("stop_requested_at", updatedAt)
-            })
+        if (storageService.readRunManifest(runId) == null) {
+            throw IllegalArgumentException("Run not found: $runId")
         }
 
-        storageService.writeRunManifest(runId, updatedManifest)
+        // 更新状态：在清单锁内基于最新内容写，避免覆盖同时推进的蒸馏进度。
+        val updatedAt = nowIsoString()
+        storageService.updateRunManifest(runId) { manifest ->
+            buildJsonObject {
+                manifest.forEach { (key, value) -> put(key, value) }
+                put("status", "stopped")
+                put("updated_at", updatedAt)
+                put("control", buildJsonObject {
+                    manifest["control"]?.let { existing ->
+                        if (existing is JsonObject) existing.forEach { (key, value) -> put(key, value) }
+                    }
+                    put("stop_requested", true)
+                    put("stop_requested_at", updatedAt)
+                })
+            }
+        }
 
         PlatformLog.d(TAG, "Stopped run: $runId")
 
@@ -195,11 +197,21 @@ class RunManagementService(
     /**
      * 删除运行
      */
-    fun deleteRun(runId: String): JsonObject {
+    suspend fun deleteRun(runId: String): JsonObject {
         val runDir = storageService.getRunDirectory(runId)
 
         if (!storageService.exists(runDir)) {
             throw IllegalArgumentException("Run not found: $runId")
+        }
+
+        // 先停掉在跑的蒸馏并等它退出，否则后台任务会在删除后把目录和 manifest 写回来。
+        if (distillExecutor?.isRunning(runId) == true) {
+            PlatformLog.d(TAG, "Stopping active distillation before deleting run: $runId")
+            distillExecutor.stopAndWait(runId)
+        }
+
+        storageService.listDialogueSessionIds(runId).forEach { sessionId ->
+            dialogueService?.cancelDerivedSession(runId, sessionId)
         }
 
         // 递归删除运行目录

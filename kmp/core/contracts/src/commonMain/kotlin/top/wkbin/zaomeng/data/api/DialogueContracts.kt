@@ -36,6 +36,7 @@ fun SessionListItem.toDialogueSessionDto(): DialogueSessionDto = DialogueSession
     participants = participants,
     characterAvatars = characterAvatars,
     controlledCharacter = controlledCharacter,
+    cardGreetingIndex = cardGreetingIndex,
     status = status,
     turnCount = turnCount,
     currentTurnId = currentTurnId,
@@ -77,6 +78,7 @@ data class SessionListItem(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("last_entry_preview") val lastEntryPreview: String = "",
+    @SerialName("card_greeting_index") val cardGreetingIndex: Int? = null,
 )
 
 /**
@@ -100,6 +102,8 @@ data class SessionManifest(
     @SerialName("updated_at") val updatedAt: String = "",
     val title: String = "",
     val status: String = "ready",
+    /** 已提交剧情历史版本；旧存档缺省时为 0。 */
+    val revision: Long = 0,
     val transcript: List<JsonObject> = emptyList(),
     val turns: List<String> = emptyList(),
     @SerialName("turn_count") val turnCount: Int = 0,
@@ -135,7 +139,10 @@ data class DialogueSessionDto(
     val participants: List<String> = emptyList(),
     @SerialName("character_avatars") val characterAvatars: Map<String, String> = emptyMap(),
     @SerialName("controlled_character") val controlledCharacter: String = "",
+    @SerialName("card_greeting_index") val cardGreetingIndex: Int? = null,
     val status: String = "ready",
+    /** 已提交剧情历史版本；轻量响应和消息分页使用同一版本。 */
+    val revision: Long = 0,
     @SerialName("turns") val turns: List<JsonObject> = emptyList(),
     @SerialName("turn_count") val turnCount: Int = 0,
     @SerialName("current_turn_id") val currentTurnId: String = "",
@@ -199,6 +206,17 @@ data class StoryRecapDto(
 )
 
 @Serializable
+data class SessionProjectionDto(
+    /** fresh / stale / missing / building / failed。 */
+    val status: String = "missing",
+    @SerialName("source_revision") val sourceRevision: Long = 0,
+    @SerialName("current_revision") val currentRevision: Long = 0,
+    /** 轻量会话，叠加可重建的 story_recap/session_memory_summary；不含完整 transcript。 */
+    val session: DialogueSessionDto? = null,
+    val error: String = "",
+)
+
+@Serializable
 data class StoryEventDto(
     val title: String = "",
     @SerialName("turn_id") val turnId: String = "",
@@ -259,6 +277,8 @@ data class PendingTurnDto(
 
 @Serializable
 data class TranscriptItemDto(
+    /** 当前 revision 下的全局零基位置；旧数据未携带时为 -1。 */
+    val seq: Int = -1,
     val speaker: String = "",
     val message: String = "",
     @SerialName("inner_thought") val innerThought: String = "",
@@ -266,6 +286,9 @@ data class TranscriptItemDto(
     @SerialName("turn_id") val turnId: String = "",
     val timestamp: String = "",
     val evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
+    @SerialName("world_book_matches") val worldBookMatches: List<WorldBookMatchDto> = emptyList(),
+    @SerialName("sillytavern_message_index") val sillyTavernMessageIndex: String? = null,
+    @SerialName("sillytavern_swipe_count") val sillyTavernSwipeCount: Int? = null,
 )
 
 @Serializable
@@ -295,6 +318,35 @@ data class CreateDialogueSessionRequest(
     @SerialName("scene_profile") val sceneProfile: JsonObject = JsonObject(emptyMap()),
     @SerialName("self_card_id") val selfCardId: String = "",
     @SerialName("self_profile") val selfProfile: JsonObject = JsonObject(emptyMap()),
+    @SerialName("card_greeting_index") val cardGreetingIndex: Int? = null,
+)
+
+@Serializable
+data class CardGreetingsDto(val character: String = "", val options: List<CardGreetingDto> = emptyList())
+
+@Serializable
+data class CardGreetingDto(val index: Int, val text: String)
+
+@Serializable
+data class ImportSillyTavernChatRequest(
+    val filename: String,
+    @SerialName("content_base64") val contentBase64: String,
+)
+
+@Serializable
+data class ImportedSwipePageDto(
+    val total: Int,
+    @SerialName("selected_index") val selectedIndex: Int? = null,
+    val items: List<ImportedSwipeDto> = emptyList(),
+)
+
+@Serializable
+data class ImportedSwipeDto(val index: Int, val text: String, val truncated: Boolean = false)
+
+@Serializable
+data class BranchImportedSwipeRequest(
+    @SerialName("message_index") val messageIndex: String,
+    @SerialName("swipe_index") val swipeIndex: Int,
 )
 
 @Serializable
@@ -313,6 +365,21 @@ data class DialogueReplyRequest(
     @SerialName("operation_id") val operationId: String = "",
 )
 
+@Serializable
+data class DialogueOperationStatusResponse(
+    @SerialName("operation_id") val operationId: String = "",
+    @SerialName("turn_id") val turnId: String = "",
+    val status: String = "",
+    @SerialName("base_revision") val baseRevision: Long = 0,
+    @SerialName("committed_revision") val committedRevision: Long? = null,
+    @SerialName("transcript_count") val transcriptCount: Int = 0,
+    @SerialName("failure_code") val failureCode: String = "",
+    @SerialName("failure_message") val failureMessage: String = "",
+    val retryable: Boolean = false,
+    val session: DialogueSessionDto? = null,
+    @SerialName("appended_transcript") val appendedTranscript: List<TranscriptItemDto> = emptyList(),
+)
+
 /** 会话消息分页响应（历史消息懒加载）。 */
 @Serializable
 data class MessagesResponse(
@@ -320,6 +387,10 @@ data class MessagesResponse(
     /** 会话 transcript 总条数。 */
     val total: Int = 0,
     @SerialName("has_more") val hasMore: Boolean = false,
+    /** 本页所属剧情历史版本。 */
+    val revision: Long = 0,
+    /** 同方向、同 revision 的下一页 offset；没有下一页时为 null。 */
+    @SerialName("next_offset") val nextOffset: Int? = null,
 )
 
 @Serializable

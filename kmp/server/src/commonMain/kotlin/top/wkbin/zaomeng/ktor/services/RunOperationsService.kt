@@ -287,7 +287,7 @@ class RunOperationsService(
         )
         val runId = created["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         try {
-            val manifest = storage.readRunManifest(runId) ?: throw IllegalStateException("共演空间创建失败。")
+            if (storage.readRunManifest(runId) == null) throw IllegalStateException("共演空间创建失败。")
             val charactersRoot = storage.getRunDirectory(runId) / "artifacts/characters"
             storage.mkdirs(charactersRoot)
             for ((_, character, sourceDir) in selected) {
@@ -297,32 +297,32 @@ class RunOperationsService(
                 if (!storage.exists(target)) copyRecursively(sourceDir, target)
             }
             val now = nowIsoString()
-            val refreshed = refreshArtifactIndex(runId, manifest)
-            val updated = buildJsonObject {
-                refreshed.forEach { (key, value) -> put(key, value) }
-                put("status", "ready")
-                put("success", true)
-                put("entrypoint", "crossover_beta")
-                put("updated_at", now)
-                put("beta_feature", buildJsonObject {
-                    put("kind", "cross_book_crossover")
-                    put("unstable", true)
-                    put("world_setting", setting)
-                    put("source_snapshots", buildJsonArray {
-                        selected.forEach { (sourceRunId, character, _) ->
-                            add(buildJsonObject {
-                                put("run_id", sourceRunId)
-                                put("character", character)
-                            })
-                        }
+            return storage.updateRunManifest(runId) { manifest ->
+                val refreshed = refreshArtifactIndex(runId, manifest)
+                buildJsonObject {
+                    refreshed.forEach { (key, value) -> put(key, value) }
+                    put("status", "ready")
+                    put("success", true)
+                    put("entrypoint", "crossover_beta")
+                    put("updated_at", now)
+                    put("beta_feature", buildJsonObject {
+                        put("kind", "cross_book_crossover")
+                        put("unstable", true)
+                        put("world_setting", setting)
+                        put("source_snapshots", buildJsonArray {
+                            selected.forEach { (sourceRunId, character, _) ->
+                                add(buildJsonObject {
+                                    put("run_id", sourceRunId)
+                                    put("character", character)
+                                })
+                            }
+                        })
                     })
-                })
-                put("summary", buildJsonObject {
-                    put("status_text", "crossover_beta_ready")
-                })
+                    put("summary", buildJsonObject {
+                        put("status_text", "crossover_beta_ready")
+                    })
+                }
             }
-            storage.writeRunManifest(runId, updated)
-            return updated
         } catch (error: Throwable) {
             storage.deleteRecursively(storage.getRunDirectory(runId))
             throw error
@@ -344,6 +344,11 @@ class RunOperationsService(
         // 对齐 Python restart_run_distill：未配置模型时直接 400
         if (!distillExecutor.isConfigured()) {
             throw IllegalArgumentException("请先在设置中完成模型配置。")
+        }
+        // 正在蒸馏时不能重新蒸馏：DistillExecutor.start 对已在跑的 run 静默 no-op，
+        // 会让清单被改成 running 而实际任务仍是旧参数。
+        if (distillExecutor.isRunning(runId)) {
+            throw IllegalArgumentException("当前书卷正在蒸馏中，请先停止后再重新蒸馏。")
         }
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         val normalizedCharacters = characters.map(String::trim).filter(String::isNotEmpty).distinct()
@@ -387,40 +392,41 @@ class RunOperationsService(
             null
         }
 
-        val existingSources = manifest["novel_sources"]?.jsonArray?.toMutableList() ?: mutableListOf()
-        novelSource?.let { source ->
-            val sourcePath = source.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull
-            val latestPath = existingSources.lastOrNull()?.jsonObject
-                ?.get("source_path")?.jsonPrimitive?.contentOrNull
-            if (sourcePath != latestPath) existingSources.add(source)
+        val updated = storage.updateRunManifest(runId) { latest ->
+            // 基于 latest 合并 novel_sources：同一 source_path 只保留一份。
+            val sources = latest["novel_sources"]?.jsonArray?.toMutableList() ?: mutableListOf()
+            novelSource?.let { source ->
+                val sourcePath = source.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull
+                if (sources.none { it.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull == sourcePath }) {
+                    sources.add(source)
+                }
+            }
+            buildJsonObject {
+                latest.forEach { (key, value) -> put(key, value) }
+                put("novel_sources", buildJsonArray { sources.forEach(::add) })
+                put("locked_characters", buildJsonArray { normalizedCharacters.forEach { add(JsonPrimitive(it)) } })
+                put("status", "running")
+                put("updated_at", now)
+                put("progress", buildJsonObject {
+                    put("stage", "starting")
+                    put("message", "已开始重新蒸馏 ${normalizedCharacters.size} 名人物。")
+                    put("current_character", "")
+                    put("completed_characters", JsonArray(emptyList()))
+                    put("total_characters", normalizedCharacters.size)
+                    put("completed_count", 0)
+                    put("graph_status", "pending")
+                })
+                put("control", buildJsonObject {
+                    put("stop_requested", false)
+                })
+                put("summary", buildJsonObject {
+                    put("characters_total", normalizedCharacters.size)
+                    put("characters_completed", 0)
+                    put("graph_status", "pending")
+                    put("status_text", "蒸馏中")
+                })
+            }
         }
-
-        val updated = buildJsonObject {
-            manifest.forEach { (key, value) -> put(key, value) }
-            put("novel_sources", buildJsonArray { existingSources.forEach(::add) })
-            put("locked_characters", buildJsonArray { normalizedCharacters.forEach { add(JsonPrimitive(it)) } })
-            put("status", "running")
-            put("updated_at", now)
-            put("progress", buildJsonObject {
-                put("stage", "starting")
-                put("message", "已开始重新蒸馏 ${normalizedCharacters.size} 名人物。")
-                put("current_character", "")
-                put("completed_characters", JsonArray(emptyList()))
-                put("total_characters", normalizedCharacters.size)
-                put("completed_count", 0)
-                put("graph_status", "pending")
-            })
-            put("control", buildJsonObject {
-                put("stop_requested", false)
-            })
-            put("summary", buildJsonObject {
-                put("characters_total", normalizedCharacters.size)
-                put("characters_completed", 0)
-                put("graph_status", "pending")
-                put("status_text", "蒸馏中")
-            })
-        }
-        storage.writeRunManifest(runId, updated)
         // 真正启动蒸馏执行（迁移自 Python：切状态后由 DistillExecutor 逐角色调 LLM 并更新进度）
         distillExecutor.start(runId, normalizedCharacters)
         return updated
@@ -439,13 +445,20 @@ class RunOperationsService(
             ?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty().toSet()
         val unfinished = locked.filterNot { it in completed }
         if (unfinished.isEmpty()) throw IllegalArgumentException("所有锁定的角色都已经蒸馏完成。")
-        val updated = buildResumedDistillManifest(
-            manifest = manifest,
-            lockedCharacters = locked,
-            completedCharacters = completed,
-            now = nowIsoString(),
-        )
-        storage.writeRunManifest(runId, updated)
+        val updated = storage.updateRunManifest(runId) { latest ->
+            // 锁内复核：期间可能已被另一请求启动。
+            if (latest["status"]?.jsonPrimitive?.contentOrNull == "running") {
+                throw IllegalArgumentException("这本书已经在蒸馏中。")
+            }
+            val latestCompleted = latest["progress"]?.jsonObject?.get("completed_characters")?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty().toSet()
+            buildResumedDistillManifest(
+                manifest = latest,
+                lockedCharacters = locked,
+                completedCharacters = latestCompleted,
+                now = nowIsoString(),
+            )
+        }
         // Pass the complete plan back to the executor. It reads completed_characters and skips
         // materialized profiles, so resuming never loses the first part of a large batch.
         distillExecutor.start(runId, locked)
@@ -658,14 +671,15 @@ class RunOperationsService(
     // ------------------------------------------------------------------
 
     fun refresh(runId: String): JsonObject {
-        val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
-        val refreshed = refreshArtifactIndex(runId, manifest)
-        val updated = buildJsonObject {
-            refreshed.forEach { (key, value) -> put(key, value) }
-            put("updated_at", nowIsoString())
+        if (storage.readRunManifest(runId) == null) throw NoSuchElementException("Run not found: $runId")
+        // 在清单锁内重扫并合并，避免把并发推进的蒸馏进度覆盖回旧值。
+        return storage.updateRunManifest(runId) { manifest ->
+            val refreshed = refreshArtifactIndex(runId, manifest)
+            buildJsonObject {
+                refreshed.forEach { (key, value) -> put(key, value) }
+                put("updated_at", nowIsoString())
+            }
         }
-        storage.writeRunManifest(runId, updated)
-        return updated
     }
 
     /** 重新扫描 artifacts/characters 更新 artifact_index，avatar_version 实时计算。 */

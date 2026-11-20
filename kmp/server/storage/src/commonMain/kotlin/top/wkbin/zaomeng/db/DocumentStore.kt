@@ -43,6 +43,9 @@ interface DocumentStore {
     fun rename(source: Path, target: Path): Boolean
 
     fun fileSize(path: Path): Long
+
+    fun fileVersion(path: Path): String? =
+        if (isFile(path)) "${updatedAtMillis(path) ?: 0}-${fileSize(path)}" else null
 }
 
 /** 文件系统后端：保留原有 okio 文件行为（含临时文件 + 原子 rename 写入）。 */
@@ -55,15 +58,14 @@ class FileSystemDocumentStore(
     }
 
     override fun writeBytes(path: Path, bytes: ByteArray, updatedAtMillis: Long) {
-        runCatching { fs.createDirectories(path.parent!!) }
-        val temp = path.parent!! / ".${path.name}.${monotonicNanos()}.tmp"
-        fs.sink(temp).buffer().use { sink -> sink.write(bytes) }
-        if (!replace(temp, path)) {
-            runCatching { fs.delete(path) }
-            if (!replace(temp, path)) {
-                runCatching { fs.delete(temp) }
-                throw IllegalStateException("Unable to replace ${path.name}")
-            }
+        val parent = requireNotNull(path.parent) { "Document path must have a parent: $path" }
+        fs.createDirectories(parent)
+        val temp = parent / ".${path.name}.${monotonicNanos()}.tmp"
+        try {
+            fs.sink(temp).buffer().use { sink -> sink.write(bytes) }
+            fs.atomicMove(temp, path)
+        } finally {
+            runCatching { fs.delete(temp, mustExist = false) }
         }
     }
 
@@ -222,7 +224,10 @@ class RoomDocumentStore(
     }
 
     override fun fileSize(path: Path): Long =
-        runBlockingPlatform { dao.bytesOf(key(path))?.size?.toLong() ?: 0L }
+        runBlockingPlatform { dao.fileSizeOf(key(path)) ?: 0L }
+
+    override fun fileVersion(path: Path): String? =
+        runBlockingPlatform { dao.fileVersionOf(key(path)) }
 
     private companion object {
         const val TAG = "RoomDocumentStore"

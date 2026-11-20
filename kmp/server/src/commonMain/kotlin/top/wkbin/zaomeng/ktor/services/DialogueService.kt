@@ -1,12 +1,17 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.builtins.ListSerializer
+import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -44,11 +49,23 @@ class DialogueService(
     private val promptLoader: PromptLoader? = null,
     private val worldMemory: WorldMemoryService? = null,
     private val pluginRuleEngine: PluginRuleEngine? = null,
-) {
+    private val operations: DialogueReplyOperationCoordinator? = null,
+    private val projections: SessionProjectionService? = null,
+    private val historyRetrieval: DialogueHistoryRetrievalService? = null,
+) : DialogueDerivedScheduler {
     private val longTermMemory = LongTermMemoryService(storageService)
     private val originalKnowledge = OriginalKnowledgeService(storageService)
     companion object {
         private const val TAG = "DialogueService"
+        private val TURN_COMMIT_FIELDS = setOf(
+            "transcript",
+            "transcript_start",
+            "transcript_count",
+            "turn_count",
+            "current_turn_id",
+            "updated_at",
+            "last_entry_preview",
+        )
 
         // 对齐 Python helpers.py:DIALOGUE_RESPONSE_MIN/MAX_MAX_TOKENS：
         // 推理模型会把 reasoning_content 计入输出预算，默认给足一轮预算避免重复推理
@@ -119,8 +136,10 @@ class DialogueService(
     private val json = Json { ignoreUnknownKeys = true }
     private val backgroundScope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
     private val backgroundJobs = HashMap<String, Job>()
-    private val backgroundPending = HashMap<String, MutableList<PostTurnWork>>()
+    private val cancelledDerived = HashSet<String>()
     private val backgroundJobsLock = SimpleLock()
+    private val derivedStore = DerivedOperationStore(storageService)
+    private val replyOperationStore = ReplyOperationStore(storageService)
     private val sessionMutationLocks = HashMap<String, SimpleLock>()
     private val sessionMutationLocksLock = SimpleLock()
 
@@ -128,12 +147,6 @@ class DialogueService(
         sessionMutationLocksLock.withLock {
             sessionMutationLocks.getOrPut("$runId:$sessionId") { SimpleLock() }
         }
-
-    private data class PostTurnWork(
-        val turnId: String,
-        val message: String,
-        val responses: List<DialogueResponse>,
-    )
 
     @Serializable
     private data class DialogueManifest(
@@ -193,11 +206,102 @@ class DialogueService(
         suppressTranscriptMessage: Boolean = false,
         includeInnerThoughts: Boolean = false,
         operationId: String = "",
-    ): DialogueTurnResponse {
+    ): DialogueTurnResponse = outcomeToTurnResponse(
+        replyDialogueTurnOutcome(
+            runId, sessionId, message, messageKind, pacing, speakerOverride,
+            suppressTranscriptMessage, includeInnerThoughts, operationId,
+        ),
+    )
+
+    suspend fun replyDialogueTurnOutcome(
+        runId: String,
+        sessionId: String,
+        message: String,
+        messageKind: String = "user_input",
+        pacing: String = "normal",
+        speakerOverride: String = "",
+        suppressTranscriptMessage: Boolean = false,
+        includeInnerThoughts: Boolean = false,
+        operationId: String = "",
+    ): DialogueReplyOutcome {
+        val coordinator = operations
+            ?: return replyDialogueTurnInternalOutcome(
+                runId, sessionId, message, messageKind, pacing, speakerOverride,
+                suppressTranscriptMessage, includeInnerThoughts, operationId,
+            )
+        return when (val begin = coordinator.begin(
+            ReplyOperationRequest(
+                runId = runId,
+                sessionId = sessionId,
+                operationId = operationId,
+                message = message,
+                messageKind = messageKind,
+                pacing = pacing,
+                speakerOverride = speakerOverride,
+                suppressTranscriptMessage = suppressTranscriptMessage,
+                includeInnerThoughts = includeInnerThoughts,
+            ),
+        )) {
+            is ReplyOperationBegin.Replay -> coordinator.outcome(begin.receipt, begin.sessionManifest, replayed = true)
+            is ReplyOperationBegin.Active -> {
+                val lease = begin.lease
+                try {
+                    val resume = lease.receipt.result?.takeIf {
+                        lease.receipt.status == ReplyOperationStatus.COMMITTING
+                    }
+                    if (resume != null) {
+                        val commit = commitTurnDetailed(
+                            runId = runId,
+                            sessionId = sessionId,
+                            turnId = lease.receipt.turnId,
+                            message = resume.message,
+                            messageKind = resume.messageKind,
+                            inputSpeaker = resume.inputSpeaker,
+                            inputRole = resume.inputRole,
+                            responses = resume.responses,
+                            suppressTranscriptMessage = resume.suppressTranscriptMessage,
+                            operation = lease,
+                            resumeResult = resume,
+                        )
+                        coordinator.outcome(lease, commit)
+                    } else {
+                        replyDialogueTurnInternalOutcome(
+                            runId, sessionId, message, messageKind, pacing, speakerOverride,
+                            suppressTranscriptMessage, includeInnerThoughts, operationId, lease,
+                        )
+                    }
+                } catch (error: Throwable) {
+                    val recovered = coordinator.recoverFailure(lease, error)
+                    if (recovered != null) recovered else throw error
+                } finally {
+                    coordinator.release(lease)
+                }
+            }
+        }
+    }
+
+    private fun outcomeToTurnResponse(outcome: DialogueReplyOutcome): DialogueTurnResponse =
+        DialogueTurnResponse(
+            turnId = outcome.turnId,
+            response = outcome.responses.firstOrNull() ?: DialogueResponse("", "", null),
+        )
+
+    private suspend fun replyDialogueTurnInternalOutcome(
+        runId: String,
+        sessionId: String,
+        message: String,
+        messageKind: String = "user_input",
+        pacing: String = "normal",
+        speakerOverride: String = "",
+        suppressTranscriptMessage: Boolean = false,
+        includeInnerThoughts: Boolean = false,
+        operationId: String = "",
+        operation: ActiveReplyOperation? = null,
+    ): DialogueReplyOutcome {
         PlatformLog.d(TAG, "Replying to dialogue turn: run=$runId, session=$sessionId")
 
         // 1. Load session manifest（一次读取；DTO 与 JsonObject 复用同一份，避免重复读文件）
-        val turnId = operationId.ifBlank { randomUuid() }
+        val turnId = operation?.receipt?.turnId ?: operationId.ifBlank { randomUuid() }
         val sessionManifestJson = prepareSessionForGeneration(runId, sessionId, turnId, message)
         val sessionManifest = json.decodeFromJsonElement<DialogueManifest>(sessionManifestJson)
         val participants = sessionManifest.participants
@@ -210,11 +314,11 @@ class DialogueService(
         //    stable system + turn system + JSON user payload，含 memory/persona/relation/history 上下文）
         val promptLoader = promptLoader
             ?: throw IllegalStateException("LLM not configured (prompt loader unavailable)")
-        val payloadBuilder = DialoguePayloadBuilder(storageService)
+        val payloadBuilder = DialoguePayloadBuilder(storageService, projections)
         val promptBuilder = DialoguePromptBuilder(promptLoader)
         val runManifest = storageService.readRunManifest(runId)
             ?: throw NoSuchElementException("Run not found: $runId")
-        val payload = payloadBuilder.buildTurnPayload(
+        val basePayload = payloadBuilder.buildTurnPayload(
             runManifest = runManifest,
             session = sessionManifestJson,
             turnId = turnId,
@@ -222,6 +326,15 @@ class DialogueService(
             messageKind = messageKind,
             speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
+        )
+        val payload = enrichHistory(
+            runId = runId,
+            sessionId = sessionId,
+            turnId = turnId,
+            message = message,
+            baseRevision = operation?.receipt?.baseRevision ?: sessionHistoryRevision(sessionManifestJson),
+            sessionManifest = sessionManifestJson,
+            payload = basePayload,
         )
         val conversationHistory = applyPacingInstruction(
             messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = false),
@@ -260,6 +373,13 @@ class DialogueService(
                     temperature = 0.7,
                     maxTokens = if (retry) minOf(maxTokens * 2, DIALOGUE_RESPONSE_MAX_MAX_TOKENS) else maxTokens,
                     requireJsonObject = false,
+                    context = LlmRequestContext(
+                        runId = runId,
+                        sessionId = sessionId,
+                        turnId = turnId,
+                        operationId = operation?.receipt?.operationId ?: operationId,
+                        attemptKind = if (retry) "format-retry" else "initial",
+                    ),
                 )
                 val responseContent = llmResponse.choices.firstOrNull()?.message?.content
                     ?: throw IllegalArgumentException("Empty response from LLM")
@@ -286,7 +406,7 @@ class DialogueService(
         if (turnId.contains('/') || turnId.contains('\\') || turnId.contains("..")) {
             throw IllegalArgumentException("Invalid operation_id")
         }
-        commitTurn(
+        val commit = commitTurnDetailed(
             runId = runId,
             sessionId = sessionId,
             turnId = turnId,
@@ -302,17 +422,43 @@ class DialogueService(
             suppressTranscriptMessage = suppressTranscriptMessage,
             existingSession = sessionManifestJson,
             evidence = extractOriginalEvidence(payload),
+            worldBookMatches = extractWorldBookMatches(payload),
+            operation = operation,
         )
 
-        return DialogueTurnResponse(
-            turnId = turnId,
-            response = finalResponses.firstOrNull() ?: DialogueResponse(
-                speaker = "",
-                message = "",
-                innerThought = null
+        return if (operations != null && operation != null) {
+            operations.outcome(operation, commit)
+        } else {
+            DialogueReplyOutcome(
+                operationId = commit.operationId,
+                turnId = commit.turnId,
+                replayed = commit.alreadyCommitted,
+                baseRevision = commit.baseRevision,
+                committedRevision = commit.committedRevision,
+                sessionManifest = commit.manifest,
+                appendedTranscript = commit.appendedTranscript,
+                responses = commit.responses,
             )
-        )
+        }
     }
+
+    internal suspend fun enrichHistory(
+        runId: String,
+        sessionId: String,
+        turnId: String,
+        message: String,
+        baseRevision: Long,
+        sessionManifest: JsonObject,
+        payload: Map<String, Any?>,
+    ): Map<String, Any?> = historyRetrieval?.enrichHistory(
+        runId,
+        sessionId,
+        turnId,
+        message,
+        baseRevision,
+        sessionManifest,
+        payload,
+    ) ?: payload
 
     internal fun prepareSessionForGeneration(
         runId: String,
@@ -320,8 +466,10 @@ class DialogueService(
         turnId: String,
         message: String,
     ): JsonObject {
+        // turnId 可能来自请求体的 operation_id，并会拼进 turns/<turnId> 目录。
+        val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
         val stored = storageService.loadSessionManifest(runId, sessionId)
-        return pluginRuleEngine?.beforeGeneration(runId, sessionId, turnId, message, stored) ?: stored
+        return pluginRuleEngine?.beforeGeneration(runId, sessionId, safeTurnId, message, stored) ?: stored
     }
 
     /**
@@ -352,21 +500,38 @@ class DialogueService(
         return DialogueResponseParser.parse(content, allowed, forbiddenSpeakers)
     }
 
-    /** 对话后台可能基于旧快照计算派生状态；落盘时始终保留插件刚写入的会话控制字段。 */
+    /** 以 latest 元数据为底，原子提交本轮历史与插件规则，并恰好推进一次 revision。 */
     private fun persistSessionManifestPreservingControls(
         runId: String,
         sessionId: String,
+        turnId: String,
+        message: String,
+        responses: List<DialogueResponse>,
         candidate: JsonObject,
-    ): JsonObject = storageService.updateSessionManifest(runId, sessionId) { latest ->
-        buildJsonObject {
-            candidate.forEach { (key, value) -> put(key, value) }
-            latest["muted_characters"]?.let { put("muted_characters", it) }
+        includeDerivedState: Boolean,
+        expectedRevision: Long? = null,
+    ): JsonObject = storageService.mutateSessionHistory(runId, sessionId, expectedRevision) { latest ->
+        val merged = buildJsonObject {
+            latest.manifest.forEach { (key, value) ->
+                if (key != "plugin_rule_directives") put(key, value)
+            }
+            TURN_COMMIT_FIELDS.forEach { key ->
+                candidate[key]?.let { put(key, it) }
+            }
+            if (includeDerivedState) candidate["state"]?.let { put("state", it) }
         }
-    }
+        val withPluginRules = pluginRuleEngine?.applyAfterTurn(
+            runId = runId,
+            sessionId = sessionId,
+            turnId = turnId,
+            message = message,
+            responses = responses,
+            session = merged,
+        ) ?: merged
+        SessionHistoryMutation(withPluginRules, Unit)
+    }.manifest
 
-    /**
-     * 提交一轮对话结果：保存 turn 文件并更新会话 manifest（非流式与流式共用）。
-     */
+    /** 兼容现有调用方；operation 编排使用 [commitTurnDetailed] 的结构化结果。 */
     suspend fun commitTurn(
         runId: String,
         sessionId: String,
@@ -378,125 +543,399 @@ class DialogueService(
         responses: List<DialogueResponse>,
         suppressTranscriptMessage: Boolean = false,
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
-        // Kept for call-site compatibility. Commit still reloads under the mutation lock so
-        // background enrichment cannot be overwritten; StorageService reuses the parsed
-        // manifest when the document has not changed.
+        worldBookMatches: List<WorldBookMatchDto> = emptyList(),
         existingSession: JsonObject? = null,
-    ): JsonObject {
-        // The pre-generation snapshot may already be stale because the previous turn's
-        // enrichment runs in the background. Reload and persist under one session lock.
-        val updated = sessionMutationLock(runId, sessionId).withLock {
-            val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
-            saveTurn(runId, sessionId, turnId, message, messageKind, inputSpeaker, responses, evidence)
-            val committed = updateSessionManifest(
-                runId = runId,
-                sessionId = sessionId,
-                newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
-                turnId = turnId,
-                userMessage = message,
-                inputSpeaker = inputSpeaker,
-                inputRole = inputRole,
-                suppressUserMessage = suppressTranscriptMessage,
-                messageKind = messageKind,
-                responses = responses,
-                evidence = evidence,
-                mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
-                manifest = sessionManifest,
-                deriveState = false,
-            )
-            pluginRuleEngine?.afterTurn(runId, sessionId, turnId, message, responses)
-            if (pluginRuleEngine == null) committed else storageService.loadSessionManifest(runId, sessionId)
-        }
-        enqueueBackgroundPostTurn(
-            runId = runId,
-            sessionId = sessionId,
-            turnId = turnId,
-            message = message,
-            responses = responses,
-        )
-        return updated
-    }
+    ): JsonObject = commitTurnDetailed(
+        runId = runId,
+        sessionId = sessionId,
+        turnId = turnId,
+        message = message,
+        messageKind = messageKind,
+        inputSpeaker = inputSpeaker,
+        inputRole = inputRole,
+        responses = responses,
+        suppressTranscriptMessage = suppressTranscriptMessage,
+        evidence = evidence,
+        worldBookMatches = worldBookMatches,
+        existingSession = existingSession,
+    ).manifest
 
-    /** Run derived memory/state work off the response path and coalesce bursts per session. */
-    private fun enqueueBackgroundPostTurn(
+    /** 流式与非流式共用的两阶段提交。 */
+    suspend fun commitTurnDetailed(
         runId: String,
         sessionId: String,
         turnId: String,
         message: String,
+        messageKind: String,
+        inputSpeaker: String,
+        inputRole: String = "user",
         responses: List<DialogueResponse>,
-    ) {
-        val key = "$runId:$sessionId"
-        backgroundJobsLock.withLock {
-            backgroundPending.getOrPut(key) { mutableListOf() }
-                .add(PostTurnWork(turnId = turnId, message = message, responses = responses))
-            if (backgroundJobs[key]?.isActive == true) return@withLock
-            backgroundJobs[key] = backgroundScope.launch {
-                drainBackgroundPostTurns(key, runId, sessionId)
+        suppressTranscriptMessage: Boolean = false,
+        evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
+        worldBookMatches: List<WorldBookMatchDto> = emptyList(),
+        existingSession: JsonObject? = null,
+        operation: ActiveReplyOperation? = null,
+        resumeResult: ReplyOperationResult? = null,
+    ): DialogueCommitResult {
+        val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
+        val effectiveMessage = resumeResult?.message ?: message
+        val effectiveMessageKind = resumeResult?.messageKind ?: messageKind
+        val effectiveInputSpeaker = resumeResult?.inputSpeaker ?: inputSpeaker
+        val effectiveInputRole = resumeResult?.inputRole ?: inputRole
+        val effectiveResponses = resumeResult?.responses ?: responses
+        val effectiveSuppress = resumeResult?.suppressTranscriptMessage ?: suppressTranscriptMessage
+        val effectiveEvidence = resumeResult?.evidence?.let(::decodeEvidence) ?: evidence
+        val effectiveWorldBookMatches = resumeResult?.worldBookMatches?.let(::decodeWorldBookMatches) ?: worldBookMatches
+        val archivedReplay = turnRecordExists(runId, sessionId, safeTurnId) &&
+            archivedTranscriptContainsTurn(runId, sessionId, safeTurnId)
+
+        val committed = sessionMutationLock(runId, sessionId).withLock {
+            val sessionManifest = storageService.loadSessionManifest(runId, sessionId)
+            if (archivedReplay || sessionContainsTurn(sessionManifest, safeTurnId)) {
+                null
+            } else {
+                val currentRevision = sessionHistoryRevision(sessionManifest)
+                val baseRevision = resumeResult?.committedRevision?.minus(1)
+                    ?: operation?.receipt?.baseRevision
+                    ?: currentRevision
+                if (operation != null && currentRevision != baseRevision) {
+                    throw SessionRevisionConflictException(baseRevision, currentRevision)
+                }
+                val committedTurn = updateSessionManifest(
+                    runId = runId,
+                    sessionId = sessionId,
+                    newTurnCount = (sessionManifest["turn_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0) + 1,
+                    turnId = safeTurnId,
+                    userMessage = effectiveMessage,
+                    inputSpeaker = effectiveInputSpeaker,
+                    inputRole = effectiveInputRole,
+                    suppressUserMessage = effectiveSuppress,
+                    messageKind = effectiveMessageKind,
+                    responses = effectiveResponses,
+                    evidence = effectiveEvidence,
+                    worldBookMatches = effectiveWorldBookMatches,
+                    mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
+                    manifest = sessionManifest,
+                    deriveState = false,
+                    operation = operation,
+                    expectedRevision = currentRevision,
+                )
+                if (operation != null) operations?.markCompleted(operation)
+                committedTurn
+            }
+        }
+        val currentManifest = storageService.loadSessionManifest(runId, sessionId)
+        if (committed == null) {
+            PlatformLog.d(TAG, "Dialogue turn $safeTurnId already committed; skipped duplicate append")
+            val existingResult = resumeResult ?: operation?.receipt?.result
+            if (operation != null && existingResult != null) operations?.markCompleted(operation)
+            if (existingResult != null) {
+                scheduleDerivedResult(runId, sessionId, existingResult, DerivedOperationKind.POST_TURN)
+            }
+            return DialogueCommitResult(
+                operationId = operation?.receipt?.operationId ?: safeTurnId,
+                turnId = safeTurnId,
+                alreadyCommitted = true,
+                baseRevision = existingResult?.committedRevision?.minus(1)
+                    ?: operation?.receipt?.baseRevision
+                    ?: sessionHistoryRevision(currentManifest),
+                committedRevision = existingResult?.committedRevision ?: sessionHistoryRevision(currentManifest),
+                manifest = currentManifest,
+                appendedTranscript = existingResult?.appendedTranscript
+                    ?: storageService.transcriptReader.readByTurnId(runId, sessionId, safeTurnId).map { it.value },
+                responses = existingResult?.responses.orEmpty(),
+            )
+        }
+        projections?.rebuild(runId, sessionId)
+        scheduleDerivedResult(runId, sessionId, committed.result, DerivedOperationKind.POST_TURN)
+        return DialogueCommitResult(
+            operationId = operation?.receipt?.operationId ?: safeTurnId,
+            turnId = safeTurnId,
+            alreadyCommitted = false,
+            baseRevision = committed.result.committedRevision - 1,
+            committedRevision = committed.result.committedRevision,
+            manifest = committed.manifest,
+            appendedTranscript = committed.result.appendedTranscript,
+            responses = committed.result.responses,
+        )
+    }
+
+    /** 只有实际 transcript 才能证明已提交；pending 的 current_turn_id 不算。 */
+    private fun sessionContainsTurn(manifest: JsonObject, turnId: String): Boolean {
+        val transcript = manifest["transcript"] as? JsonArray ?: return false
+        return transcript.hasTurn(turnId)
+    }
+
+    /** 归档重试按轮查询，不再物化整段历史。 */
+    private fun archivedTranscriptContainsTurn(runId: String, sessionId: String, turnId: String): Boolean =
+        runCatching { storageService.transcriptReader.readByTurnId(runId, sessionId, turnId).isNotEmpty() }
+            .getOrDefault(false)
+
+    private fun turnRecordExists(runId: String, sessionId: String, turnId: String): Boolean =
+        runCatching {
+            storageService.exists(
+                storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turns/$turnId/turn.json",
+            )
+        }.getOrDefault(false)
+
+    private fun JsonArray.hasTurn(turnId: String): Boolean = any { raw ->
+        ((raw as? JsonObject)?.get("turn_id") as? JsonPrimitive)?.contentOrNull == turnId
+    }
+
+    /** 提交前持久化派生 intent；manifest 与 intent 的崩溃窗口由重放/启动扫描对账。 */
+    private fun ensureDerivedIntent(
+        runId: String,
+        sessionId: String,
+        result: ReplyOperationResult,
+        kind: DerivedOperationKind = DerivedOperationKind.POST_TURN,
+        activate: Boolean = false,
+    ): DerivedOperation = backgroundJobsLock.withLock {
+        if ("$runId:$sessionId" in cancelledDerived) {
+            throw DerivedOperationInactiveException("Session was deleted")
+        }
+        derivedStore.ensure(runId, sessionId, kind, result, activate)
+    }
+
+    override fun prepareDerivedResult(
+        runId: String,
+        sessionId: String,
+        result: ReplyOperationResult,
+        kind: DerivedOperationKind,
+    ): DerivedOperation = ensureDerivedIntent(runId, sessionId, result, kind)
+
+    override fun scheduleDerivedResult(
+        runId: String,
+        sessionId: String,
+        result: ReplyOperationResult,
+        kind: DerivedOperationKind,
+    ): DerivedOperation {
+        val operation = ensureDerivedIntent(runId, sessionId, result, kind, activate = true)
+        kickDerivedWorker(runId, sessionId)
+        return operation
+    }
+
+    /** 启动时补建第一阶段回执的派生 intent，并恢复孤儿 RUNNING。 */
+    fun recoverDerivedOperations() {
+        storageService.listRunIds().forEach { runId ->
+            storageService.listDialogueSessionIds(runId).forEach { sessionId ->
+                if (backgroundJobsLock.withLock { "$runId:$sessionId" in cancelledDerived }) return@forEach
+                derivedStore.reconcilePrepared(runId, sessionId)
+                replyOperationStore.listCompleted(runId, sessionId).forEach { receipt ->
+                    receipt.result?.let { result -> ensureDerivedIntent(runId, sessionId, result, activate = true) }
+                }
+                derivedStore.listActive(runId, sessionId).forEach { operation ->
+                    if (operation.status == DerivedOperationStatus.RUNNING) derivedStore.recoverOrphan(operation)
+                }
+                kickDerivedWorker(runId, sessionId)
             }
         }
     }
 
-    private suspend fun drainBackgroundPostTurns(key: String, runId: String, sessionId: String) {
-        while (true) {
-            val batch = backgroundJobsLock.withLock {
-                val pending = backgroundPending.remove(key)?.toList().orEmpty()
-                if (pending.isEmpty()) backgroundJobs.remove(key)
-                pending
-            }
-            if (batch.isEmpty()) return
-            val startedAt = nowEpochMillis()
-            val derivedSession = runCatching {
-                sessionMutationLock(runId, sessionId).withLock {
-                    var manifest = storageService.loadSessionManifest(runId, sessionId)
-                    batch.forEach { work ->
-                        manifest = updateKnowledgeLedger(
-                            session = manifest,
-                            turnId = work.turnId,
-                            message = work.message,
-                            responses = work.responses,
-                        )
-                    }
-                    refreshDerivedSessionState(runId, sessionId, manifest)
-                }
-            }.onFailure { error ->
-                PlatformLog.w(TAG, "Background scene/ledger update failed for $runId/$sessionId: ${error.message}", error)
-            }.getOrNull()
+    /** 删除会话前取消并等待派生 worker，阻止迟到效果或回执重建目录。 */
+    fun cancelDerivedSession(runId: String, sessionId: String) {
+        backgroundJobsLock.withLock { cancelledDerived += "$runId:$sessionId" }
+        projections?.cancel(runId, sessionId)
+        derivedStore.cancelSession(runId, sessionId)
+        val key = "$runId:$sessionId"
+        val job = backgroundJobsLock.withLock { backgroundJobs.remove(key) }
+        job?.let {
+            it.cancel()
+            runBlocking { it.join() }
+        }
+    }
 
-            if (derivedSession != null) {
-                batch.forEach { work -> syncWorldMemory(runId, sessionId, work, derivedSession) }
+    fun resetDerivedSession(runId: String, sessionId: String) {
+        backgroundJobsLock.withLock { cancelledDerived -= "$runId:$sessionId" }
+        projections?.reset(runId, sessionId)
+    }
+
+    private fun kickDerivedWorker(runId: String, sessionId: String) {
+        val key = "$runId:$sessionId"
+        if (backgroundJobsLock.withLock { key in cancelledDerived }) return
+        backgroundJobsLock.withLock {
+            if (backgroundJobs[key]?.isActive == true) return@withLock
+            backgroundJobs[key] = backgroundScope.launch {
+                val workerJob = coroutineContext[Job]
+                try {
+                    drainDerivedOperations(runId, sessionId)
+                } finally {
+                    backgroundJobsLock.withLock {
+                        if (backgroundJobs[key] === workerJob) backgroundJobs.remove(key)
+                    }
+                    if (derivedStore.listActive(runId, sessionId).any { it.status != DerivedOperationStatus.RUNNING }) {
+                        kickDerivedWorker(runId, sessionId)
+                    }
+                }
             }
-            batch.forEach { work ->
-                runCatching {
-                    longTermMemory.appendTurn(
+        }
+    }
+
+    private suspend fun drainDerivedOperations(runId: String, sessionId: String) {
+        while (true) {
+            val operation = derivedStore.claimNext(runId, sessionId, randomUuid())
+            if (operation == null) {
+                val nextAttemptAt = derivedStore.listActive(runId, sessionId)
+                    .filter { it.status != DerivedOperationStatus.RUNNING }
+                    .mapNotNull { operation -> operation.nextAttemptAt.takeIf { time -> time > 0 } }
+                    .minOrNull()
+                if (nextAttemptAt == null) return
+                val waitMillis = nextAttemptAt - nowEpochMillis()
+                if (waitMillis > 0) {
+                    kotlinx.coroutines.delay(waitMillis)
+                }
+                continue
+            }
+            val startedAt = nowEpochMillis()
+            try {
+                executeDerivedOperation(operation)
+            } catch (_: DerivedOperationInactiveException) {
+                // 已被修正/删除取代的 owner 正常放弃，不再写失败回执。
+            } catch (cancelled: CancellationException) {
+                derivedStore.recoverOrphan(operation)
+                throw cancelled
+            } catch (error: Exception) {
+                val effect = DerivedEffect.entries.firstOrNull {
+                    operation.effects[it.name] in setOf(DerivedEffectStatus.PENDING, DerivedEffectStatus.RUNNING)
+                } ?: DerivedEffect.SESSION_STATE
+                derivedStore.failEffect(operation, effect, error)
+            }
+            PlatformLog.d(
+                TAG,
+                "Derived operation ${operation.operationId} finished with ${derivedStore.listAll(runId, sessionId)
+                    .firstOrNull { it.operationId == operation.operationId }?.status}: " +
+                    "elapsed_ms=${nowEpochMillis() - startedAt}",
+            )
+        }
+    }
+
+    private suspend fun executeDerivedOperation(initial: DerivedOperation) {
+        var operation = initial
+        val runId = operation.runId
+        val sessionId = operation.sessionId
+        var derivedSession: JsonObject? = null
+
+        if (operation.needs(DerivedEffect.SESSION_STATE)) {
+            try {
+                derivedSession = sessionMutationLock(runId, sessionId).withLock {
+                    storageService.updateSessionManifest(runId, sessionId) { latest ->
+                        val base = if (operation.kind == DerivedOperationKind.CORRECTION) {
+                            removeKnowledgeLedgerTurnSource(latest, operation.result.turnId)
+                        } else {
+                            latest
+                        }
+                        val merged = updateKnowledgeLedger(
+                            session = base,
+                            turnId = operation.result.turnId,
+                            message = operation.result.message,
+                            responses = operation.result.responses,
+                        )
+                        refreshDerivedSessionState(merged)
+                    }
+                }
+                operation = derivedStore.completeEffect(operation, DerivedEffect.SESSION_STATE)
+            } catch (inactive: DerivedOperationInactiveException) {
+                return
+            } catch (error: Exception) {
+                operation = derivedStore.failEffect(operation, DerivedEffect.SESSION_STATE, error)
+            }
+        }
+
+        if (operation.needs(DerivedEffect.WORLD_MEMORY) && !operation.needs(DerivedEffect.SESSION_STATE)) {
+            try {
+                val session = derivedSession ?: storageService.loadSessionManifest(runId, sessionId)
+                syncWorldMemory(operation, session)
+                operation = derivedStore.completeEffect(operation, DerivedEffect.WORLD_MEMORY)
+            } catch (inactive: DerivedOperationInactiveException) {
+                return
+            } catch (error: Exception) {
+                operation = derivedStore.failEffect(operation, DerivedEffect.WORLD_MEMORY, error)
+            }
+        }
+
+        if (operation.needs(DerivedEffect.LONG_TERM_MEMORY)) {
+            try {
+                if (operation.kind == DerivedOperationKind.CORRECTION) {
+                    longTermMemory.replaceTurn(
                         runId = runId,
                         sessionId = sessionId,
-                        turnId = work.turnId,
-                        message = work.message,
-                        responses = work.responses.map { response ->
+                        turnId = operation.result.turnId,
+                        message = operation.result.message,
+                        responses = operation.result.responses.map { response ->
                             mapOf("speaker" to response.speaker, "message" to response.message)
                         },
                     )
-                }.onFailure { error ->
-                    PlatformLog.w(TAG, "Background long-term memory update failed for $runId/$sessionId: ${error.message}", error)
+                } else {
+                    longTermMemory.appendTurn(
+                        runId = runId,
+                        sessionId = sessionId,
+                        turnId = operation.result.turnId,
+                        message = operation.result.message,
+                        responses = operation.result.responses.map { response ->
+                            mapOf("speaker" to response.speaker, "message" to response.message)
+                        },
+                    )
                 }
+                operation = derivedStore.completeEffect(operation, DerivedEffect.LONG_TERM_MEMORY)
+            } catch (inactive: DerivedOperationInactiveException) {
+                return
+            } catch (error: Exception) {
+                operation = derivedStore.failEffect(operation, DerivedEffect.LONG_TERM_MEMORY, error)
             }
-            runCatching {
-                storageService.readRunManifest(runId)?.let { runManifest ->
+        }
+
+        if (operation.needs(DerivedEffect.ORIGINAL_ENSURE)) {
+            try {
+                val runManifest = storageService.readRunManifest(runId)
+                if (runManifest == null || !originalKnowledge.hasSource(runManifest)) {
+                    operation = derivedStore.skipEffect(operation, DerivedEffect.ORIGINAL_ENSURE)
+                } else {
                     val participants = (derivedSession?.get("participants")?.jsonArray ?: JsonArray(emptyList()))
                         .mapNotNull { it.jsonPrimitive.contentOrNull }
                     originalKnowledge.ensure(
                         runManifest = runManifest,
-                        characterNames = participants + batch.flatMap { it.responses }.map { it.speaker },
+                        characterNames = participants + operation.result.responses.map { it.speaker },
                     )
+                    operation = derivedStore.completeEffect(operation, DerivedEffect.ORIGINAL_ENSURE)
                 }
-            }.onFailure { error ->
-                PlatformLog.w(TAG, "Background original-source index update failed for $runId: ${error.message}", error)
+            } catch (inactive: DerivedOperationInactiveException) {
+                return
+            } catch (error: Exception) {
+                operation = derivedStore.failEffect(operation, DerivedEffect.ORIGINAL_ENSURE, error)
             }
-            PlatformLog.d(
-                TAG,
-                "Background post-turn batch completed: run=$runId, session=$sessionId, " +
-                    "turns=${batch.size}, elapsed_ms=${nowEpochMillis() - startedAt}",
-            )
+        }
+    }
+
+    private fun DerivedOperation.needs(effect: DerivedEffect): Boolean =
+        effects[effect.name] !in setOf(DerivedEffectStatus.DONE, DerivedEffectStatus.SKIPPED)
+
+    private fun removeKnowledgeLedgerTurnSource(session: JsonObject, turnId: String): JsonObject {
+        val monitor = session["consistency_monitor"]?.jsonObject ?: return session
+        val ledger = (monitor["knowledge_ledger"]?.jsonArray ?: return session).mapNotNull { raw ->
+            val entry = raw as? JsonObject ?: return@mapNotNull null
+            val locked = entry["locked"]?.jsonPrimitive?.contentOrNull == "true" ||
+                entry["locked"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() == true
+            val declaredField = entry["source_turn_ids"]
+            val sources = if (declaredField != null) {
+                declaredField.jsonArray.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            } else {
+                listOfNotNull(entry["turn_id"]?.jsonPrimitive?.contentOrNull)
+            }
+            val remaining = sources.filter { it != turnId }
+            if (remaining.isEmpty() && !locked) {
+                null
+            } else {
+                buildJsonObject {
+                    entry.forEach { (key, value) -> put(key, value) }
+                    put("source_turn_ids", buildJsonArray { remaining.forEach { add(JsonPrimitive(it)) } })
+                }
+            }
+        }
+        return buildJsonObject {
+            session.forEach { (key, value) -> put(key, value) }
+            put("consistency_monitor", buildJsonObject {
+                monitor.forEach { (key, value) -> put(key, value) }
+                put("knowledge_ledger", JsonArray(ledger))
+            })
         }
     }
 
@@ -549,6 +988,15 @@ class DialogueService(
                                     .mapNotNull { it.jsonPrimitive.contentOrNull } + holders)
                                     .distinct().forEach { add(JsonPrimitive(it)) }
                             })
+                            put("source_turn_ids", buildJsonArray {
+                                val declaredField = ledger[index]["source_turn_ids"]
+                                val existingSources = if (declaredField != null) {
+                                    declaredField.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+                                } else {
+                                    listOfNotNull(ledger[index]["turn_id"]?.jsonPrimitive?.contentOrNull)
+                                }
+                                (existingSources + turnId).distinct().forEach { add(JsonPrimitive(it)) }
+                            })
                             put("updated_at", now)
                         }
                     } else {
@@ -556,6 +1004,7 @@ class DialogueService(
                             put("fact", fact)
                             put("source", speaker)
                             put("turn_id", turnId)
+                            put("source_turn_ids", buildJsonArray { add(JsonPrimitive(turnId)) })
                             put("holders", buildJsonArray { holders.forEach { add(JsonPrimitive(it)) } })
                             put("created_at", now)
                             put("updated_at", now)
@@ -587,11 +1036,12 @@ class DialogueService(
         responses: List<DialogueResponse>,
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
     ) {
-        val turnDir = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turns/$turnId"
+        val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
+        val turnDir = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turns/$safeTurnId"
         storageService.mkdirs(turnDir)
 
         val turnRecord = TurnRecord(
-            turnId = turnId,
+            turnId = safeTurnId,
             message = message,
             messageKind = messageKind,
             inputSpeaker = inputSpeaker,
@@ -603,6 +1053,9 @@ class DialogueService(
         val turnFile = turnDir / "turn.json"
         storageService.writeTextAtomically(turnFile, Json.encodeToString(TurnRecord.serializer(), turnRecord))
     }
+
+    internal fun extractWorldBookMatches(payload: Map<String, Any?>): List<WorldBookMatchDto> =
+        (payload["world_book_matches"] as? List<*>).orEmpty().filterIsInstance<WorldBookMatchDto>()
 
     internal fun extractOriginalEvidence(payload: Map<String, Any?>): List<OriginalKnowledgeEntryDto> {
         val context = (payload["original_source_context"] as? Map<*, *>)
@@ -635,6 +1088,12 @@ class DialogueService(
         }.distinctBy(OriginalKnowledgeEntryDto::sourceId).take(3)
     }
 
+    private fun decodeEvidence(value: JsonArray): List<OriginalKnowledgeEntryDto> =
+        json.decodeFromJsonElement(ListSerializer(OriginalKnowledgeEntryDto.serializer()), value)
+
+    private fun decodeWorldBookMatches(value: JsonArray): List<WorldBookMatchDto> =
+        json.decodeFromJsonElement(ListSerializer(WorldBookMatchDto.serializer()), value)
+
     private fun evidenceToJson(evidence: List<OriginalKnowledgeEntryDto>): JsonArray = buildJsonArray {
         evidence.forEach { item ->
             add(buildJsonObject {
@@ -661,9 +1120,12 @@ class DialogueService(
     private fun stringList(value: Any?): List<String> =
         (value as? List<*>)?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) }?.distinct().orEmpty()
 
-    /**
-     * Update session manifest with new turn count.
-     */
+    private data class CommittedTurn(
+        val manifest: JsonObject,
+        val result: ReplyOperationResult,
+    )
+
+    /** 先持久化 COMMITTING result，再写 turn 和带 revision 的 manifest。 */
     private fun updateSessionManifest(
         runId: String,
         sessionId: String,
@@ -676,14 +1138,16 @@ class DialogueService(
         messageKind: String,
         responses: List<DialogueResponse>,
         evidence: List<OriginalKnowledgeEntryDto>,
+        worldBookMatches: List<WorldBookMatchDto>,
         mode: String = "observe",
         manifest: JsonObject,
         deriveState: Boolean = true,
-    ): JsonObject {
+        operation: ActiveReplyOperation? = null,
+        expectedRevision: Long? = null,
+    ): CommittedTurn {
         val timestamp = nowIsoString()
         val transcript = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
-        val combinedTranscript = buildJsonArray {
-            transcript.forEach(::add)
+        val newEntries = buildList {
             if (!suppressUserMessage) add(buildJsonObject {
                 val speaker = inputSpeaker.trim().ifBlank {
                     if (messageKind == "fourth_wall") "作者" else "我"
@@ -706,28 +1170,67 @@ class DialogueService(
                 put("turn_id", turnId)
                 put("timestamp", timestamp)
                 if (index == 0 && evidence.isNotEmpty()) put("evidence", evidenceToJson(evidence))
+                if (index == 0 && worldBookMatches.isNotEmpty()) {
+                    put("world_book_matches", Json.encodeToJsonElement(ListSerializer(WorldBookMatchDto.serializer()), worldBookMatches))
+                }
             }) }
         }
-        val compacted = storageService.compactSessionTranscript(
-            runId = runId,
-            sessionId = sessionId,
-            manifest = manifest,
-            combined = combinedTranscript,
+        val baseCount = sessionTranscriptCount(manifest)
+        val result = ReplyOperationResult(
+            turnId = turnId,
+            committedRevision = sessionHistoryRevision(manifest) + 1,
+            transcriptCountAtCommit = baseCount + newEntries.size,
+            appendedTranscript = newEntries.mapIndexed { index, item ->
+                buildJsonObject {
+                    item.forEach { (key, value) -> put(key, value) }
+                    put("seq", baseCount + index)
+                }
+            },
+            message = userMessage,
+            messageKind = messageKind,
+            inputSpeaker = inputSpeaker,
+            inputRole = inputRole,
+            responses = responses,
+            suppressTranscriptMessage = suppressUserMessage,
+            evidence = evidenceToJson(evidence),
+            worldBookMatches = Json.encodeToJsonElement(
+                ListSerializer(WorldBookMatchDto.serializer()),
+                worldBookMatches,
+            ).jsonArray,
         )
+        if (operation != null) operations?.markCommitting(operation, result)
+        ensureDerivedIntent(runId, sessionId, result)
+        saveTurn(runId, sessionId, turnId, userMessage, messageKind, inputSpeaker, responses, evidence)
+
+        val combinedTranscript = buildJsonArray {
+            transcript.forEach(::add)
+            newEntries.forEach(::add)
+        }
         val updatedBase = buildJsonObject {
             manifest.forEach { (key, value) -> put(key, value) }
             put("turn_count", newTurnCount)
             put("current_turn_id", turnId)
             put("updated_at", timestamp)
             put("last_entry_preview", responses.lastOrNull()?.message.orEmpty())
-            put("transcript", compacted.recent)
-            put("transcript_start", compacted.startIndex)
-            put("transcript_count", compacted.totalCount)
+            // archive 只能由 mutateSessionHistory 在 revision 校验后的同一锁内写入。
+            put("transcript", combinedTranscript)
+            put("transcript_count", combinedTranscript.size)
         }
 
-        // 每轮提交后推导场景进度状态（对齐 Python _refresh_dialogue_scene_progress）
         if (!deriveState) {
-            return persistSessionManifestPreservingControls(runId, sessionId, updatedBase)
+            return CommittedTurn(
+                persistSessionManifestPreservingControls(
+                    runId = runId,
+                    sessionId = sessionId,
+                    turnId = turnId,
+                    message = userMessage,
+                    responses = responses,
+                    candidate = updatedBase,
+                    includeDerivedState = false,
+                    expectedRevision = expectedRevision,
+                ),
+                result,
+            )
         }
 
         val newTranscript = updatedBase["transcript"]?.jsonArray ?: JsonArray(emptyList())
@@ -750,11 +1253,17 @@ class DialogueService(
             updatedBase.forEach { (key, value) -> put(key, value) }
             put("state", SceneProgressState.stateToJsonObject(derivedState))
         }
+        val persisted = persistSessionManifestPreservingControls(
+            runId = runId,
+            sessionId = sessionId,
+            turnId = turnId,
+            message = userMessage,
+            responses = responses,
+            candidate = updated,
+            includeDerivedState = true,
+            expectedRevision = expectedRevision,
+        )
 
-        val persisted = persistSessionManifestPreservingControls(runId, sessionId, updated)
-
-        // 对齐 Python：每轮提交后把本轮的剧情事件/知识账本同步到 run 级世界记忆
-        // （时间线按 turn_key 幂等去重，事实带 source_session_id 便于会话删除时清理）
         runCatching {
             worldMemory?.syncCompletedTurn(
                 runId = runId,
@@ -778,14 +1287,10 @@ class DialogueService(
                 updatedAt = timestamp,
             )
         }
-        return persisted
+        return CommittedTurn(persisted, result)
     }
 
-    private fun refreshDerivedSessionState(
-        runId: String,
-        sessionId: String,
-        manifest: JsonObject,
-    ): JsonObject {
+    private fun refreshDerivedSessionState(manifest: JsonObject): JsonObject {
         val timestamp = nowIsoString()
         val transcript = manifest["transcript"]?.jsonArray ?: JsonArray(emptyList())
         val transcriptMaps = transcript.mapNotNull { raw ->
@@ -807,41 +1312,36 @@ class DialogueService(
             manifest.forEach { (key, value) -> put(key, value) }
             put("state", SceneProgressState.stateToJsonObject(derivedState))
         }
-        return persistSessionManifestPreservingControls(runId, sessionId, updated)
+        return updated
     }
 
-    private fun syncWorldMemory(
-        runId: String,
-        sessionId: String,
-        work: PostTurnWork,
-        updated: JsonObject,
-    ) {
+    private fun syncWorldMemory(operation: DerivedOperation, updated: JsonObject) {
+        val runId = operation.runId
+        val sessionId = operation.sessionId
+        val result = operation.result
         val timestamp = updated["state"]?.jsonObject?.get("scene")?.jsonObject
             ?.get("updated_at")?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { nowIsoString() }
-        runCatching {
-            worldMemory?.syncCompletedTurn(
-                runId = runId,
-                sessionId = sessionId,
-                turnId = work.turnId,
-                title = work.message,
-                participants = (updated["participants"]?.jsonArray ?: JsonArray(emptyList()))
-                    .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() },
-                events = (updated["state"]?.jsonObject?.get("signals")?.jsonObject
-                    ?.get("recent")?.jsonArray ?: JsonArray(emptyList()))
-                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-                    .filter { it["turn_id"]?.jsonPrimitive?.contentOrNull == work.turnId },
-                location = updated["state"]?.jsonObject?.get("scene")?.jsonObject
-                    ?.get("location")?.jsonPrimitive?.contentOrNull.orEmpty(),
-                timeHint = "",
-                consistencyStatus = updated["consistency_monitor"]?.jsonObject?.get("latest")?.jsonObject
-                    ?.get("status")?.jsonPrimitive?.contentOrNull.orEmpty(),
-                knowledgeLedger = (updated["consistency_monitor"]?.jsonObject
-                    ?.get("knowledge_ledger")?.jsonArray ?: JsonArray(emptyList()))
-                    .mapNotNull { runCatching { it.jsonObject }.getOrNull() },
-                updatedAt = timestamp,
-            )
-        }.onFailure { error ->
-            PlatformLog.w(TAG, "Background world-memory update failed for $runId/$sessionId: ${error.message}", error)
-        }
+        worldMemory?.syncCompletedTurn(
+            runId = runId,
+            sessionId = sessionId,
+            turnId = result.turnId,
+            title = result.message,
+            participants = (updated["participants"]?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() },
+            events = (updated["state"]?.jsonObject?.get("signals")?.jsonObject
+                ?.get("recent")?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
+                .filter { it["turn_id"]?.jsonPrimitive?.contentOrNull == result.turnId },
+            location = updated["state"]?.jsonObject?.get("scene")?.jsonObject
+                ?.get("location")?.jsonPrimitive?.contentOrNull.orEmpty(),
+            timeHint = "",
+            consistencyStatus = updated["consistency_monitor"]?.jsonObject?.get("latest")?.jsonObject
+                ?.get("status")?.jsonPrimitive?.contentOrNull.orEmpty(),
+            knowledgeLedger = (updated["consistency_monitor"]?.jsonObject
+                ?.get("knowledge_ledger")?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { runCatching { it.jsonObject }.getOrNull() },
+            updatedAt = timestamp,
+            replaceSource = operation.kind == DerivedOperationKind.CORRECTION,
+        )
     }
 }

@@ -6,12 +6,16 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.writeStringUtf8
+import kotlinx.coroutines.withContext
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.ktor.models.*
 import top.wkbin.zaomeng.ktor.services.*
 import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
+import top.wkbin.zaomeng.data.api.ImportSillyTavernChatRequest
 import top.wkbin.zaomeng.data.api.SessionsPageResponse
 import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
 
@@ -21,6 +25,55 @@ import top.wkbin.zaomeng.data.api.UpdateDialogueSessionTitleRequest
  * Phase 4: 写入 API 和状态管理
  */
 fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
+    post("/api/web/runs/{run_id}/dialogue/sessions/import-sillytavern") {
+        val runId = call.parameters["run_id"].orEmpty()
+        try {
+            val request = call.receive<ImportSillyTavernChatRequest>()
+            val session = withContext(platformIoDispatcher) { sessionService.sillyTavernChats.importChat(runId, request) }
+            call.respond(HttpStatusCode.Created, session)
+        } catch (error: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, error.message.orEmpty())
+        } catch (error: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, error.message.orEmpty())
+        }
+    }
+
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/export-sillytavern") {
+        val runId = call.parameters["run_id"].orEmpty()
+        val sessionId = call.parameters["session_id"].orEmpty()
+        try {
+            val lines = withContext(platformIoDispatcher) { sessionService.sillyTavernChats.exportLines(runId, sessionId) }
+            call.response.headers.append(HttpHeaders.ContentDisposition, "attachment; filename=chat.jsonl")
+            call.respondBytesWriter(ContentType.parse("application/x-ndjson")) {
+                for (line in lines) {
+                    writeStringUtf8(line.toString())
+                    writeStringUtf8("\n")
+                }
+            }
+        } catch (error: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, error.message.orEmpty())
+        } catch (error: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, error.message.orEmpty())
+        }
+    }
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/imported-swipes/{message_index}") {
+        try {
+            val runId = call.parameters["run_id"].orEmpty()
+            val sessionId = call.parameters["session_id"].orEmpty()
+            val messageIndex = call.parameters["message_index"].orEmpty()
+            val params = call.request.queryParameters
+            fun pageValue(name: String, default: Int): Int =
+                params[name]?.let { requireNotNull(it.toIntOrNull()) { "备用回复分页参数无效。" } } ?: default
+            val page = withContext(platformIoDispatcher) {
+                sessionService.sillyTavernChats.listSwipes(runId, sessionId, messageIndex, pageValue("offset", 0), pageValue("limit", 4))
+            }
+            call.respond(page)
+        } catch (error: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, error.message.orEmpty())
+        } catch (error: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, error.message.orEmpty())
+        }
+    }
 
     get("/api/web/sessions") {
         val page = call.sessionPageParams()
@@ -43,6 +96,17 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
     }
 
     // 创建对话会话
+    get("/api/web/runs/{run_id}/dialogue/card-greetings") {
+        val runId = call.parameters["run_id"].orEmpty()
+        try {
+            call.respond(withContext(platformIoDispatcher) { sessionService.getCardGreetings(runId) })
+        } catch (e: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, e.message.orEmpty())
+        } catch (e: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, e.message.orEmpty())
+        }
+    }
+
     post("/api/web/runs/{run_id}/dialogue/sessions") {
         val runId = call.parameters["run_id"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
 
@@ -57,6 +121,7 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
                 sceneProfile = request.sceneProfile,
                 selfCardId = request.selfCardId,
                 selfProfile = request.selfProfile,
+                cardGreetingIndex = request.cardGreetingIndex,
             )
             call.respond(HttpStatusCode.Created, result)
         } catch (e: NoSuchElementException) {
@@ -74,20 +139,43 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         val sessionId = call.parameters["session_id"] ?: return@get call.respondError(HttpStatusCode.BadRequest, "Missing session_id")
 
         try {
-            val result = sessionService.getDialogueSession(runId, sessionId)
             val includeTranscript = call.request.queryParameters["include_transcript"]
                 ?.toBooleanStrictOrNull()
                 ?: true
             val response = if (includeTranscript) {
-                withTranscriptCount(result)
+                withTranscriptCount(sessionService.getDialogueSession(runId, sessionId))
             } else {
-                leanSession(result)
+                leanSession(sessionService.getDialogueSessionHeader(runId, sessionId))
             }
             call.respond(HttpStatusCode.OK, response)
         } catch (e: NoSuchElementException) {
             call.respondError(HttpStatusCode.NotFound, "Session not found")
         } catch (e: Exception) {
             call.respondError(HttpStatusCode.InternalServerError, "Failed to get session")
+        }
+    }
+
+    get("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/projection") {
+        val runId = call.parameters["run_id"].orEmpty()
+        val sessionId = call.parameters["session_id"].orEmpty()
+        try {
+            call.respond(sessionService.getSessionProjection(runId, sessionId))
+        } catch (error: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, "Session not found")
+        } catch (error: Exception) {
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to read session projection")
+        }
+    }
+
+    post("/api/web/runs/{run_id}/dialogue/sessions/{session_id}/projection/rebuild") {
+        val runId = call.parameters["run_id"].orEmpty()
+        val sessionId = call.parameters["session_id"].orEmpty()
+        try {
+            call.respond(HttpStatusCode.Accepted, sessionService.rebuildSessionProjection(runId, sessionId))
+        } catch (error: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, "Session not found")
+        } catch (error: Exception) {
+            call.respondError(HttpStatusCode.InternalServerError, "Failed to rebuild session projection")
         }
     }
 
@@ -102,9 +190,20 @@ fun Route.sessionManagementRoutes(sessionService: SessionManagementService) {
         val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 500)
         val order = call.request.queryParameters["order"].orEmpty().trim()
             .takeIf { it in setOf("asc", "desc") } ?: "asc"
+        val expectedRevision = call.request.queryParameters["revision"]?.toLongOrNull()
         try {
-            val session = sessionService.getDialogueSession(runId, sessionId)
-            call.respond(pageTranscript(session, offset, limit, order))
+            call.respond(
+                sessionService.listDialogueSessionMessages(
+                    runId = runId,
+                    sessionId = sessionId,
+                    offset = offset,
+                    limit = limit,
+                    order = order,
+                    expectedRevision = expectedRevision,
+                ),
+            )
+        } catch (e: SessionRevisionConflictException) {
+            call.respondError(HttpStatusCode.Conflict, e.message ?: "Session revision conflict")
         } catch (e: NoSuchElementException) {
             call.respondError(HttpStatusCode.NotFound, "Session not found")
         } catch (e: Exception) {

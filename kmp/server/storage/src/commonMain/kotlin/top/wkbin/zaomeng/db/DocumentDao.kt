@@ -21,6 +21,12 @@ interface DocumentDao {
     @Query("SELECT updated_at FROM documents WHERE path = :path")
     suspend fun updatedAtOf(path: String): Long?
 
+    @Query("SELECT length(bytes) FROM documents WHERE path = :path")
+    suspend fun fileSizeOf(path: String): Long?
+
+    @Query("SELECT updated_at || '-' || length(bytes) FROM documents WHERE path = :path")
+    suspend fun fileVersionOf(path: String): String?
+
     @Query("SELECT EXISTS(SELECT 1 FROM documents WHERE path = :path)")
     suspend fun exists(path: String): Boolean
 

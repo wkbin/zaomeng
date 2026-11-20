@@ -38,7 +38,10 @@ data class RunManifestDto(
     @SerialName("artifact_index") val artifactIndex: ArtifactIndexDto = ArtifactIndexDto(),
     @SerialName("imported_from") val importedFrom: ImportedFromDto = ImportedFromDto(),
     @SerialName("beta_feature") val betaFeature: BetaFeatureDto? = null,
+    val entrypoint: String = "",
 ) {
+    val isSillyTavernCharacterCard: Boolean get() = entrypoint == "sillytavern"
+
     val title: String
         get() = novelSources.lastOrNull()?.sourceName
             ?.substringBeforeLast('.')
@@ -242,6 +245,77 @@ data class ImportRunPackageRequest(
     val filename: String,
     @SerialName("content_base64") val contentBase64: String,
     @SerialName("library_package") val libraryPackage: LibraryPackageImportDto? = null,
+    @SerialName("target_run_id") val targetRunId: String? = null,
+)
+
+@Serializable
+data class SillyTavernPreviewRequest(
+    val filename: String,
+    @SerialName("content_base64") val contentBase64: String,
+    @SerialName("world_book") val worldBook: Boolean = false,
+    @SerialName("target_run_id") val targetRunId: String? = null,
+    @SerialName("test_text") val testText: String? = null,
+)
+
+@Serializable
+data class SillyTavernPreviewDto(
+    @SerialName("character_name") val characterName: String = "",
+    val format: String = "",
+    @SerialName("has_avatar") val hasAvatar: Boolean = false,
+    val greeting: String = "",
+    @SerialName("alternate_greeting_count") val alternateGreetingCount: Int = 0,
+    @SerialName("mapped_fields") val mappedFields: List<String> = emptyList(),
+    @SerialName("book_name") val bookName: String = "",
+    @SerialName("entry_count") val entryCount: Int = 0,
+    @SerialName("previous_book_name") val previousBookName: String? = null,
+    @SerialName("previous_entry_count") val previousEntryCount: Int? = null,
+    @SerialName("unsupported_rules") val unsupportedRules: List<String> = emptyList(),
+    @SerialName("tested_entries") val testedEntries: List<WorldBookMatchDto>? = null,
+    @SerialName("injected_count") val injectedCount: Int = 0,
+)
+
+@Serializable
+data class WorldBookMatchDto(
+    val title: String,
+    val excerpt: String,
+    val status: String,
+    val keywords: List<String> = emptyList(),
+    val source: String = "",
+)
+
+@Serializable
+data class ManagedWorldBooksDto(val books: List<ManagedWorldBookDto> = emptyList())
+
+@Serializable
+data class ManagedWorldBookDto(
+    val source: String,
+    val name: String,
+    val revision: String,
+    val entries: List<ManagedWorldBookEntryDto>,
+)
+
+@Serializable
+data class ManagedWorldBookEntryDto(
+    val index: Int,
+    val title: String,
+    val content: String,
+    val enabled: Boolean,
+    val constant: Boolean,
+    val keywords: List<String>,
+    @SerialName("secondary_keywords") val secondaryKeywords: List<String>,
+)
+
+@Serializable
+data class SetWorldBookEntryRequest(val revision: String, val enabled: Boolean)
+
+@Serializable
+data class TestWorldBooksRequest(val text: String)
+
+@Serializable
+data class WorldBookTestDto(
+    val entries: List<WorldBookMatchDto>,
+    @SerialName("entry_count") val entryCount: Int,
+    @SerialName("injected_count") val injectedCount: Int,
 )
 
 @Serializable

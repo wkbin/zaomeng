@@ -11,6 +11,7 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -20,9 +21,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.ModelCapabilityReportDto
+import top.wkbin.zaomeng.data.api.DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+import top.wkbin.zaomeng.data.api.MAX_MODEL_REQUEST_TIMEOUT_SECONDS
 import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.createHttpClientEngine
-import top.wkbin.zaomeng.platform.openStreamingHttpPost
+import top.wkbin.zaomeng.platform.withStreamingHttpPost
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -38,11 +42,12 @@ import kotlin.time.TimeSource
  */
 class LlmClient(
     private val modelApiKeyService: ModelApiKeyService,
-    private val storageService: StorageService
+    private val storageService: StorageService,
+    requestTimeoutSeconds: Int = DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS,
+    private val requestDiagnostics: ModelRequestDiagnostics? = null,
 ) {
     companion object {
         private const val TAG = "LlmClient"
-        private const val DEFAULT_TIMEOUT_SECONDS = 60L
         private const val DEFAULT_MAX_RETRIES = 3
         private const val DEFAULT_TEMPERATURE = 0.7
         // Retry-able HTTP status codes
@@ -96,6 +101,18 @@ class LlmClient(
                 normalizedModel.startsWith("o3") || normalizedModel.startsWith("o4")
             ) "max_completion_tokens" else "max_tokens"
         }
+
+        internal fun streamUsageOptions(profile: Map<String, String>): StreamOptions? {
+            val provider = profile["provider"]?.trim()?.lowercase().orEmpty()
+            val baseUrl = profile["base_url"]?.trim()?.lowercase().orEmpty()
+            return if (provider == "openai" || provider == "anthropic" ||
+                "api.deepseek.com" in baseUrl || "api.openai.com" in baseUrl || "api.anthropic.com" in baseUrl
+            ) {
+                StreamOptions(include_usage = true)
+            } else {
+                null
+            }
+        }
     }
 
     private val json = Json {
@@ -112,9 +129,9 @@ class LlmClient(
         }
 
         install(HttpTimeout) {
-            requestTimeoutMillis = DEFAULT_TIMEOUT_SECONDS * 1000
+            requestTimeoutMillis = requestTimeoutSeconds * 1000L
             connectTimeoutMillis = 30_000
-            socketTimeoutMillis = DEFAULT_TIMEOUT_SECONDS * 1000
+            socketTimeoutMillis = requestTimeoutSeconds * 1000L
         }
 
         // Don't throw exceptions on non-2xx responses
@@ -138,6 +155,12 @@ class LlmClient(
         val id: String? = null,
         val model: String = "",
         val choices: List<StreamChoice> = emptyList(),
+        val usage: Usage? = null,
+    )
+
+    @Serializable
+    data class StreamOptions(
+        val include_usage: Boolean,
     )
 
     @Serializable
@@ -170,6 +193,8 @@ class LlmClient(
         @SerialName("max_completion_tokens")
         val maxCompletionTokens: Int? = null,
         val stream: Boolean = false,
+        @SerialName("stream_options")
+        val streamOptions: StreamOptions? = null,
         // DeepSeek 推理控制：{"type":"disabled"} 关闭推理（缩短 TTFT）；null 不输出（保留默认推理）
         val thinking: JsonObject? = null,
         // DeepSeek reasoning_effort（low/medium/high/xhigh→max 等）：控制思考预算；null 不输出
@@ -216,10 +241,21 @@ class LlmClient(
     )
 
     @Serializable
+    data class PromptTokenDetails(
+        val cached_tokens: Int? = null,
+    )
+
+    @Serializable
     data class Usage(
-        val prompt_tokens: Int,
-        val completion_tokens: Int,
-        val total_tokens: Int
+        val prompt_tokens: Int = 0,
+        val completion_tokens: Int = 0,
+        val total_tokens: Int = 0,
+        val prompt_tokens_details: PromptTokenDetails? = null,
+        val prompt_cache_hit_tokens: Int? = null,
+        val prompt_cache_miss_tokens: Int? = null,
+        val input_tokens: Int? = null,
+        val cache_read_input_tokens: Int? = null,
+        val cache_creation_input_tokens: Int? = null,
     )
 
     @Serializable
@@ -272,6 +308,7 @@ class LlmClient(
                 "profile_id" to profileId,
                 "reasoning_effort" to (profile.reasoningEffort ?: "off"),
                 "token_parameter" to (profile.tokenParameter ?: "auto"),
+                "request_timeout_seconds" to profile.requestTimeoutSeconds?.toString().orEmpty(),
                 "response_format_mode" to (profile.responseFormatMode ?: "auto")
             )
         } catch (e: Exception) {
@@ -305,6 +342,7 @@ class LlmClient(
         maxTokens: Int? = null,
         enableReasoning: Boolean = false,
         requireJsonObject: Boolean = false,
+        context: LlmRequestContext = LlmRequestContext(),
     ): ChatCompletionResponse {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -328,8 +366,20 @@ class LlmClient(
             responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
-        return retryWithBackoff(maxRetries = DEFAULT_MAX_RETRIES) {
+        val diagnosticId = requestDiagnostics?.start(context, request, baseUrl)
+        var usage: Usage? = null
+        var status = "failed"
+        try {
+            return retryWithBackoff(maxRetries = DEFAULT_MAX_RETRIES) {
             val response: HttpResponse = httpClient.post("$baseUrl/chat/completions") {
+                timeout {
+                    val seconds = profile["request_timeout_seconds"]?.toIntOrNull()
+                        ?.takeIf { it in 1..MAX_MODEL_REQUEST_TIMEOUT_SECONDS }
+                        ?: DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+                    val millis = seconds * 1000L
+                    requestTimeoutMillis = millis
+                    socketTimeoutMillis = millis
+                }
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $apiKey")
                 setBody(request)
@@ -340,8 +390,6 @@ class LlmClient(
                     response.body<ChatCompletionResponse>()
                 }
                 in RETRYABLE_STATUS_CODES.map { HttpStatusCode.fromValue(it) } -> {
-                    val errorBody = response.bodyAsText()
-                    PlatformLog.w(TAG, "Retryable error (${response.status}): $errorBody")
                     throw RetryableException("API returned ${response.status}")
                 }
                 else -> {
@@ -354,6 +402,35 @@ class LlmClient(
                     throw IllegalStateException("API error (${response.status}): $errorMsg")
                 }
             }
+            }.also { result ->
+                usage = result.usage
+                status = "completed"
+            }
+        } finally {
+            requestDiagnostics?.finish(diagnosticId, usage, status = status)
+        }
+    }
+
+    suspend fun discoverModels(endpoint: Url, apiKey: String): List<String> {
+        val client = httpClient.config { followRedirects = false }
+        try {
+            val response = client.get(endpoint) {
+                bearerAuth(apiKey)
+                accept(ContentType.Application.Json)
+                timeout { requestTimeoutMillis = 20_000 }
+            }
+            if (!response.status.isSuccess()) {
+                throw ModelDiscoveryException("模型服务返回 HTTP ${response.status.value}。")
+            }
+            return parseDiscoveredModels(json, response.bodyAsText())
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: ModelDiscoveryException) {
+            throw e
+        } catch (e: Exception) {
+            throw ModelDiscoveryException("无法读取模型列表，请检查接口地址、网络和返回格式。")
+        } finally {
+            client.close()
         }
     }
 
@@ -438,12 +515,11 @@ class LlmClient(
             stream = true,
         )
         runCatching {
-            val response = openStreamingHttpPost(
+            withStreamingHttpPost(
                 url = endpoint,
                 headers = mapOf("Authorization" to "Bearer $apiKey"),
                 body = json.encodeToString(ChatCompletionRequest.serializer(), streamRequest),
-            )
-            try {
+            ) { response ->
                 if (response.statusCode !in 200..299) {
                     throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
                 }
@@ -462,8 +538,6 @@ class LlmClient(
                         streamedContent.append(delta)
                     }
                 }
-            } finally {
-                response.close()
             }
         }.onFailure { warnings += "SSE 流式探测失败：${it.message.orEmpty().take(120)}" }
         val totalMs = started.elapsedNow().inWholeMilliseconds.coerceToInt()
@@ -653,6 +727,7 @@ class LlmClient(
         onReasoning: (String) -> Unit = {},
         enableReasoning: Boolean = false,
         requireJsonObject: Boolean = false,
+        context: LlmRequestContext = LlmRequestContext(),
     ): ChatCompletionResponse {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -671,17 +746,23 @@ class LlmClient(
             max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
             maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
             stream = true,
+            streamOptions = streamUsageOptions(profile),
             thinking = thinking,
             reasoningEffort = reasoningEffort,
             responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
-        val response = openStreamingHttpPost(
+        val diagnosticId = requestDiagnostics?.start(context, request, baseUrl)
+        var lastUsage: Usage? = null
+        var status = "failed"
+        var firstContentAt: Long? = null
+        val requestStartedAt = nowEpochMillis()
+        try {
+            return withStreamingHttpPost(
             url = "$baseUrl/chat/completions",
             headers = mapOf("Authorization" to "Bearer $apiKey"),
             body = json.encodeToString(ChatCompletionRequest.serializer(), request),
-        )
-        try {
+        ) { response ->
             if (response.statusCode !in 200..299) {
                 throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
             }
@@ -695,11 +776,13 @@ class LlmClient(
                 consumeDecodedSsePayload(
                     data = data,
                     decode = { json.decodeFromString<StreamChunk>(it) },
-                    onDecodeFailure = { error -> PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", error) },
+                    onDecodeFailure = { PlatformLog.w(TAG, "Failed to parse SSE chunk (chars=${data.length})") },
                 ) { chunk ->
+                    lastUsage = chunk.usage ?: lastUsage
                     responseModel = chunk.model.ifBlank { responseModel }
                     val delta = chunk.choices.firstOrNull()?.delta
                     delta?.content?.takeIf { it.isNotEmpty() }?.let {
+                        if (firstContentAt == null) firstContentAt = nowEpochMillis()
                         contentBuilder.append(it)
                         onDelta(it)
                     }
@@ -708,7 +791,7 @@ class LlmClient(
                 }
             }
 
-            return ChatCompletionResponse(
+            ChatCompletionResponse(
                 model = responseModel,
                 choices = listOf(
                     Choice(
@@ -717,10 +800,16 @@ class LlmClient(
                         finish_reason = finishReason,
                     )
                 ),
-                usage = null,
+                usage = lastUsage,
             )
+            }.also { status = "completed" }
         } finally {
-            response.close()
+            requestDiagnostics?.finish(
+                diagnosticId,
+                lastUsage,
+                ttftMs = firstContentAt?.let { it - requestStartedAt },
+                status = status,
+            )
         }
     }
 
@@ -742,6 +831,7 @@ class LlmClient(
         onReasoning: (suspend (String) -> Unit)? = null,
         enableReasoning: Boolean = false,
         requireJsonObject: Boolean = false,
+        context: LlmRequestContext = LlmRequestContext(),
     ): Flow<String> = flow {
         val profile = getActiveProfile()
         val resolvedModel = model ?: profile["model"] ?: throw IllegalStateException("No model configured")
@@ -760,17 +850,23 @@ class LlmClient(
             max_tokens = maxTokens.takeIf { tokenParameter == "max_tokens" },
             maxCompletionTokens = maxTokens.takeIf { tokenParameter == "max_completion_tokens" },
             stream = true,
+            streamOptions = streamUsageOptions(profile),
             thinking = thinking,
             reasoningEffort = reasoningEffort,
             responseFormat = nativeJsonResponseFormat(profile, resolvedModel, requireJsonObject),
         )
 
-        val response = openStreamingHttpPost(
+        val diagnosticId = requestDiagnostics?.start(context, request, baseUrl)
+        var lastUsage: Usage? = null
+        var status = "failed"
+        var firstContentAt: Long? = null
+        val requestStartedAt = nowEpochMillis()
+        try {
+            withStreamingHttpPost(
             url = "$baseUrl/chat/completions",
             headers = mapOf("Authorization" to "Bearer $apiKey"),
             body = json.encodeToString(ChatCompletionRequest.serializer(), request),
-        )
-        try {
+        ) { response ->
             if (response.statusCode !in 200..299) {
                 throw modelApiError(response.statusCode, response.statusDescription, response.readRemainingText())
             }
@@ -780,15 +876,26 @@ class LlmClient(
                 consumeDecodedSsePayload(
                     data = data,
                     decode = { json.decodeFromString<StreamChunk>(it) },
-                    onDecodeFailure = { error -> PlatformLog.w(TAG, "Failed to parse SSE chunk: $data", error) },
+                    onDecodeFailure = { PlatformLog.w(TAG, "Failed to parse SSE chunk (chars=${data.length})") },
                 ) { chunk ->
+                    lastUsage = chunk.usage ?: lastUsage
                     val delta = chunk.choices.firstOrNull()?.delta
-                    delta?.content?.takeIf { it.isNotEmpty() }?.let { emit(it) }
+                    delta?.content?.takeIf { it.isNotEmpty() }?.let {
+                        if (firstContentAt == null) firstContentAt = nowEpochMillis()
+                        emit(it)
+                    }
                     delta?.reasoningContent?.takeIf { it.isNotEmpty() }?.let { onReasoning?.invoke(it) }
                 }
             }
+            status = "completed"
+        }
         } finally {
-            response.close()
+            requestDiagnostics?.finish(
+                diagnosticId,
+                lastUsage,
+                ttftMs = firstContentAt?.let { it - requestStartedAt },
+                status = status,
+            )
         }
     }
 
@@ -819,19 +926,18 @@ class LlmClient(
         block: suspend () -> T
     ): T {
         var currentDelay = initialDelayMs
-        repeat(maxRetries) { attempt ->
+        for (attempt in 1 until maxRetries) {
             try {
                 return block()
-            } catch (e: RetryableException) {
-                if (attempt == maxRetries - 1) {
-                    throw e
-                }
-                PlatformLog.w(TAG, "Retry attempt ${attempt + 1}/$maxRetries after ${currentDelay}ms", e)
+            } catch (error: Exception) {
+                val transientIo = error is IOException && error !is HttpRequestTimeoutException
+                if (!transientIo && error !is RetryableException) throw error
+                PlatformLog.w(TAG, "Completion attempt $attempt/$maxRetries failed (${error::class.simpleName}), retry in ${currentDelay}ms")
                 delay(currentDelay)
                 currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelayMs)
             }
         }
-        return block() // Final attempt
+        return block()
     }
 
     /**

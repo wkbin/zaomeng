@@ -6,8 +6,12 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.withContext
 import top.wkbin.zaomeng.data.api.CreateRunRequest
+import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
+import top.wkbin.zaomeng.data.api.SillyTavernPreviewRequest
 import top.wkbin.zaomeng.ktor.services.*
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 /**
  * 运行管理路由
@@ -15,12 +19,27 @@ import top.wkbin.zaomeng.ktor.services.*
  * Phase 4: 写入 API 和状态管理
  */
 fun Route.runManagementRoutes(runService: RunManagementService, packageService: RunPackageService) {
+    worldBookRoutes(packageService.sillyTavern)
+    post("/api/web/runs/import/sillytavern/preview") {
+        try {
+            val request = call.receive<SillyTavernPreviewRequest>()
+            call.respond(withContext(platformIoDispatcher) { packageService.previewSillyTavern(request) })
+        } catch (e: IllegalArgumentException) {
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "无效的 SillyTavern 文件。")
+        } catch (_: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, "目标书卷不存在。")
+        }
+    }
 
     post("/api/web/runs/import") {
         try {
-            call.respond(HttpStatusCode.Created, packageService.importPackage(call.receive<top.wkbin.zaomeng.data.api.ImportRunPackageRequest>()))
+            val request = call.receive<ImportRunPackageRequest>()
+            val result = withContext(platformIoDispatcher) { packageService.importPackage(request) }
+            call.respond(HttpStatusCode.Created, result)
         } catch (e: IllegalArgumentException) {
             call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid run package"))
+        } catch (_: NoSuchElementException) {
+            call.respondError(HttpStatusCode.NotFound, "目标书卷不存在。")
         }
     }
 

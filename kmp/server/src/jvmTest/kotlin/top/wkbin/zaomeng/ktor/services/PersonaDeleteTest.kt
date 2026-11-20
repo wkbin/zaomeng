@@ -1,5 +1,8 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
@@ -33,6 +36,37 @@ class PersonaDeleteTest {
         val documentStore = RoomDocumentStore(db)
         val domain = DomainStore(root, db.domainDao(), documentStore)
         return StorageService(root, documentStore, domain)
+    }
+
+    @Test
+    fun `concurrent edits to different relations are all retained`() = runBlocking {
+        val dbFile = tempDbFile()
+        val db = newDatabase(dbFile)
+        try {
+            val storage = newStorage(dbFile, db)
+            val relationsFile = storage.getRunDirectory("run-1") / "artifacts/relations/test.relations.md"
+            val pairs = (1..12).associate { "甲_人物$it" to mapOf("trust" to 1) }
+            storage.writeTextAtomically(relationsFile, "---\n" + dumpYaml(mapOf("relations" to pairs)) + "---\n")
+            storage.writeRunManifest("run-1", buildJsonObject {
+                put("run_id", "run-1")
+                put("artifact_index", buildJsonObject {
+                    put("relation_graph", buildJsonObject { put("relations_file", relationsFile.toString()) })
+                })
+            })
+
+            val service = RelationsService(storage)
+            pairs.keys.map { key ->
+                async(Dispatchers.IO) {
+                    service.update("run-1", key, 9, 0, 0, 3, "", "", "", "")
+                }
+            }.awaitAll()
+
+            val items = service.list("run-1").getValue("items").jsonArray
+            assertEquals(pairs.size, items.size)
+            assertEquals(setOf("9"), items.map { it.jsonObject.getValue("trust").jsonPrimitive.content }.toSet())
+        } finally {
+            db.close()
+        }
     }
 
     @Test

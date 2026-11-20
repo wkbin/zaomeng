@@ -19,6 +19,8 @@ import it.krzeminski.snakeyaml.engine.kmp.api.DumpSettings
 import it.krzeminski.snakeyaml.engine.kmp.api.Load
 import it.krzeminski.snakeyaml.engine.kmp.common.FlowStyle
 import io.github.yuroyami.kitearchive.KiteArchive
+import io.github.yuroyami.kitearchive.archive.ArchiveFormat
+import io.github.yuroyami.kitearchive.security.ArchiveLimits
 import io.github.yuroyami.kitearchive.archive.ByteArrayRandomAccessSource
 import io.github.yuroyami.kitearchive.archive.zip.ZipWriter
 import io.github.yuroyami.kitearchive.codec.CodecId
@@ -43,11 +45,26 @@ actual fun dumpYaml(value: Any?): String =
 actual fun randomUuid(): String = NSUUID().UUIDString.lowercase()
 
 // ZIP：jvm/android 用 java.util.zip；iOS 用 KiteArchive（纯 Kotlin KMP，STORE/DEFLATE/ZIP64）。
-actual fun readZipEntries(bytes: ByteArray): List<ZipEntryData> {
+internal actual fun forEachZipEntry(bytes: ByteArray, consume: (ZipEntryData) -> Unit) {
     val reader = KiteArchive.open(ByteArrayRandomAccessSource(bytes))
-    return reader.entries()
-        .filterNot { it.isDirectory || it.name.endsWith("/") }
-        .map { ZipEntryData(it.name, reader.read(it)) }
+    try {
+        require(reader.format == ArchiveFormat.ZIP) { "Expected a ZIP archive" }
+        val entries = reader.entries()
+        require(entries.size <= MAX_ZIP_ENTRIES) { "ZIP contains too many entries" }
+        var remaining = MAX_ZIP_TOTAL_BYTES
+        for (entry in entries) {
+            if (entry.isDirectory || entry.name.endsWith("/")) continue
+            val limits = ArchiveLimits(
+                maxUncompressedBytes = minOf(remaining, MAX_ZIP_ENTRY_BYTES),
+                maxCompressionRatio = MAX_ZIP_COMPRESSION_RATIO,
+            )
+            val content = reader.read(entry, limits)
+            remaining -= content.size
+            consume(ZipEntryData(entry.name, content))
+        }
+    } finally {
+        reader.close()
+    }
 }
 
 actual fun writeZipEntries(entries: List<ZipEntryData>): ByteArray =

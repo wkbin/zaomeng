@@ -7,7 +7,9 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
+import top.wkbin.zaomeng.ktor.services.DialogueOperationException
 import top.wkbin.zaomeng.ktor.services.DialogueService
+import top.wkbin.zaomeng.ktor.services.SessionRevisionConflictException
 import top.wkbin.zaomeng.ktor.services.LlmClient
 import top.wkbin.zaomeng.ktor.services.ModelApiKeyService
 import top.wkbin.zaomeng.ktor.services.PromptLoader
@@ -36,7 +38,7 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
         try {
             val request = call.receive<DialogueReplyRequest>()
 
-            dialogueService.replyDialogueTurn(
+            val outcome = dialogueService.replyDialogueTurnOutcome(
                 runId = runId,
                 sessionId = sessionId,
                 message = request.message,
@@ -47,11 +49,19 @@ fun Route.dialogueRoutes(dialogueService: DialogueService, storageService: Stora
                 includeInnerThoughts = request.includeInnerThoughts,
                 operationId = request.operationId,
             )
-            val session = storageService.getDialogueSession(runId, sessionId)
+            val session = if (request.includeTranscript) {
+                storageService.getDialogueSession(runId, sessionId)
+            } else {
+                storageService.withCharacterAvatars(outcome.sessionManifest, runId)
+            }
             call.respond(
                 HttpStatusCode.OK,
                 if (request.includeTranscript) withTranscriptCount(session) else leanSession(session),
             )
+        } catch (e: DialogueOperationException) {
+            call.respondError(HttpStatusCode.Conflict, e.message ?: "Operation conflict")
+        } catch (e: SessionRevisionConflictException) {
+            call.respondError(HttpStatusCode.Conflict, e.message ?: "Session revision conflict")
         } catch (e: NoSuchElementException) {
             call.respondError(HttpStatusCode.NotFound, e.message ?: "Not found")
         } catch (e: IllegalStateException) {

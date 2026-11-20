@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -42,11 +43,6 @@ class StorageService(
     constructor(storageRoot: Path, fs: FileSystem = FileSystem.SYSTEM) :
         this(storageRoot, FileSystemDocumentStore(fs), null)
 
-    /**
-     * 按路径分片的写锁：不同 run/文件可并行写，同一路径仍串行。
-     * 固定 64 路，避免全局锁串行化与无界锁表增长。
-     */
-    private val writeLocks = Array(64) { SimpleLock() }
     private data class CachedJsonDocument(
         val modifiedAt: Long,
         val size: Long,
@@ -57,8 +53,15 @@ class StorageService(
 
     private fun lockFor(target: Path): SimpleLock {
         val path = target.toString()
-        val index = (path.hashCode() and Int.MAX_VALUE) % writeLocks.size
-        return writeLocks[index]
+        val index = (path.hashCode() and Int.MAX_VALUE) % WRITE_LOCKS.size
+        return WRITE_LOCKS[index]
+    }
+
+    val transcriptReader: SessionTranscriptReader by lazy { SessionTranscriptReader(this) }
+
+    internal fun <T> withSessionManifestLock(runId: String, sessionId: String, block: () -> T): T {
+        val manifestFile = getDialogueSessionManifestFile(runId, sessionId)
+        return lockFor(manifestFile).withLock { block() }
     }
 
     private val json = Json {
@@ -121,6 +124,24 @@ class StorageService(
         writeBytesAtomically(path, bytes)
     }
 
+    /** Transform an existing text document under the same lock as its writes. */
+    fun <T> updateText(path: Path, transform: (String) -> Pair<String, T>?): T? =
+        lockFor(path).withLock {
+            val original = readTextOrNull(path) ?: return@withLock null
+            val (content, result) = transform(original) ?: return@withLock null
+            writeBytesLocked(path, content.encodeToByteArray())
+            result
+        }
+
+    /** 在同一路径锁内创建或更新文档，用于 operation 的原子 claim 与状态转换。 */
+    fun <T> updateOrCreateText(path: Path, transform: (String?) -> Pair<String, T>): T =
+        lockFor(path).withLock {
+            val original = readTextOrNull(path)
+            val (content, result) = transform(original)
+            writeBytesLocked(path, content.encodeToByteArray())
+            result
+        }
+
     /** 追加文本（创建文件或续写；对齐 File.appendText）。 */
     fun appendText(path: Path, content: String) {
         lockFor(path).withLock {
@@ -134,12 +155,26 @@ class StorageService(
     }
 
     fun deleteFile(path: Path) {
-        store.deleteFile(path)
-        domain?.onDelete(path)
-        sessionManifestCacheLock.withLock { sessionManifestCache.remove(path.toString()) }
+        // 与写入共用同一把路径分片锁：否则「删除后 manifest 被写回」会留下幽灵文件/实体行。
+        lockFor(path).withLock {
+            store.deleteFile(path)
+            domain?.onDelete(path)
+            sessionManifestCacheLock.withLock { sessionManifestCache.remove(path.toString()) }
+        }
     }
 
     fun deleteRecursively(path: Path) {
+        // 目录删除取目标自身的分片锁，保证同一路径的删除不并发。
+        // 这里刻意**不**再嵌套子文件/清单的锁：SimpleLock 的跨锁嵌套会与
+        // updateSessionManifest（持清单锁再删归档目录）形成 ABBA。
+        // 因此"删除后又被写回"依赖写入侧先读后写——updateRunManifest /
+        // loadSessionManifest 在文件缺失时直接抛异常，不会重建目录。
+        lockFor(path).withLock {
+            deleteRecursivelyLocked(path)
+        }
+    }
+
+    private fun deleteRecursivelyLocked(path: Path) {
         store.deleteRecursively(path)
         domain?.onDelete(path)
         val prefix = path.toString().trimEnd('/') + "/"
@@ -194,12 +229,30 @@ class StorageService(
     }
 
     /**
-     * 写入运行清单
+     * 写入运行清单（仅用于**新建** run；更新已有清单请用 [updateRunManifest]）。
      */
     fun writeRunManifest(runId: String, manifest: JsonObject) {
         val manifestFile = getRunManifestPath(runId)
-        store.mkdirs(manifestFile.parent!!)
+        store.mkdirs(requireNotNull(manifestFile.parent) { "Run manifest path must have a parent" })
         writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), manifest))
+    }
+
+    /**
+     * 在路径锁内完成运行清单的读-改-写，避免蒸馏进度、停止请求与用户操作互相覆盖。
+     *
+     * 清单不存在时抛 [NoSuchElementException]，不重建目录：已删除的 run 不会被后台任务写回来。
+     */
+    fun updateRunManifest(runId: String, transform: (JsonObject) -> JsonObject): JsonObject {
+        val manifestFile = getRunManifestPath(runId)
+        return lockFor(manifestFile).withLock {
+            val content = store.readBytes(manifestFile)?.decodeToString()
+                ?: throw NoSuchElementException("Run manifest not found: $runId")
+            val current = runCatching { json.parseToJsonElement(content).jsonObject }
+                .getOrElse { throw IllegalStateException("Failed to load run manifest: ${it.message}", it) }
+            val updated = transform(current)
+            writeBytesLocked(manifestFile, json.encodeToString(JsonObject.serializer(), updated).encodeToByteArray())
+            updated
+        }
     }
 
     /**
@@ -303,11 +356,14 @@ class StorageService(
         var recent = combined
         if (recent.size > TRANSCRIPT_ROLLOVER_THRESHOLD) {
             val archiveCount = recent.size - TRANSCRIPT_RECENT_TARGET
-            val archived = JsonArray(recent.take(archiveCount))
             mkdirs(archiveDir)
-            val chunkFile = archiveDir / "${startIndex.toString().padStart(10, '0')}.json"
-            writeTextAtomically(chunkFile, json.encodeToString(JsonArray.serializer(), archived))
-            startIndex += archived.size
+            for (offset in 0 until archiveCount step TRANSCRIPT_RECENT_TARGET) {
+                val end = minOf(offset + TRANSCRIPT_RECENT_TARGET, archiveCount)
+                val archived = JsonArray(recent.subList(offset, end))
+                val chunkFile = archiveDir / "${(startIndex + offset).toString().padStart(10, '0')}.json"
+                writeTextAtomically(chunkFile, json.encodeToString(JsonArray.serializer(), archived))
+            }
+            startIndex += archiveCount
             recent = JsonArray(recent.drop(archiveCount))
         }
         return CompactedTranscript(
@@ -317,33 +373,39 @@ class StorageService(
         )
     }
 
-    private fun materializeSessionTranscript(runId: String, sessionId: String, manifest: JsonObject): JsonObject {
-        val startIndex = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
-        if (startIndex == 0) return manifest
-        val archived = buildList {
-            val archiveDir = getTranscriptArchiveDirectory(runId, sessionId)
-            if (isDirectory(archiveDir)) {
-                listFiles(archiveDir)
-                    .filter { isFile(it) && it.name.endsWith(".json") }
-                    .sortedBy { it.name }
-                    .forEach { file ->
-                        val items = readTextOrNull(file)?.let { raw ->
-                            runCatching { json.decodeFromString(JsonArray.serializer(), raw) }.getOrNull()
-                        }
-                        if (items != null) addAll(items)
-                    }
+    /** Read older chunks on demand so a bounded search can stop before loading the whole transcript. */
+    fun sessionTranscriptEntries(runId: String, sessionId: String, manifest: JsonObject): Sequence<JsonElement> = sequence {
+        val startIndex = (manifest["transcript_start"] as? JsonPrimitive)?.intOrNull ?: 0
+        if (startIndex > 0) {
+            val archive = getTranscriptArchiveDirectory(runId, sessionId)
+            val chunks = listFiles(archive).mapNotNull { file ->
+                val offset = file.name.removeSuffix(".json").toIntOrNull()
+                if (file.name.endsWith(".json") && offset != null && offset in 0 until startIndex) {
+                    offset to file
+                } else {
+                    null
+                }
+            }.sortedBy { (offset, _) -> offset }
+            var expectedOffset = 0
+            for ((offset, file) in chunks) {
+                if (offset != expectedOffset) {
+                    throw TranscriptArchiveException("Transcript archive is incomplete at sequence $expectedOffset")
+                }
+                val raw = readTextOrNull(file)
+                    ?: throw TranscriptArchiveException("Transcript archive chunk not found: $file")
+                val items = runCatching { json.decodeFromString(JsonArray.serializer(), raw) }
+                    .getOrElse { throw TranscriptArchiveException("Invalid transcript archive chunk: $file", it) }
+                if (offset + items.size > startIndex) {
+                    throw TranscriptArchiveException("Transcript archive exceeds the current manifest: $file")
+                }
+                yieldAll(items.asSequence())
+                expectedOffset += items.size
+            }
+            if (expectedOffset != startIndex) {
+                throw TranscriptArchiveException("Transcript archive is incomplete: expected $startIndex, got $expectedOffset")
             }
         }
-        val recent = manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
-        val full = JsonArray(archived + recent)
-        return buildJsonObject {
-            manifest.forEach { (key, value) ->
-                if (key !in setOf("transcript", "transcript_start", "transcript_count")) put(key, value)
-            }
-            put("transcript", full)
-            put("transcript_start", 0)
-            put("transcript_count", full.size)
-        }
+        yieldAll((manifest["transcript"] as? JsonArray).orEmpty())
     }
 
     /**
@@ -409,7 +471,13 @@ class StorageService(
                 ?: throw NoSuchElementException("Session manifest not found: $sessionId")
             val current = runCatching { json.decodeFromString(JsonObject.serializer(), content) }
                 .getOrElse { throw IllegalStateException("Failed to load session manifest: ${it.message}", it) }
-            val updated = transform(current)
+            val transformed = transform(current)
+            // 普通元数据写入不得回退或推进剧情历史版本。
+            val updated = buildJsonObject {
+                transformed.forEach { (key, value) -> if (key != "revision") put(key, value) }
+                put("revision", sessionHistoryRevision(current))
+            }
+            if (updated == current) return@withLock current
             writeBytesLocked(
                 manifestFile,
                 json.encodeToString(JsonObject.serializer(), updated).encodeToByteArray(),
@@ -418,7 +486,56 @@ class StorageService(
         }
     }
 
+    /** 已提交历史变更：校验基准版本、压缩归档并恰好推进一次 revision。 */
+    fun <T> mutateSessionHistory(
+        runId: String,
+        sessionId: String,
+        expectedRevision: Long? = null,
+        transform: (SessionHistorySnapshot) -> SessionHistoryMutation<T>,
+    ): SessionHistoryCommit<T> {
+        val manifestFile = getDialogueSessionManifestFile(runId, sessionId)
+        return lockFor(manifestFile).withLock {
+            val content = store.readBytes(manifestFile)?.decodeToString()
+                ?: throw NoSuchElementException("Session manifest not found: $sessionId")
+            val current = runCatching { json.decodeFromString(JsonObject.serializer(), content) }
+                .getOrElse { throw IllegalStateException("Failed to load session manifest: ${it.message}", it) }
+            val currentRevision = sessionHistoryRevision(current)
+            if (expectedRevision != null && expectedRevision != currentRevision) {
+                throw SessionRevisionConflictException(expectedRevision, currentRevision)
+            }
+            val snapshot = SessionHistorySnapshot(
+                manifest = current,
+                revision = currentRevision,
+                transcriptStart = sessionTranscriptStart(current),
+                transcriptCount = sessionTranscriptCount(current),
+            )
+            val mutation = transform(snapshot)
+            val combined = mutation.manifest["transcript"] as? JsonArray ?: JsonArray(emptyList())
+            val compacted = compactSessionTranscript(runId, sessionId, mutation.manifest, combined)
+            val nextRevision = currentRevision + 1
+            val updated = buildJsonObject {
+                mutation.manifest.forEach { (key, value) -> put(key, value) }
+                put("revision", nextRevision)
+                put("transcript", compacted.recent)
+                put("transcript_start", compacted.startIndex)
+                put("transcript_count", compacted.totalCount)
+            }
+            writeBytesLocked(
+                manifestFile,
+                json.encodeToString(JsonObject.serializer(), updated).encodeToByteArray(),
+            )
+            SessionHistoryCommit(
+                manifest = updated,
+                revision = nextRevision,
+                transcriptCount = compacted.totalCount,
+                result = mutation.result,
+            )
+        }
+    }
+
     private companion object {
+        /** 同进程所有 StorageService 实例共享路径锁；不承诺跨进程互斥。 */
+        private val WRITE_LOCKS = Array(64) { SimpleLock() }
         private const val MAX_CACHED_SESSION_MANIFESTS = 32
         private const val TRANSCRIPT_RECENT_TARGET = 80
         private const val TRANSCRIPT_ROLLOVER_THRESHOLD = 120
@@ -492,7 +609,7 @@ class StorageService(
      */
     fun writeModelSettings(settings: ModelSettings) {
         val settingsFile = getModelSettingsPath()
-        store.mkdirs(settingsFile.parent!!)
+        store.mkdirs(requireNotNull(settingsFile.parent) { "Settings path must have a parent" })
         writeTextAtomically(settingsFile, json.encodeToString(settings))
     }
 
@@ -521,13 +638,6 @@ class StorageService(
     }
 
     /**
-     * 获取 API 密钥（保留占位实现；实际由 ModelApiKeyService 从 Keystore 获取）。
-     */
-    fun getApiKey(provider: String): String? {
-        return null
-    }
-
-    /**
      * 列出对话会话（包含元数据）
      */
     fun listDialogueSessions(runId: String): List<JsonObject> {
@@ -549,15 +659,35 @@ class StorageService(
     /**
      * 获取对话会话详情
      */
+    /**
+     * 只读会话清单，不物化归档 transcript（会话列表页专用）。
+     */
+    fun listDialogueSessionManifests(runId: String): List<JsonObject> {
+        domain?.let {
+            return it.listSessionManifests(runId).map { manifest ->
+                withCharacterAvatars(manifest, runId)
+            }
+        }
+        return listDialogueSessionIds(runId).mapNotNull { sessionId ->
+            runCatching { loadSessionManifest(runId, sessionId) }.getOrNull()
+                ?.let { withCharacterAvatars(it, runId) }
+        }
+    }
+
     fun getDialogueSession(runId: String, sessionId: String): JsonObject {
         PathSafety.validateStorageId(sessionId, "session_id")
-        val sessionDir = getDialogueSessionsDirectory(runId) / sessionId
-        val manifestFile = sessionDir / "session_manifest.json"
-        val content = readTextOrNull(manifestFile)
-            ?: throw NoSuchElementException("Session manifest not found: $sessionId")
-
-        val decoded = json.decodeFromString(JsonObject.serializer(), content)
-        return withCharacterAvatars(materializeSessionTranscript(runId, sessionId, decoded), runId)
+        val snapshot = transcriptReader.readAll(runId, sessionId)
+        val full = JsonArray(snapshot.items.map { it.value })
+        val materialized = buildJsonObject {
+            snapshot.manifest.forEach { (key, value) ->
+                if (key !in setOf("transcript", "transcript_start", "transcript_count")) put(key, value)
+            }
+            put("transcript", full)
+            put("transcript_start", 0)
+            put("transcript_count", full.size)
+            put("revision", snapshot.revision)
+        }
+        return withCharacterAvatars(materialized, runId)
     }
 
     // ------------------------------------------------------------------
@@ -572,12 +702,7 @@ class StorageService(
 
     /** 头像版本号：mtime-大小；无头像文件返回空串（与 Python avatar_version 语义一致）。 */
     fun avatarVersion(runId: String, character: String): String {
-        val file = avatarFile(runId, character)
-        return if (store.isFile(file)) {
-            "${store.updatedAtMillis(file) ?: 0}-${store.fileSize(file)}"
-        } else {
-            ""
-        }
+        return store.fileVersion(avatarFile(runId, character)).orEmpty()
     }
 
     /** 会话响应注入 character_avatars：{参与者名: 头像版本}。 */

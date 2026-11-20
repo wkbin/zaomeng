@@ -8,8 +8,15 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
+import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
+import top.wkbin.zaomeng.ktor.services.RunPackageService
+import top.wkbin.zaomeng.ktor.services.StorageService
+import java.util.Base64
+import kotlin.io.path.createTempDirectory
+import okio.Path.Companion.toPath
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 /**
  * 验证 KiteArchive 的 ZIP 读写——iOS 端 readZipEntries/writeZipEntries actual 使用同一 API，
@@ -59,6 +66,53 @@ class KiteArchiveZipTest {
         assertEquals(listOf("run_manifest.json", "world_memory.json"), readBack.map { it.name })
         assertEquals("""{"run_id":"run-1"}""", readBack[0].content.decodeToString())
         assertEquals("{}", readBack[1].content.decodeToString())
+    }
+
+    @Test
+    fun `visits entries in order and stops on a consumer failure`() {
+        val bytes = writeZipEntries(
+            listOf(ZipEntryData("first.txt", byteArrayOf(1)), ZipEntryData("second.txt", byteArrayOf(2))),
+        )
+        val visited = mutableListOf<String>()
+        assertFailsWith<IllegalStateException> {
+            forEachZipEntry(bytes) { entry ->
+                visited += entry.name
+                error("stop")
+            }
+        }
+        assertEquals(listOf("first.txt"), visited)
+        assertEquals(listOf("first.txt", "second.txt"), readZipEntries(bytes).map { it.name })
+    }
+
+    @Test
+    fun `directory headers count toward the ZIP entry limit`() {
+        val bytes = writeZipEntries(List(MAX_ZIP_ENTRIES + 1) { ZipEntryData("dir-$it/", ByteArray(0)) })
+        assertFailsWith<IllegalArgumentException> { forEachZipEntry(bytes) { error("Unexpected file") } }
+    }
+
+    @Test
+    fun `package import rejects archive paths that Windows would alias`() {
+        val dir = createTempDirectory("zaomeng-package-path")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val importer = RunPackageService(storage)
+            for (name in listOf("run/trailing.", "run/trailing ", "run/CON .txt")) {
+                val bytes = writeZipEntries(listOf(ZipEntryData(name, byteArrayOf(1))))
+                val request = ImportRunPackageRequest(
+                    filename = "book.zip",
+                    contentBase64 = Base64.getEncoder().encodeToString(bytes),
+                )
+                val error = assertFailsWith<IllegalArgumentException> { importer.importPackage(request) }
+                assertEquals(
+                    if (name.endsWith(".txt")) "reserved archive file name" else "invalid archive file name",
+                    error.message,
+                )
+                assertEquals(emptyList(), storage.listRunIds())
+                assertEquals(emptyList(), storage.listFiles(storage.getStorageRoot() / "tmp-imports"))
+            }
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     @Test

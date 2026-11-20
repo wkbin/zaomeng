@@ -1,7 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -17,7 +17,9 @@ class PluginRuleEngine(
     private val storage: StorageService,
     private val plugins: PluginService,
 ) {
-    private val json = Json { prettyPrint = true }
+    private companion object {
+        const val MAX_RULE_TURN_RECEIPTS = 64
+    }
 
     fun beforeGeneration(
         runId: String,
@@ -38,11 +40,15 @@ class PluginRuleEngine(
                 if (instructions.isNotEmpty()) directives["${active.pluginId}/${rule.id}"] = instructions.joinToString("\n")
             }
         }
-        return if (directives.isEmpty()) session else buildJsonObject {
-            session.forEach { (key, value) -> put(key, value) }
-            put("plugin_rule_directives", buildJsonObject {
-                directives.forEach { (key, value) -> put(key, value) }
-            })
+        return buildJsonObject {
+            session.forEach { (key, value) ->
+                if (key != "plugin_rule_directives") put(key, value)
+            }
+            if (directives.isNotEmpty()) {
+                put("plugin_rule_directives", buildJsonObject {
+                    directives.forEach { (key, value) -> put(key, value) }
+                })
+            }
         }
     }
 
@@ -53,21 +59,35 @@ class PluginRuleEngine(
         message: String,
         responses: List<DialogueResponse>,
     ) {
-        val session = storage.loadSessionManifest(runId, sessionId)
-        val turnNumber = session["turn_count"]?.jsonPrimitive?.intOrNull ?: 0
+        storage.updateSessionManifest(runId, sessionId) { session ->
+            applyAfterTurn(runId, sessionId, turnId, message, responses, session)
+        }
+    }
+
+    /** 在调用方的会话锁/历史提交内基于同一快照执行，禁止再单独写 manifest。 */
+    internal fun applyAfterTurn(
+        runId: String,
+        sessionId: String,
+        turnId: String,
+        message: String,
+        responses: List<DialogueResponse>,
+        session: JsonObject,
+    ): JsonObject {
         val combinedText = buildString {
             append(message)
             responses.forEach { append('\n'); append(it.message) }
         }
+        val activeRules = plugins.activeDeclarativeRules()
+        val turnNumber = session["turn_count"]?.jsonPrimitive?.intOrNull ?: 0
         val allStates = session["plugin_rule_states"]?.jsonObject ?: JsonObject(emptyMap())
         val updatedStates = allStates.toMutableMap()
         val lastTurns = (session["plugin_rule_last_turns"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
         var changed = false
-        plugins.activeDeclarativeRules().forEach { active ->
+        activeRules.forEach { active ->
             val state = pluginState(session, active.pluginId).toMutableMap()
             active.rules.filter { it.event == DeclarativeRuleEvent.AfterTurn }.forEach { rule ->
                 val firingKey = "${active.pluginId}/${rule.id}"
-                if (lastTurns[firingKey]?.jsonPrimitive?.contentOrNull == turnId) return@forEach
+                if (turnId in firedTurnIds(lastTurns[firingKey])) return@forEach
                 if (!matches(rule, active.pluginId, "$runId/$sessionId", turnId, combinedText, turnNumber, state)) return@forEach
                 var fired = false
                 rule.actions.forEach { action ->
@@ -85,23 +105,29 @@ class PluginRuleEngine(
                         }
                     }
                 }
-                if (fired) lastTurns[firingKey] = JsonPrimitive(turnId)
+                if (fired) {
+                    val receipts = (firedTurnIds(lastTurns[firingKey]) + turnId).distinct()
+                        .takeLast(MAX_RULE_TURN_RECEIPTS)
+                    lastTurns[firingKey] = JsonArray(receipts.map(::JsonPrimitive))
+                }
             }
             if (state.isNotEmpty()) updatedStates[active.pluginId] = buildJsonObject {
                 state.forEach { (key, value) -> put(key, value) }
             }
         }
-        if (!changed) return
-        val updated = buildJsonObject {
+        if (!changed) return session
+        return buildJsonObject {
             session.forEach { (key, value) -> put(key, value) }
             put("plugin_rule_states", JsonObject(updatedStates))
             put("plugin_rule_last_turns", JsonObject(lastTurns))
             put("updated_at", nowIsoString())
         }
-        storage.writeTextAtomically(
-            storage.getDialogueSessionManifestFile(runId, sessionId),
-            json.encodeToString(JsonObject.serializer(), updated),
-        )
+    }
+
+    private fun firedTurnIds(value: JsonElement?): List<String> = when (value) {
+        is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        is JsonPrimitive -> listOfNotNull(value.contentOrNull)
+        else -> emptyList()
     }
 
     private fun pluginState(session: JsonObject, pluginId: String): Map<String, String> =

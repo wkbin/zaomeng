@@ -1,10 +1,25 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import top.wkbin.zaomeng.data.api.PluginLogDto
 import top.wkbin.zaomeng.plugins.api.Plugin
+import top.wkbin.zaomeng.plugins.api.PluginDataRevisionConflictException
+import top.wkbin.zaomeng.plugins.api.PluginDataSnapshot
 import okio.Path
 import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.nowIsoString
+import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.SimpleLock
+
+internal const val PLUGIN_LOG_DIRECTORY = "log-segments"
+
+@Serializable
+private data class PluginDataEnvelope(
+    val format: String,
+    val revision: Long,
+    val value: String,
+)
 
 /**
  * 插件服务：官方内置插件（source=official，来自 :builtin-plugins 模块）+ 第三方插件
@@ -18,7 +33,8 @@ class PluginService(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
     // 日志 jsonl 需要单行完整 JSON，不能用 prettyPrint（否则逐行解析失败）
-    private val compactJson = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val compactJson = Json { ignoreUnknownKeys = true }
+    private val logLock = SimpleLock()
     private val root get() = storage.getStorageRoot() / "plugins"
     private val stateFile get() = root / "enabled.json"
     private val builtinRoot get() = root / ".builtin"
@@ -213,66 +229,158 @@ class PluginService(
         return config
     }
 
-    fun readData(pluginId: String, key: String): String? {
-        val directory = pluginDirectory(pluginId) / "data"
-        val safeKey = PathSafety.validateStorageId(key, "plugin data key")
-        val file = directory / "$safeKey.txt"
-        return if (storage.isFile(file)) storage.readText(file) else null
+    fun readData(pluginId: String, key: String): String? = readDataSnapshot(pluginId, key).value
+
+    /** 旧 raw 文本和缺失 key 都从 revision 0 开始；版本记录使用独立内部文件，不与 raw 值嗅探混用。 */
+    fun readDataSnapshot(pluginId: String, key: String): PluginDataSnapshot = withDataLifecycleLock(pluginId) {
+        val (rawFile, versionedFile) = dataFiles(pluginId, key)
+        val versioned = storage.readTextOrNull(versionedFile)
+        if (versioned != null) {
+            decodeVersionedData(versioned)
+        } else {
+            PluginDataSnapshot(value = storage.readTextOrNull(rawFile), revision = 0)
+        }
     }
 
+    /** 保留旧插件的无条件写语义，但仍推进同一 key 的持久 revision。 */
     fun writeData(pluginId: String, key: String, value: String) {
-        val directory = pluginDirectory(pluginId) / "data"
+        updateData(pluginId, key, expectedRevision = null, value = value)
+    }
+
+    /** 在同一路径锁内比较并写入；冲突不会修改原文。 */
+    fun compareAndSetData(pluginId: String, key: String, expectedRevision: Long, value: String): PluginDataSnapshot {
+        require(expectedRevision >= 0) { "Plugin data revision must be non-negative" }
+        return updateData(pluginId, key, expectedRevision, value)
+    }
+
+    private fun updateData(pluginId: String, key: String, expectedRevision: Long?, value: String): PluginDataSnapshot =
+        withDataLifecycleLock(pluginId) {
+            val (rawFile, versionedFile) = dataFiles(pluginId, key)
+            storage.mkdirs(versionedFile.parent!!)
+            storage.updateOrCreateText(versionedFile) { original ->
+                val current = if (original != null) {
+                    decodeVersionedData(original)
+                } else {
+                    PluginDataSnapshot(value = storage.readTextOrNull(rawFile), revision = 0)
+                }
+                if (expectedRevision != null && current.revision != expectedRevision) {
+                    throw PluginDataRevisionConflictException(expectedRevision, current.revision)
+                }
+                val updated = PluginDataSnapshot(value = value, revision = current.revision + 1)
+                val encoded = compactJson.encodeToString(
+                    PluginDataEnvelope.serializer(),
+                    PluginDataEnvelope(PLUGIN_DATA_FORMAT, updated.revision, value),
+                )
+                encoded to updated
+            }
+        }
+
+    internal fun <T> withDataLifecycleLock(pluginId: String, block: () -> T): T {
+        val normalized = pluginId.trim()
+        val directory = if (isBuiltin(normalized)) {
+            builtinRoot / normalized
+        } else {
+            if (!PathSafety.STORAGE_ID_PATTERN.matches(normalized)) throw IllegalArgumentException("Invalid plugin id")
+            root / normalized
+        }
+        val lock = DATA_LIFECYCLE_LOCKS_GUARD.withLock {
+            DATA_LIFECYCLE_LOCKS.getOrPut(directory.toString()) { SimpleLock() }
+        }
+        return lock.withLock(block)
+    }
+
+    private fun dataFiles(pluginId: String, key: String): Pair<Path, Path> {
         val safeKey = PathSafety.validateStorageId(key, "plugin data key")
-        storage.mkdirs(directory)
-        storage.writeTextAtomically(directory / "$safeKey.txt", value)
+        val directory = pluginDirectory(pluginId) / "data"
+        return directory / "$safeKey.txt" to directory / ".versions/$safeKey.json"
+    }
+
+    private fun decodeVersionedData(content: String): PluginDataSnapshot {
+        val envelope = compactJson.decodeFromString(PluginDataEnvelope.serializer(), content)
+        check(envelope.format == PLUGIN_DATA_FORMAT && envelope.revision >= 0) { "Invalid versioned plugin data" }
+        return PluginDataSnapshot(value = envelope.value, revision = envelope.revision)
     }
 
     /** 读取插件日志（jsonl，最多返回最近 200 条）。 */
-    fun logs(pluginId: String): JsonObject {
-        val logFile = pluginDirectory(pluginId) / "plugin-logs.jsonl"
-        val entries = buildJsonArray {
-            if (storage.isFile(logFile)) {
-                storage.readText(logFile).lines().takeLast(200).forEach { line ->
-                    runCatching { json.parseToJsonElement(line) }.getOrNull()?.let { add(it) }
-                }
-            }
+    fun logs(pluginId: String): JsonObject = logLock.withLock {
+        val directory = pluginDirectory(pluginId)
+        val logDirectory = directory / PLUGIN_LOG_DIRECTORY
+        val entries = mutableListOf<JsonObject>()
+        val files = sequence {
+            yield(logDirectory / "current.jsonl")
+            yieldAll(archivedLogs(logDirectory).asReversed())
+            yield(directory / "plugin-logs.jsonl")
         }
-        return buildJsonObject { put("items", entries) }
+        for (file in files) {
+            val text = storage.readTextOrNull(file) ?: continue
+            var end = text.length
+            while (end > 0 && entries.size < MAX_VISIBLE_LOGS) {
+                val start = text.lastIndexOf('\n', end - 1)
+                val line = text.substring(start + 1, end)
+                end = start
+                if (line.isBlank()) continue
+                val entry = runCatching {
+                    val item = compactJson.parseToJsonElement(line).jsonObject
+                    compactJson.decodeFromJsonElement<PluginLogDto>(item)
+                    item
+                }.getOrNull()
+                if (entry != null) entries.add(entry)
+            }
+            if (entries.size == MAX_VISIBLE_LOGS) break
+        }
+        buildJsonObject { put("items", JsonArray(entries.asReversed())) }
     }
 
     /** 追加一条插件日志（由 PluginHost.log 调用）。 */
     fun appendLog(pluginId: String, level: String, message: String) {
-        val directory = pluginDirectory(pluginId)
-        storage.mkdirs(directory)
-        val logFile = directory / "plugin-logs.jsonl"
         val entry = buildJsonObject {
             put("ts", nowIsoString())
             put("level", level)
             put("message", message)
         }
-        storage.appendText(logFile, compactJson.encodeToString(JsonObject.serializer(), entry) + "\n")
+        val line = compactJson.encodeToString(JsonObject.serializer(), entry) + "\n"
+        logLock.withLock {
+            val logDirectory = pluginDirectory(pluginId) / PLUGIN_LOG_DIRECTORY
+            val current = logDirectory / "current.jsonl"
+            val currentSize = storage.fileSize(current)
+            if (currentSize > 0 && currentSize + line.encodeToByteArray().size > LOG_SEGMENT_BYTES) {
+                val previous = archivedLogs(logDirectory).lastOrNull()
+                    ?.name?.removeSuffix(".jsonl")?.toLongOrNull() ?: 0L
+                val archive = logDirectory / "${(previous + 1).toString().padStart(16, '0')}.jsonl"
+                check(storage.rename(current, archive)) { "Unable to rotate plugin log" }
+            }
+            storage.appendText(current, line)
+        }
     }
 
-    fun uninstall(pluginId: String): JsonObject {
+    private fun archivedLogs(directory: Path): List<Path> = storage.listFiles(directory)
+        .filter { LOG_SEGMENT_NAME.matches(it.name) }
+        .sortedBy { it.name }
+
+    internal fun <T> withPluginLogLock(block: () -> T): T = logLock.withLock(block)
+
+    fun uninstall(pluginId: String): JsonObject = withPluginLogLock {
         val normalized = pluginId.trim()
         if (isBuiltin(normalized)) {
             throw IllegalArgumentException("官方内置插件不可卸载。")
         }
-        val directory = pluginDirectory(normalized)
-        val trash = storage.getStorageRoot() / "plugin-trash"
-        storage.mkdirs(trash)
-        val target = trash / "$normalized-${nowEpochMillis()}"
-        val wasEnabled = isEnabled(normalized)
-        setEnabled(normalized, false)
-        if (!storage.rename(directory, target)) {
-            if (wasEnabled) setEnabled(normalized, true)
-            throw IllegalStateException("Unable to uninstall plugin")
-        }
-        return buildJsonObject {
-            put("status", "uninstalled")
-            put("plugin_id", normalized)
-            put("recoverable_path", target.toString())
-            put("uninstalled_at", nowIsoString())
+        withDataLifecycleLock(normalized) {
+            val directory = pluginDirectory(normalized)
+            val trash = storage.getStorageRoot() / "plugin-trash"
+            storage.mkdirs(trash)
+            val target = trash / "$normalized-${nowEpochMillis()}"
+            val wasEnabled = isEnabled(normalized)
+            setEnabled(normalized, false)
+            if (!storage.rename(directory, target)) {
+                if (wasEnabled) setEnabled(normalized, true)
+                throw IllegalStateException("Unable to uninstall plugin")
+            }
+            buildJsonObject {
+                put("status", "uninstalled")
+                put("plugin_id", normalized)
+                put("recoverable_path", target.toString())
+                put("uninstalled_at", nowIsoString())
+            }
         }
     }
 
@@ -372,51 +480,76 @@ class PluginService(
     private fun clearSessionEnhancers(pluginId: String) {
         storage.listRunIds().forEach { runId ->
             storage.listDialogueSessionIds(runId).forEach { sessionId ->
-                val session = storage.loadSessionManifest(runId, sessionId)
-                val states = session["plugin_enhancer_states"]?.jsonObject ?: JsonObject(emptyMap())
-                val directives = session["plugin_enhancer_directives"]?.jsonObject ?: JsonObject(emptyMap())
-                val ruleStates = session["plugin_rule_states"]?.jsonObject ?: JsonObject(emptyMap())
-                val ruleLastTurns = session["plugin_rule_last_turns"]?.jsonObject ?: JsonObject(emptyMap())
-                if (
-                    pluginId !in states && pluginId !in ruleStates &&
-                    directives.keys.none { it.startsWith("$pluginId/") } &&
-                    ruleLastTurns.keys.none { it.startsWith("$pluginId/") }
-                ) {
-                    return@forEach
-                }
-                val updated = buildJsonObject {
-                    session.forEach { (key, value) ->
-                        when (key) {
-                            "plugin_enhancer_states" -> put(key, buildJsonObject {
-                                states.forEach { (statePluginId, state) ->
-                                    if (statePluginId != pluginId) put(statePluginId, state)
-                                }
-                            })
-                            "plugin_enhancer_directives" -> put(key, buildJsonObject {
-                                directives.forEach { (directiveKey, directive) ->
-                                    if (!directiveKey.startsWith("$pluginId/")) put(directiveKey, directive)
-                                }
-                            })
-                            "plugin_rule_states" -> put(key, buildJsonObject {
-                                ruleStates.forEach { (statePluginId, state) ->
-                                    if (statePluginId != pluginId) put(statePluginId, state)
-                                }
-                            })
-                            "plugin_rule_last_turns" -> put(key, buildJsonObject {
-                                ruleLastTurns.forEach { (ruleKey, turnId) ->
-                                    if (!ruleKey.startsWith("$pluginId/")) put(ruleKey, turnId)
-                                }
-                            })
-                            else -> put(key, value)
+                // 先看缓存清单快速跳过无关会话（绝大多数会话没有该插件的状态），
+                // 真正写入时再进 updateSessionManifest 的路径锁、基于 latest 重算。
+                val snapshot = runCatching { storage.loadSessionManifest(runId, sessionId) }.getOrNull()
+                    ?: return@forEach
+                if (!sessionMentionsPlugin(snapshot, pluginId)) return@forEach
+                runCatching {
+                    storage.updateSessionManifest(runId, sessionId) { latest ->
+                        if (!sessionMentionsPlugin(latest, pluginId)) {
+                            latest
+                        } else {
+                            stripPluginState(latest, pluginId)
                         }
                     }
-                    put("updated_at", nowIsoString())
+                }.onFailure { error ->
+                    PlatformLog.w("PluginService", "Failed to clear plugin state for session $sessionId: ${error.message}", error)
                 }
-                storage.writeTextAtomically(
-                    storage.getDialogueSessionManifestFile(runId, sessionId),
-                    json.encodeToString(JsonObject.serializer(), updated),
-                )
             }
+        }
+    }
+
+    private fun sessionMentionsPlugin(session: JsonObject, pluginId: String): Boolean {
+        val states = session["plugin_enhancer_states"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val directives = session["plugin_enhancer_directives"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleStates = session["plugin_rule_states"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleLastTurns = session["plugin_rule_last_turns"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleDirectives = session["plugin_rule_directives"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        return pluginId in states || pluginId in ruleStates ||
+            directives.keys.any { it.startsWith("$pluginId/") } ||
+            ruleLastTurns.keys.any { it.startsWith("$pluginId/") } ||
+            ruleDirectives.keys.any { it.startsWith("$pluginId/") }
+    }
+
+    private fun stripPluginState(session: JsonObject, pluginId: String): JsonObject {
+        val states = session["plugin_enhancer_states"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val directives = session["plugin_enhancer_directives"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleStates = session["plugin_rule_states"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleLastTurns = session["plugin_rule_last_turns"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        val ruleDirectives = session["plugin_rule_directives"]?.let { runCatching { it.jsonObject }.getOrNull() } ?: JsonObject(emptyMap())
+        return buildJsonObject {
+            session.forEach { (key, value) ->
+                when (key) {
+                    "plugin_enhancer_states" -> put(key, buildJsonObject {
+                        states.forEach { (statePluginId, state) ->
+                            if (statePluginId != pluginId) put(statePluginId, state)
+                        }
+                    })
+                    "plugin_enhancer_directives" -> put(key, buildJsonObject {
+                        directives.forEach { (directiveKey, directive) ->
+                            if (!directiveKey.startsWith("$pluginId/")) put(directiveKey, directive)
+                        }
+                    })
+                    "plugin_rule_states" -> put(key, buildJsonObject {
+                        ruleStates.forEach { (statePluginId, state) ->
+                            if (statePluginId != pluginId) put(statePluginId, state)
+                        }
+                    })
+                    "plugin_rule_last_turns" -> put(key, buildJsonObject {
+                        ruleLastTurns.forEach { (ruleKey, turnId) ->
+                            if (!ruleKey.startsWith("$pluginId/")) put(ruleKey, turnId)
+                        }
+                    })
+                    "plugin_rule_directives" -> put(key, buildJsonObject {
+                        ruleDirectives.forEach { (ruleKey, directive) ->
+                            if (!ruleKey.startsWith("$pluginId/")) put(ruleKey, directive)
+                        }
+                    })
+                    else -> put(key, value)
+                }
+            }
+            put("updated_at", nowIsoString())
         }
     }
 
@@ -430,6 +563,12 @@ class PluginService(
     }
 
     private companion object {
+        private val DATA_LIFECYCLE_LOCKS = HashMap<String, SimpleLock>()
+        private val DATA_LIFECYCLE_LOCKS_GUARD = SimpleLock()
+        const val PLUGIN_DATA_FORMAT = "zaomeng-plugin-data-v1"
+        const val MAX_VISIBLE_LOGS = 200
+        const val LOG_SEGMENT_BYTES = 128L * 1024
+        val LOG_SEGMENT_NAME = Regex("[0-9]{16}\\.jsonl")
         const val THIRD_PARTY_STORED_NOTICE =
             "第三方插件包目前只能保存，不能执行；造梦不会运行其中的 Python 或其他任意代码。"
     }

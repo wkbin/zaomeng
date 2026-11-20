@@ -50,6 +50,8 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                     call.response.header(HttpHeaders.Connection, "keep-alive")
 
                     call.respondBytesWriter(ContentType.Text.EventStream) {
+                        // 出错后不能再补一个 done/completed：客户端会把失败当成成功。
+                        var failed = false
                         suggestionsService.generateSuggestionStream(
                             runId = runId,
                             sessionId = sessionId,
@@ -57,6 +59,7 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                             selectedDirection = request.selectedDirection ?: ""
                         )
                             .catch { error ->
+                                failed = true
                                 val errorSse = SseEncoder.encodeEvent(
                                     event = "error",
                                     "error" to error.message,
@@ -74,12 +77,14 @@ fun Route.suggestionsRoutes(suggestionsService: SuggestionsService) {
                                 flush()
                             }
 
-                        val doneSse = SseEncoder.encodeEvent(
-                            event = "done",
-                            "status" to "completed"
-                        )
-                        writeString(doneSse)
-                        flush()
+                        if (!failed) {
+                            val doneSse = SseEncoder.encodeEvent(
+                                event = "done",
+                                "status" to "completed"
+                            )
+                            writeString(doneSse)
+                            flush()
+                        }
                     }
                 } else {
                     // 非流式响应（暂不实现）

@@ -7,7 +7,16 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.put
 import okio.Path.Companion.toPath
+import top.wkbin.zaomeng.data.api.PluginLogsResponse
+import top.wkbin.zaomeng.db.RoomDocumentStore
+import top.wkbin.zaomeng.db.buildZaomengDatabase
+import top.wkbin.zaomeng.db.getDatabaseBuilder
 import top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins
+import top.wkbin.zaomeng.plugins.api.PluginDataRevisionConflictException
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +26,47 @@ import kotlin.test.assertTrue
 
 /** 回归：首次启用任意插件时，默认开启的内置插件不能一起被关掉。 */
 class PluginServiceTest {
+    @Test
+    fun `plugin logs rotate without losing legacy history or recent ordering`() {
+        val dir = createTempDirectory("zaomeng-plugin-logs")
+        val root = dir.toString().toPath()
+        val db = buildZaomengDatabase(getDatabaseBuilder(root / "test.db"))
+        try {
+            val storage = StorageService(root, RoomDocumentStore(db))
+            val plugin = root / "plugins/test"
+            storage.writeTextAtomically(plugin / "plugin.json", "{}")
+            val legacy = listOf(
+                """{"message":"legacy"}""",
+                "old-log",
+                "\"quoted scalar\"",
+                """{"message":["wrong shape"]}""",
+            ).joinToString("\n", postfix = "\n")
+            storage.writeTextAtomically(plugin / "plugin-logs.jsonl", legacy)
+            val service = PluginService(storage)
+            val first = "a".repeat(70_000)
+            val second = "b".repeat(70_000)
+            service.appendLog("test", "info", first)
+            service.appendLog("test", "info", second)
+
+            fun recent() = PluginService(storage).logs("test").getValue("items").jsonArray
+                .map { it.jsonObject.getValue("message").jsonPrimitive.content }
+
+            assertEquals(listOf("legacy", first, second), recent())
+            assertEquals(
+                listOf("legacy", first, second),
+                Json { ignoreUnknownKeys = true }
+                    .decodeFromString<PluginLogsResponse>(service.logs("test").toString()).items.map { it.message },
+            )
+            assertEquals(legacy, storage.readText(plugin / "plugin-logs.jsonl"))
+            assertEquals(2, storage.listFiles(plugin / "log-segments").size)
+            for (index in 1..205) service.appendLog("test", "info", "entry-$index")
+            assertEquals((6..205).map { "entry-$it" }, recent())
+        } finally {
+            db.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `enabling inner thoughts keeps other default plugins enabled`() {
         val dir = createTempDirectory("zaomeng-plugin-repro")
@@ -187,7 +237,7 @@ class PluginServiceTest {
             storage.mkdirs(sessionFile.parent!!)
             storage.writeTextAtomically(
                 sessionFile,
-                """{"id":"session-1","plugin_enhancer_states":{"enhancer-plugin":{"rule":true}},"plugin_enhancer_directives":{"enhancer-plugin/rule":"增强规则","other/rule":"保留"}}""",
+                """{"id":"session-1","plugin_enhancer_states":{"enhancer-plugin":{"rule":true}},"plugin_enhancer_directives":{"enhancer-plugin/rule":"增强规则","other/rule":"保留"},"plugin_rule_directives":{"enhancer-plugin/rule":"旧临时规则","other/rule":"保留临时规则"}}""",
             )
             val service = PluginService(storage, BuiltinPlugins.all)
             service.setEnabled("enhancer-plugin", true)
@@ -198,7 +248,103 @@ class PluginServiceTest {
             assertFalse("enhancer-plugin" in session["plugin_enhancer_states"]!!.jsonObject)
             assertFalse("enhancer-plugin/rule" in session["plugin_enhancer_directives"]!!.jsonObject)
             assertTrue("other/rule" in session["plugin_enhancer_directives"]!!.jsonObject)
+            assertFalse("enhancer-plugin/rule" in session["plugin_rule_directives"]!!.jsonObject)
+            assertTrue("other/rule" in session["plugin_rule_directives"]!!.jsonObject)
         } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `plugin data revisions survive restart legacy data and stale writes`() {
+        val dir = createTempDirectory("zaomeng-plugin-data-revisions")
+        try {
+            val root = dir.toString().toPath()
+            val storage = StorageService(root)
+            storage.mkdirs(root / "plugins/sample")
+            storage.writeTextAtomically(
+                root / "plugins/sample/plugin.json",
+                """{"id":"sample","name":"Sample","version":"1.0.0"}""",
+            )
+            val service = PluginService(storage)
+            val missing = service.readDataSnapshot("sample", "notes")
+            assertEquals(null, missing.value)
+            assertEquals(0, missing.revision)
+
+            val created = service.compareAndSetData("sample", "notes", 0, "alpha")
+            assertEquals("alpha", created.value)
+            assertEquals(1, created.revision)
+            val conflict = assertFailsWith<PluginDataRevisionConflictException> {
+                service.compareAndSetData("sample", "notes", 0, "stale")
+            }
+            assertEquals(1, conflict.actualRevision)
+            assertEquals("alpha", service.readData("sample", "notes"))
+
+            assertEquals(2, service.compareAndSetData("sample", "notes", 1, "beta").revision)
+            service.writeData("sample", "notes", "gamma")
+            val restarted = PluginService(StorageService(root)).readDataSnapshot("sample", "notes")
+            assertEquals("gamma", restarted.value)
+            assertEquals(3, restarted.revision)
+            val empty = service.compareAndSetData("sample", "notes", 3, "")
+            assertEquals(4, empty.revision)
+            assertEquals("", service.readData("sample", "notes"))
+
+            storage.writeTextAtomically(root / "plugins/sample/data/legacy.txt", "raw")
+            assertEquals(0, service.readDataSnapshot("sample", "legacy").revision)
+            assertEquals("raw", service.readData("sample", "legacy"))
+            assertEquals(1, service.compareAndSetData("sample", "legacy", 0, "migrated").revision)
+            assertEquals("migrated", PluginService(storage).readData("sample", "legacy"))
+
+            val envelopeShapedRaw = """{"format":"zaomeng-plugin-data-v1","revision":7,"value":"B"}"""
+            storage.writeTextAtomically(root / "plugins/sample/data/collision.txt", envelopeShapedRaw)
+            assertEquals(envelopeShapedRaw, service.readDataSnapshot("sample", "collision").value)
+            assertEquals(0, service.readDataSnapshot("sample", "collision").revision)
+            val incompleteEnvelopeRaw = """{"format":"zaomeng-plugin-data-v1","revision":0}"""
+            storage.writeTextAtomically(root / "plugins/sample/data/incomplete.txt", incompleteEnvelopeRaw)
+            assertEquals(incompleteEnvelopeRaw, service.readDataSnapshot("sample", "incomplete").value)
+            assertEquals(0, service.readDataSnapshot("sample", "incomplete").revision)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `concurrent compare and set has exactly one winner`() {
+        val dir = createTempDirectory("zaomeng-plugin-data-cas")
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val root = dir.toString().toPath()
+            val storage = StorageService(root)
+            storage.mkdirs(root / "plugins/sample")
+            storage.writeTextAtomically(
+                root / "plugins/sample/plugin.json",
+                """{"id":"sample","name":"Sample","version":"1.0.0"}""",
+            )
+            val services = listOf(
+                PluginService(StorageService(root)),
+                PluginService(StorageService(root)),
+            )
+            val ready = CountDownLatch(2)
+            val start = CountDownLatch(1)
+            val tasks = listOf("first", "second").mapIndexed { index, value ->
+                Callable {
+                    ready.countDown()
+                    start.await()
+                    try {
+                        services[index].compareAndSetData("sample", "shared", 0, value)
+                        true
+                    } catch (_: PluginDataRevisionConflictException) {
+                        false
+                    }
+                }
+            }
+            val futures = tasks.map(executor::submit)
+            ready.await()
+            start.countDown()
+            assertEquals(1, futures.count { it.get(10, TimeUnit.SECONDS) })
+            assertEquals(1, services[0].readDataSnapshot("sample", "shared").revision)
+        } finally {
+            executor.shutdownNow()
             dir.toFile().deleteRecursively()
         }
     }

@@ -53,7 +53,7 @@ class CardsManagementService(private val storage: StorageService) {
 
     /** 读取单张卡片。 */
     fun get(kind: String, cardId: String): JsonObject =
-        load(kind, cardId) ?: throw NoSuchElementException("Card not found: $cardId")
+        load(kind, requireCardId(cardId)) ?: throw NoSuchElementException("Card not found: $cardId")
 
     /** 创建或更新卡片。对应 Python save_*_card_payload。 */
     fun save(kind: String, cardId: String, fields: JsonObject): JsonObject {
@@ -62,6 +62,7 @@ class CardsManagementService(private val storage: StorageService) {
         val resolvedId = cardId.trim().ifEmpty {
             prefixFor(normalizedKind) + randomUuid().replace("-", "").take(10)
         }
+        requireCardId(resolvedId)
         val cardDir = root / resolvedId
         if (cardId.isNotBlank() && !storage.exists(cardDir)) throw NoSuchElementException("Card not found: $cardId")
         storage.mkdirs(cardDir)
@@ -104,12 +105,13 @@ class CardsManagementService(private val storage: StorageService) {
     /** 删除卡片。 */
     fun delete(kind: String, cardId: String): JsonObject {
         val root = cardsRoot(kind)
-        val cardDir = root / cardId
+        val safeCardId = requireCardId(cardId)
+        val cardDir = root / safeCardId
         if (!storage.exists(cardDir)) throw NoSuchElementException("Card not found: $cardId")
         storage.deleteRecursively(cardDir)
         return buildJsonObject {
             put("status", "deleted")
-            put("card_id", cardId)
+            put("card_id", safeCardId)
         }
     }
 
@@ -178,6 +180,10 @@ class CardsManagementService(private val storage: StorageService) {
         "self", "self-cards", "self_card" -> "self"
         else -> "opening"
     }
+
+    /** 卡片 id 会直接拼进存储路径，必须拦截 `..`、分隔符与绝对路径。 */
+    private fun requireCardId(cardId: String): String =
+        PathSafety.validateStorageId(cardId.trim(), "card_id")
 
     private fun prefixFor(kind: String): String = when (kind) {
         "scene" -> "scene-"

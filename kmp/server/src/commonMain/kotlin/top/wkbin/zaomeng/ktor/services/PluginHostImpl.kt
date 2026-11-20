@@ -16,10 +16,12 @@ import kotlinx.io.readByteArray
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.plugins.api.PluginHost
+import top.wkbin.zaomeng.plugins.api.PluginDataSnapshot
 import top.wkbin.zaomeng.plugins.api.PluginPersonaSummary
 import top.wkbin.zaomeng.plugins.api.PluginReplyAsCharacterResult
 import top.wkbin.zaomeng.plugins.api.PluginSessionCharacterSummary
 import top.wkbin.zaomeng.plugins.api.SuggestionOption
+import top.wkbin.zaomeng.plugins.api.VersionedPluginDataHost
 import top.wkbin.zaomeng.platform.createHttpClientEngine
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
@@ -35,7 +37,8 @@ class PluginHostImpl(
     private val dialogueAdvanced: DialogueAdvancedService,
     private val suggestions: SuggestionsService,
     private val pluginService: PluginService,
-) : PluginHost {
+    private val projections: SessionProjectionService? = null,
+) : PluginHost, VersionedPluginDataHost {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val httpClient by lazy {
         HttpClient(createHttpClientEngine()) {
@@ -73,6 +76,16 @@ class PluginHostImpl(
     override suspend fun writePluginData(pluginId: String, key: String, value: String) {
         pluginService.writeData(pluginId, key, value)
     }
+
+    override suspend fun readPluginDataSnapshot(pluginId: String, key: String): PluginDataSnapshot =
+        pluginService.readDataSnapshot(pluginId, key)
+
+    override suspend fun compareAndSetPluginData(
+        pluginId: String,
+        key: String,
+        expectedRevision: Long,
+        value: String,
+    ): PluginDataSnapshot = pluginService.compareAndSetData(pluginId, key, expectedRevision, value)
 
     override suspend fun invokeHttp(
         method: String,
@@ -340,8 +353,6 @@ class PluginHostImpl(
 
     /** 写入会话 temporary_npcs + participants + transcript，返回更新后的 NPC 对象（键值均为字符串）。 */
     private fun addTemporaryNpc(runId: String, sessionId: String, npc: Map<String, String>): JsonObject {
-        val manifestFile = storage.getDialogueSessionManifestFile(runId, sessionId)
-        val session = storage.loadSessionManifest(runId, sessionId)
         val name = npc.getValue("name")
         val now = nowIsoString()
         val turnId = "npc-${randomUuid().replace("-", "").take(10)}"
@@ -351,35 +362,40 @@ class PluginHostImpl(
             put("status", JsonPrimitive("active"))
             put("source", JsonPrimitive("plugin"))
         }
-        val participants = (session["participants"]?.jsonArray ?: JsonArray(emptyList()))
-            .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }.toMutableList()
-        if (participants.none { it.lowercase() == name.lowercase() }) participants.add(name)
-        val transcript = (session["transcript"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
-        transcript.add(buildJsonObject {
-            put("speaker", JsonPrimitive("场景提示"))
-            put("message", JsonPrimitive(npc["entrance"]?.ifBlank { "${name}来到了现场。" } ?: "${name}来到了现场。"))
-            put("role", JsonPrimitive("scene"))
-            put("turn_id", JsonPrimitive(turnId))
-            put("timestamp", JsonPrimitive(now))
-            put("source", JsonPrimitive("temporary_npc_plugin"))
-        })
-        transcript.add(buildJsonObject {
-            put("speaker", JsonPrimitive(name))
-            put("message", JsonPrimitive(npc["opening_line"].orEmpty()))
-            put("role", JsonPrimitive("character"))
-            put("turn_id", JsonPrimitive(turnId))
-            put("timestamp", JsonPrimitive(now))
-            put("source", JsonPrimitive("temporary_npc_plugin"))
-        })
-        val temporaryNpcs = (session["temporary_npcs"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
-        temporaryNpcs[name] = record
-        val updated = buildJsonObject {
-            session.forEach { (k, v) -> put(k, v) }
-            put("participants", buildJsonArray { participants.forEach { add(JsonPrimitive(it)) } })
-            put("transcript", buildJsonArray { transcript.forEach { add(it) } })
-            put("temporary_npcs", buildJsonObject { temporaryNpcs.forEach { (k, v) -> put(k, v) } })
+        // 基于最新清单增量写入：LLM 生成 NPC 期间提交的新回合不能被这份旧快照覆盖。
+        storage.mutateSessionHistory(runId, sessionId) { history ->
+            val latest = history.manifest
+            val participants = (latest["participants"]?.jsonArray ?: JsonArray(emptyList()))
+                .mapNotNull { it.jsonPrimitive.contentOrNull }.filter { it.isNotBlank() }.toMutableList()
+            if (participants.none { it.lowercase() == name.lowercase() }) participants.add(name)
+            val transcript = (latest["transcript"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            transcript.add(buildJsonObject {
+                put("speaker", JsonPrimitive("场景提示"))
+                put("message", JsonPrimitive(npc["entrance"]?.ifBlank { "${name}来到了现场。" } ?: "${name}来到了现场。"))
+                put("role", JsonPrimitive("scene"))
+                put("turn_id", JsonPrimitive(turnId))
+                put("timestamp", JsonPrimitive(now))
+                put("source", JsonPrimitive("temporary_npc_plugin"))
+            })
+            transcript.add(buildJsonObject {
+                put("speaker", JsonPrimitive(name))
+                put("message", JsonPrimitive(npc["opening_line"].orEmpty()))
+                put("role", JsonPrimitive("character"))
+                put("turn_id", JsonPrimitive(turnId))
+                put("timestamp", JsonPrimitive(now))
+                put("source", JsonPrimitive("temporary_npc_plugin"))
+            })
+            val temporaryNpcs = (latest["temporary_npcs"]?.jsonObject ?: JsonObject(emptyMap())).toMutableMap()
+            temporaryNpcs[name] = record
+            val updated = buildJsonObject {
+                latest.forEach { (k, v) -> put(k, v) }
+                put("participants", buildJsonArray { participants.forEach { add(JsonPrimitive(it)) } })
+                put("transcript", buildJsonArray { transcript.forEach { add(it) } })
+                put("temporary_npcs", buildJsonObject { temporaryNpcs.forEach { (k, v) -> put(k, v) } })
+            }
+            SessionHistoryMutation(updated, Unit)
         }
-        storage.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), updated))
+        projections?.rebuild(runId, sessionId)
         return buildJsonObject { npc.forEach { (k, v) -> put(k, JsonPrimitive(v)) } }
     }
 

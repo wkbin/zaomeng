@@ -64,6 +64,8 @@ data class ModelProfile(
     val tokenParameter: String? = null,
     @SerialName("response_format_mode")
     val responseFormatMode: String? = null,
+    @SerialName("request_timeout_seconds")
+    val requestTimeoutSeconds: Int? = null,
     @SerialName("api_key_configured")
     val apiKeyConfigured: Boolean? = null,
     val configured: Boolean? = null

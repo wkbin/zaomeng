@@ -13,9 +13,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okio.Path
+import okio.ByteString.Companion.encodeUtf8
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 
 /**
@@ -32,6 +34,8 @@ class DialogueAdvancedService(
     private val storage: StorageService,
     private val llm: LlmClient?,
     private val prompts: PromptLoader?,
+    private val derivedScheduler: DialogueDerivedScheduler? = null,
+    private val projections: SessionProjectionService? = null,
 ) {
     companion object {
         private const val TAG = "DialogueAdvanced"
@@ -46,6 +50,9 @@ class DialogueAdvancedService(
         isLenient = true
         ignoreUnknownKeys = true
     }
+
+    private val swipeForkLock = SimpleLock()
+    private val chatTransfer = SillyTavernChatTransfer(storage)
     private val longTermMemory = LongTermMemoryService(storage)
     private val tensionService = SceneTensionService()
 
@@ -80,23 +87,39 @@ class DialogueAdvancedService(
         val session = requireSession(runId, sessionId)
         val needle = query.trim().lowercase()
         val results = mutableListOf<JsonObject>()
-        transcriptOf(session).asReversed().forEach { item ->
-            val speaker = item["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val message = item["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            if (speaker.lowercase().contains(needle) || message.lowercase().contains(needle)) {
-                results.add(
-                    buildJsonObject {
-                        put("speaker", speaker)
-                        put("message", message)
-                        put("role", item["role"]?.jsonPrimitive?.contentOrNull ?: "character")
-                        item["turn_id"]?.let { put("turn_id", it) }
-                        item["timestamp"]?.let { put("timestamp", it) }
-                        put("archived", false)
-                        put("score", 1.0)
-                    },
-                )
+        if (needle.isBlank()) return buildJsonArray { }
+        val revision = sessionHistoryRevision(session)
+        var offset = 0
+        val archivedBefore = transcriptStartOf(session)
+        while (results.size < limit) {
+            val page = storage.transcriptReader.readPage(
+                runId = runId,
+                sessionId = sessionId,
+                offset = offset,
+                limit = 200,
+                order = TranscriptOrder.DESC,
+                expectedRevision = revision,
+            )
+            page.items.forEach { entry ->
+                val item = entry.value
+                val speaker = item["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val message = item["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (results.size < limit && (speaker.lowercase().contains(needle) || message.lowercase().contains(needle))) {
+                    results.add(
+                        buildJsonObject {
+                            put("speaker", speaker)
+                            put("message", message)
+                            put("role", item["role"]?.jsonPrimitive?.contentOrNull ?: "character")
+                            item["turn_id"]?.let { put("turn_id", it) }
+                            item["timestamp"]?.let { put("timestamp", it) }
+                            put("archived", entry.seq < archivedBefore)
+                            put("score", 1.0)
+                        },
+                    )
+                }
             }
-            if (results.size >= limit) return@forEach
+            if (!page.hasMore || page.nextOffset == null || page.items.isEmpty()) break
+            offset = requireNotNull(page.nextOffset)
         }
         if (results.size < limit) {
             val fromMemory = memoryLedgerOf(session)
@@ -139,7 +162,7 @@ class DialogueAdvancedService(
      */
     fun branchFromScene(runId: String, sessionId: String, sceneIndex: Int): JsonObject {
         require(sceneIndex >= 0) { "scene_index 不能为负数" }
-        val session = requireSession(runId, sessionId)
+        val session = requireFullSession(runId, sessionId)
         val transcript = transcriptOf(session)
         val sceneStarts = transcript.mapIndexedNotNull { index, item ->
             val role = item["role"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -168,7 +191,7 @@ class DialogueAdvancedService(
      */
     fun branchFromTurn(runId: String, sessionId: String, turnId: String): JsonObject {
         require(turnId.isNotBlank()) { "turn_id 不能为空" }
-        val session = requireSession(runId, sessionId)
+        val session = requireFullSession(runId, sessionId)
         val transcript = transcriptOf(session)
         val lastIndexOfTurn = transcript.indexOfLast { it["turn_id"]?.jsonPrimitive?.contentOrNull == turnId }
         if (lastIndexOfTurn < 0) {
@@ -181,6 +204,46 @@ class DialogueAdvancedService(
             keepFrom = lastIndexOfTurn + 1,
         )
     }
+
+    fun branchFromImportedSwipe(runId: String, sessionId: String, messageIndex: String, swipeIndex: Int): JsonObject =
+        swipeForkLock.withLock {
+            chatTransfer.validateMessageIndex(messageIndex)
+            require(swipeIndex >= 0) { "回复版本序号无效。" }
+            val source = requireFullSession(runId, sessionId)
+            val transcript = transcriptOf(source)
+            val cutoff = transcript.indexOfFirst { (it["sillytavern_message_index"] as? JsonPrimitive)?.contentOrNull == messageIndex }
+            val original = transcript.getOrNull(cutoff) ?: throw NoSuchElementException("迁移消息不存在。")
+            require(original["role"]?.jsonPrimitive?.contentOrNull == "character") { "仅角色回复可以用备用版本创建分支。" }
+            val selection = chatTransfer.selectSwipe(runId, sessionId, messageIndex, swipeIndex)
+            val branchId = "sess-swipe-" + "$sessionId:$messageIndex:$swipeIndex".encodeUtf8().sha256().hex().take(32)
+            val targetManifest = storage.getDialogueSessionManifestFile(runId, branchId)
+            if (storage.isFile(targetManifest)) {
+                return@withLock leanSession(storage.withCharacterAvatars(storage.loadSessionManifest(runId, branchId), runId))
+            }
+            val replacement = buildJsonObject {
+                original.forEach { (key, value) ->
+                    if (key !in setOf("evidence", "inner_thought", "world_book_matches")) put(key, value)
+                }
+                put("message", selection.text)
+                if (selection.timestamp.isNotBlank()) put("timestamp", selection.timestamp)
+            }
+            val retained = transcript.take(cutoff) + replacement
+            val staticFields = setOf(
+                "run_id", "novel_id", "session_id", "mode", "participants", "controlled_character",
+                "self_card_id", "self_profile", "title", "branch_graph",
+            )
+            val branchSource = JsonObject(source.filterKeys { it in staticFields } + ("transcript" to JsonArray(retained)))
+            val sourceTurnId = original["turn_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            try {
+                forkSession(runId, branchSource, sourceTurnId, retained.size, ImportedSwipeFork(branchId, selection))
+            } catch (error: Throwable) {
+                if (!storage.isFile(targetManifest)) {
+                    runCatching { storage.deleteRecursively(requireNotNull(targetManifest.parent)) }
+                }
+                throw error
+            }
+            leanSession(storage.withCharacterAvatars(storage.loadSessionManifest(runId, branchId), runId))
+        }
 
     /**
      * 更新分支元数据。
@@ -199,39 +262,40 @@ class DialogueAdvancedService(
         lockedEventIds?.let {
             require(it.size <= 100) { "locked_event_ids 最多 100 个" }
         }
-        val session = requireSession(runId, sessionId)
-        val existing = session["branch_meta"]?.jsonObject ?: JsonObject(emptyMap())
-        val updatedMeta = buildJsonObject {
-            existing.forEach { (key, value) -> put(key, value) }
-            label?.let { put("label", it) }
-            isMainline?.let { put("is_mainline", it) }
-            lockedEventIds?.let { ids ->
-                put("locked_event_ids", buildJsonArray { ids.forEach { id -> add(JsonPrimitive(id)) } })
-            }
-        }
-        // is_mainline=true 时清除同一 run 内其他会话的 is_mainline
+        requireSession(runId, sessionId)
+        // is_mainline=true 时清除同一 run 内其他会话的 is_mainline（只改这一个字段）
         if (isMainline == true) {
             storage.listDialogueSessionIds(runId).forEach { otherId ->
                 if (otherId != sessionId) {
-                    val other = runCatching { storage.getDialogueSession(runId, otherId) }.getOrNull() ?: return@forEach
-                    val otherMeta = other["branch_meta"]?.jsonObject ?: return@forEach
-                    if (otherMeta["is_mainline"]?.jsonPrimitive?.booleanOrNull == true) {
-                        saveSession(runId, otherId, other, extra = buildJsonObject {
-                            put(
-                                "branch_meta",
-                                buildJsonObject {
-                                    otherMeta.forEach { (key, value) -> put(key, value) }
-                                    put("is_mainline", false)
-                                },
-                            )
-                        })
+                    val otherMeta = runCatching {
+                        storage.loadSessionManifest(runId, otherId)["branch_meta"]?.jsonObject
+                    }.getOrNull() ?: return@forEach
+                    if (otherMeta["is_mainline"]?.jsonPrimitive?.booleanOrNull != true) return@forEach
+                    editSession(runId, otherId) { latest ->
+                        val meta = latest["branch_meta"]?.jsonObject ?: JsonObject(emptyMap())
+                        buildJsonObject {
+                            put("branch_meta", buildJsonObject {
+                                meta.forEach { (key, value) -> put(key, value) }
+                                put("is_mainline", false)
+                            })
+                        }
                     }
                 }
             }
         }
-        return saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("branch_meta", updatedMeta)
-        })
+        return editSession(runId, sessionId) { latest ->
+            val existing = latest["branch_meta"]?.jsonObject ?: JsonObject(emptyMap())
+            buildJsonObject {
+                put("branch_meta", buildJsonObject {
+                    existing.forEach { (key, value) -> put(key, value) }
+                    label?.let { put("label", it) }
+                    isMainline?.let { put("is_mainline", it) }
+                    lockedEventIds?.let { ids ->
+                        put("locked_event_ids", buildJsonArray { ids.forEach { id -> add(JsonPrimitive(id)) } })
+                    }
+                })
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -244,15 +308,16 @@ class DialogueAdvancedService(
      */
     fun setRelationLock(runId: String, sessionId: String, pairKey: String, locked: Boolean): JsonObject {
         require(pairKey.isNotBlank()) { "pair_key 不能为空" }
-        val session = requireSession(runId, sessionId)
-        val existing = session["relation_locks"]?.jsonObject ?: JsonObject(emptyMap())
-        val updated = buildJsonObject {
-            existing.forEach { (key, value) -> if (key != pairKey) put(key, value) }
-            if (locked) put(pairKey, true)
+        requireSession(runId, sessionId)
+        return editSession(runId, sessionId) { latest ->
+            val existing = latest["relation_locks"]?.jsonObject ?: JsonObject(emptyMap())
+            buildJsonObject {
+                put("relation_locks", buildJsonObject {
+                    existing.forEach { (key, value) -> if (key != pairKey) put(key, value) }
+                    if (locked) put(pairKey, true)
+                })
+            }
         }
-        return saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("relation_locks", updated)
-        })
     }
 
     /**
@@ -270,60 +335,62 @@ class DialogueAdvancedService(
     ): JsonObject {
         require(text.isNotBlank() && text.length <= 500) { "记忆文本需为 1-500 字" }
         require(category in MEMORY_CATEGORIES) { "无效的记忆分类: $category" }
-        val session = requireSession(runId, sessionId)
-        val ledger = memoryLedgerOf(session)
+        requireSession(runId, sessionId)
         val timestamp = nowIsoString()
         val targetId = memoryId.ifBlank { "mem-" + randomUuid().replace("-", "").take(10) }
-        val existingIndex = ledger.indexOfFirst {
-            it["memory_id"]?.jsonPrimitive?.contentOrNull == targetId
-        }
-        val updatedLedger = ledger.toMutableList().apply {
-            if (existingIndex >= 0) {
-                val old = this[existingIndex]
-                this[existingIndex] = buildJsonObject {
-                    old.forEach { (key, value) -> put(key, value) }
-                    put("text", text)
-                    put("category", category)
-                    put("pinned", pinned)
-                    put("enabled", enabled)
-                    put("updated_at", timestamp)
-                }
-            } else {
-                add(
-                    buildJsonObject {
-                        put("memory_id", targetId)
+        return editSession(runId, sessionId) { latest ->
+            val ledger = memoryLedgerOf(latest)
+            val existingIndex = ledger.indexOfFirst {
+                it["memory_id"]?.jsonPrimitive?.contentOrNull == targetId
+            }
+            val updatedLedger = ledger.toMutableList().apply {
+                if (existingIndex >= 0) {
+                    val old = this[existingIndex]
+                    this[existingIndex] = buildJsonObject {
+                        old.forEach { (key, value) -> put(key, value) }
                         put("text", text)
                         put("category", category)
                         put("pinned", pinned)
                         put("enabled", enabled)
-                        put("created_at", timestamp)
                         put("updated_at", timestamp)
-                    },
-                )
-            }
-        }
-        // enabled 最多 20 条，超出则保留最新 20 条
-        val enabledCount = updatedLedger.count {
-            it["enabled"]?.jsonPrimitive?.booleanOrNull != false
-        }
-        if (enabledCount > MAX_ENABLED_MEMORIES) {
-            var toDisable = enabledCount - MAX_ENABLED_MEMORIES
-            updatedLedger.indices.forEach { index ->
-                val item = updatedLedger[index]
-                if (toDisable > 0 && item["enabled"]?.jsonPrimitive?.booleanOrNull != false && item["memory_id"]?.jsonPrimitive?.contentOrNull != targetId) {
-                    updatedLedger[index] = buildJsonObject {
-                        item.forEach { (key, value) -> put(key, value) }
-                        put("enabled", false)
                     }
-                    toDisable--
+                } else {
+                    add(
+                        buildJsonObject {
+                            put("memory_id", targetId)
+                            put("text", text)
+                            put("category", category)
+                            put("pinned", pinned)
+                            put("enabled", enabled)
+                            put("created_at", timestamp)
+                            put("updated_at", timestamp)
+                        },
+                    )
                 }
             }
+            // enabled 最多 20 条，超出则保留最新 20 条
+            val enabledCount = updatedLedger.count {
+                it["enabled"]?.jsonPrimitive?.booleanOrNull != false
+            }
+            if (enabledCount > MAX_ENABLED_MEMORIES) {
+                var toDisable = enabledCount - MAX_ENABLED_MEMORIES
+                updatedLedger.indices.forEach { index ->
+                    val item = updatedLedger[index]
+                    if (toDisable > 0 && item["enabled"]?.jsonPrimitive?.booleanOrNull != false && item["memory_id"]?.jsonPrimitive?.contentOrNull != targetId) {
+                        updatedLedger[index] = buildJsonObject {
+                            item.forEach { (key, value) -> put(key, value) }
+                            put("enabled", false)
+                        }
+                        toDisable--
+                    }
+                }
+            }
+            // ledger 截断到最近 100 条
+            val trimmed = updatedLedger.takeLast(MAX_LEDGER_ENTRIES)
+            buildJsonObject {
+                put("memory_ledger", buildJsonArray { trimmed.forEach(::add) })
+            }
         }
-        // ledger 截断到最近 100 条
-        val trimmed = updatedLedger.takeLast(MAX_LEDGER_ENTRIES)
-        return saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("memory_ledger", buildJsonArray { trimmed.forEach(::add) })
-        })
     }
 
     /**
@@ -332,13 +399,15 @@ class DialogueAdvancedService(
      */
     fun deleteMemory(runId: String, sessionId: String, memoryId: String): JsonObject {
         require(memoryId.isNotBlank()) { "memory_id 不能为空" }
-        val session = requireSession(runId, sessionId)
-        val filtered = memoryLedgerOf(session).filterNot {
-            it["memory_id"]?.jsonPrimitive?.contentOrNull == memoryId
+        requireSession(runId, sessionId)
+        return editSession(runId, sessionId) { latest ->
+            val filtered = memoryLedgerOf(latest).filterNot {
+                it["memory_id"]?.jsonPrimitive?.contentOrNull == memoryId
+            }
+            buildJsonObject {
+                put("memory_ledger", buildJsonArray { filtered.forEach(::add) })
+            }
         }
-        return saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("memory_ledger", buildJsonArray { filtered.forEach(::add) })
-        })
     }
 
     fun memoryQuality(runId: String, sessionId: String): MemoryQualityReportDto {
@@ -516,7 +585,9 @@ class DialogueAdvancedService(
             messages = messages,
             temperature = 0.7,
             maxTokens = maxTokens,
-            requireJsonObject = true,
+            // 修正走与常规回复相同的多角色 NDJSON 协议：不能启用“单个 JSON 对象”的 provider 约束，
+            // 否则模型被迫输出一个对象，多角色回合会被压成一条或直接解析失败。
+            requireJsonObject = false,
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         if (corrected.isBlank()) throw IllegalStateException("修正结果为空")
         val forbidden = listOf(
@@ -531,57 +602,107 @@ class DialogueAdvancedService(
         )
         if (correctedResponses.isEmpty()) throw IllegalStateException("修正结果为空")
         val timestamp = nowIsoString()
-        val updatedTranscript = transcript.toMutableList().apply {
-            // 删除 target turn 的全部角色回复（保留 user 条目），再插入修正后的回复
-            removeAll { entry ->
+        val effectiveTurnId = targetTurnId.ifEmpty { turnId }
+        val correctedText = correctedResponses.lastOrNull()?.message.orEmpty()
+        // 修正稿基于 latest 重新拼接：LLM 调用期间提交的新回合必须保留。
+        var pendingCorrection: ReplyOperationResult? = null
+        storage.mutateSessionHistory(runId, sessionId) { history ->
+            val latest = history.manifest
+            val updatedTranscript = transcriptOf(latest).toMutableList()
+            // 只有需要"替换既有回合"时才要求该回合仍在最近记录里；缺 turn_id 的旧数据走纯追加。
+            if (targetTurnId.isNotBlank() &&
+                updatedTranscript.none { it["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId }
+            ) {
+                throw IllegalArgumentException("待修正的回合不在最近的会话记录中，请重新打开会话后再试。")
+            }
+            val removeIndex = updatedTranscript.indexOfFirst { entry ->
+                targetTurnId.isNotEmpty() && entry["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId &&
+                    entry["role"]?.jsonPrimitive?.contentOrNull.orEmpty() != "user"
+            }.let { if (it < 0) updatedTranscript.size else it }
+            updatedTranscript.removeAll { entry ->
                 val role = entry["role"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 targetTurnId.isNotEmpty() && entry["turn_id"]?.jsonPrimitive?.contentOrNull == targetTurnId &&
                     role != "user"
             }
-            correctedResponses.forEach { response ->
-                add(
-                    buildJsonObject {
-                        put("speaker", response.speaker)
-                        put("message", response.message)
-                        response.innerThought?.let { put("inner_thought", it) }
-                        put(
-                            "role",
-                            if (response.speaker in setOf("旁白", "场景提示")) "scene" else "character",
-                        )
-                        put("turn_id", targetTurnId.ifEmpty { turnId })
-                        put("timestamp", timestamp)
-                        put("corrected_at", timestamp)
-                    },
-                )
-            }
-        }
-        val correctedText = correctedResponses.lastOrNull()?.message.orEmpty()
-        val updated = saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("transcript", buildJsonArray { updatedTranscript.forEach(::add) })
-            put("last_entry_preview", correctedText)
-        })
-        // 修正后重推 scene progress（对齐 Python _refresh_dialogue_scene_progress use_llm=False）
-        val transcriptMaps = updatedTranscript.mapNotNull { entry ->
-            runCatching {
-                entry.mapValues { (_, value) ->
-                    if (value is JsonObject) value else value.jsonPrimitive.contentOrNull
+            val correctedEntries = correctedResponses.map { response ->
+                buildJsonObject {
+                    put("speaker", response.speaker)
+                    put("message", response.message)
+                    response.innerThought?.let { put("inner_thought", it) }
+                    put(
+                        "role",
+                        if (response.speaker in setOf("旁白", "场景提示")) "scene" else "character",
+                    )
+                    put("turn_id", effectiveTurnId)
+                    put("timestamp", timestamp)
+                    put("corrected_at", timestamp)
                 }
-            }.getOrNull()
+            }
+            updatedTranscript.addAll(removeIndex, correctedEntries)
+            val lastPreview = updatedTranscript.lastOrNull { entry ->
+                entry["role"]?.jsonPrimitive?.contentOrNull.orEmpty() != "user"
+            }?.get("message")?.jsonPrimitive?.contentOrNull ?: correctedText
+            val merged = mergeJsonFields(latest, buildJsonObject {
+                put("transcript", buildJsonArray { updatedTranscript.forEach(::add) })
+                put("transcript_count", transcriptStartOf(latest) + updatedTranscript.size)
+                put("last_entry_preview", lastPreview)
+                put("updated_at", timestamp)
+            })
+            // 修正后重推 scene progress（对齐 Python _refresh_dialogue_scene_progress use_llm=False）
+            val transcriptMaps = updatedTranscript.mapNotNull { entry ->
+                runCatching {
+                    entry.mapValues { (_, value) ->
+                        if (value is JsonObject) value else value.jsonPrimitive.contentOrNull
+                    }
+                }.getOrNull()
+            }
+            val state = SceneProgressState.deriveSceneProgressState(merged, transcriptMaps, updatedAt = timestamp)
+            val updated = mergeJsonFields(merged, buildJsonObject {
+                put("state", SceneProgressState.stateToJsonObject(state))
+            })
+            val result = ReplyOperationResult(
+                turnId = effectiveTurnId,
+                committedRevision = history.revision + 1,
+                transcriptCountAtCommit = transcriptStartOf(latest) + updatedTranscript.size,
+                appendedTranscript = updatedTranscript.mapIndexedNotNull { index, item ->
+                    if (item["turn_id"]?.jsonPrimitive?.contentOrNull != effectiveTurnId) {
+                        null
+                    } else {
+                        buildJsonObject {
+                            item.forEach { (key, value) -> put(key, value) }
+                            put("seq", transcriptStartOf(latest) + index)
+                        }
+                    }
+                },
+                message = originalMessage,
+                messageKind = "dialogue",
+                responses = correctedResponses,
+            )
+            derivedScheduler?.prepareDerivedResult(runId, sessionId, result, DerivedOperationKind.CORRECTION)
+            pendingCorrection = result
+            SessionHistoryMutation(updated, Unit)
         }
-        val state = SceneProgressState.deriveSceneProgressState(updated, transcriptMaps, updatedAt = timestamp)
-        val finalSession = saveSession(runId, sessionId, updated, extra = buildJsonObject {
-            put("state", SceneProgressState.stateToJsonObject(state))
-        })
-        val effectiveTurnId = targetTurnId.ifEmpty { turnId }
-        longTermMemory.replaceTurn(
-            runId = runId,
-            sessionId = sessionId,
-            turnId = effectiveTurnId,
-            message = originalMessage,
-            responses = correctedResponses.map { response ->
-                mapOf("speaker" to response.speaker, "message" to response.message)
-            },
-        )
+        val finalSession = storage.getDialogueSession(runId, sessionId)
+        val scheduler = derivedScheduler
+        if (scheduler != null) {
+            scheduler.scheduleDerivedResult(
+                runId,
+                sessionId,
+                requireNotNull(pendingCorrection),
+                DerivedOperationKind.CORRECTION,
+            )
+            projections?.rebuild(runId, sessionId)
+        } else {
+            longTermMemory.replaceTurn(
+                runId = runId,
+                sessionId = sessionId,
+                turnId = effectiveTurnId,
+                message = originalMessage,
+                responses = correctedResponses.map { response ->
+                    mapOf("speaker" to response.speaker, "message" to response.message)
+                },
+            )
+        }
         return finalSession
     }
 
@@ -620,18 +741,19 @@ class DialogueAdvancedService(
         ).choices.firstOrNull()?.message?.content?.trim().orEmpty()
         val review = parseJsonObject(content)
         val timestamp = nowIsoString()
-        val previous = session["consistency_monitor"]?.jsonObject ?: JsonObject(emptyMap())
-        val history = (previous["history"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
-        previous["latest"]?.let { latest -> history.add(0, latest) }
-        val monitor = buildJsonObject {
-            previous.forEach { (key, value) -> put(key, value) }
-            put("latest", review)
-            put("history", buildJsonArray { history.take(20).forEach(::add) })
-            put("reviewed_at", timestamp)
+        return editSession(runId, sessionId) { latest ->
+            val previous = latest["consistency_monitor"]?.jsonObject ?: JsonObject(emptyMap())
+            val history = (previous["history"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            previous["latest"]?.let { latestReview -> history.add(0, latestReview) }
+            buildJsonObject {
+                put("consistency_monitor", buildJsonObject {
+                    previous.forEach { (key, value) -> put(key, value) }
+                    put("latest", review)
+                    put("history", buildJsonArray { history.take(20).forEach(::add) })
+                    put("reviewed_at", timestamp)
+                })
+            }
         }
-        return saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("consistency_monitor", monitor)
-        })
     }
 
     /**
@@ -694,7 +816,7 @@ class DialogueAdvancedService(
         transitionMessage: String,
         autoContinue: Boolean,
     ): JsonObject {
-        val session = requireSession(runId, sessionId)
+        requireSession(runId, sessionId)
         val timestamp = nowIsoString()
         val sceneCard = buildJsonObject {
             if (sceneCardId.isNotBlank()) put("card_id", sceneCardId)
@@ -705,52 +827,65 @@ class DialogueAdvancedService(
                 sceneProfile["time_hint"]?.let { put("time_hint", it) }
             })
         }
-        val sceneHistory = (session["scene_history"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
-        if (transitionMessage.isNotBlank()) {
-            sceneHistory.add(
-                buildJsonObject {
-                    put("scene_card_id", sceneCardId)
-                    put("transition_message", transitionMessage)
-                    put("switched_at", timestamp)
-                },
-            )
-        }
-        val updated = saveSession(runId, sessionId, session, extra = buildJsonObject {
-            put("scene_card_id", sceneCardId)
-            put("scene_card", sceneCard)
-            put("scene_history", buildJsonArray { sceneHistory.forEach(::add) })
-        })
-        val final = if (autoContinue && transitionMessage.isNotBlank()) {
-            // auto_continue：将转场消息作为场景提示写入 transcript
-            val transcript = transcriptOf(updated).toMutableList()
-            transcript.add(
-                buildJsonObject {
-                    put("speaker", "场景提示")
-                    put("message", transitionMessage)
-                    put("role", "scene")
-                    put("turn_id", "scene-" + randomUuid().replace("-", "").take(10))
-                    put("timestamp", timestamp)
-                },
-            )
-            saveSession(runId, sessionId, updated, extra = buildJsonObject {
-                put("transcript", buildJsonArray { transcript.forEach(::add) })
-            })
+        val transitionEntry = if (transitionMessage.isNotBlank()) {
+            buildJsonObject {
+                put("scene_card_id", sceneCardId)
+                put("transition_message", transitionMessage)
+                put("switched_at", timestamp)
+            }
         } else {
-            updated
+            null
         }
-        // 对齐 Python switch_scene_card：写入场景切换事件信号并推导 scene progress state
         val sceneProfileMap = sceneProfile.mapValues { (_, value) ->
             value.jsonPrimitive.contentOrNull
         }
-        val state = SceneProgressState.deriveAfterSceneSwitch(
-            session = final,
-            sceneProfile = sceneProfileMap,
-            transitionMessage = transitionMessage,
-            switchedAt = timestamp,
-        )
-        return saveSession(runId, sessionId, final, extra = buildJsonObject {
-            put("state", SceneProgressState.stateToJsonObject(state))
-        })
+        // 场景切换的三次写入合并为一次锁内读改写：避免覆盖期间提交的新回合，也少两次全量写。
+        val transform: (JsonObject) -> JsonObject = { latest ->
+            val sceneHistory = (latest["scene_history"]?.jsonArray ?: JsonArray(emptyList())).toMutableList()
+            transitionEntry?.let { sceneHistory.add(it) }
+            var merged = mergeJsonFields(latest, buildJsonObject {
+                put("scene_card_id", sceneCardId)
+                put("scene_card", sceneCard)
+                put("scene_history", buildJsonArray { sceneHistory.forEach(::add) })
+                put("updated_at", timestamp)
+            })
+            if (autoContinue && transitionMessage.isNotBlank()) {
+                // auto_continue：将转场消息作为场景提示写入 transcript
+                val transcript = transcriptOf(merged).toMutableList()
+                transcript.add(
+                    buildJsonObject {
+                        put("speaker", "场景提示")
+                        put("message", transitionMessage)
+                        put("role", "scene")
+                        put("turn_id", "scene-" + randomUuid().replace("-", "").take(10))
+                        put("timestamp", timestamp)
+                    },
+                )
+                merged = mergeJsonFields(merged, buildJsonObject {
+                    put("transcript", buildJsonArray { transcript.forEach(::add) })
+                    put("transcript_count", transcriptStartOf(merged) + transcript.size)
+                })
+            }
+            // 对齐 Python switch_scene_card：写入场景切换事件信号并推导 scene progress state
+            val state = SceneProgressState.deriveAfterSceneSwitch(
+                session = merged,
+                sceneProfile = sceneProfileMap,
+                transitionMessage = transitionMessage,
+                switchedAt = timestamp,
+            )
+            mergeJsonFields(merged, buildJsonObject {
+                put("state", SceneProgressState.stateToJsonObject(state))
+            })
+        }
+        if (autoContinue && transitionMessage.isNotBlank()) {
+            storage.mutateSessionHistory(runId, sessionId) { history ->
+                SessionHistoryMutation(transform(history.manifest), Unit)
+            }
+        } else {
+            storage.updateSessionManifest(runId, sessionId, transform)
+        }
+        if (autoContinue && transitionMessage.isNotBlank()) projections?.rebuild(runId, sessionId)
+        return storage.loadSessionManifest(runId, sessionId)
     }
 
     /**
@@ -824,29 +959,46 @@ class DialogueAdvancedService(
 
     private fun requireSession(runId: String, sessionId: String): JsonObject {
         if (!storage.runExists(runId)) throw NoSuchElementException("Run not found: $runId")
-        val session = runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+        return runCatching { storage.loadSessionManifest(runId, sessionId) }.getOrNull()
             ?: throw NoSuchElementException("Session not found: $sessionId")
-        return session
     }
 
-    private fun saveSession(
+    private fun requireFullSession(runId: String, sessionId: String): JsonObject {
+        if (!storage.runExists(runId)) throw NoSuchElementException("Run not found: $runId")
+        return runCatching { storage.getDialogueSession(runId, sessionId) }.getOrNull()
+            ?: throw NoSuchElementException("Session not found: $sessionId")
+    }
+
+    /**
+     * 只把本次编辑涉及的字段合并进**最新的**会话清单。
+     *
+     * 旧实现用调用方早先读到的整份快照覆盖写：`correctLatest`/`deepReview`/`switchScene`
+     * 要跨 LLM 调用，期间提交的新回合会被旧快照整片抹掉。这里在存储路径锁内基于 latest
+     * 计算，只覆盖 [fields] 返回的键，其余字段（transcript / turn_count / current_turn_id 等）
+     * 保持最新值。
+     */
+    private fun editSession(
         runId: String,
         sessionId: String,
-        session: JsonObject,
-        extra: JsonObject = JsonObject(emptyMap()),
+        fields: (latest: JsonObject) -> JsonObject,
     ): JsonObject {
-        val file = storage.getDialogueSessionManifestFile(runId, sessionId)
-        val updated = buildJsonObject {
-            session.forEach { (key, value) -> put(key, value) }
-            extra.forEach { (key, value) -> put(key, value) }
-            put("updated_at", nowIsoString())
+        return storage.updateSessionManifest(runId, sessionId) { latest ->
+            val merged = mergeJsonFields(latest, fields(latest))
+            mergeJsonFields(merged, buildJsonObject { put("updated_at", nowIsoString()) })
         }
-        storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), updated))
-        return updated
+    }
+
+    private fun mergeJsonFields(base: JsonObject, fields: JsonObject): JsonObject = buildJsonObject {
+        base.forEach { (key, value) -> put(key, value) }
+        fields.forEach { (key, value) -> put(key, value) }
     }
 
     private fun transcriptOf(session: JsonObject): List<JsonObject> =
         session["transcript"]?.jsonArray?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }.orEmpty()
+
+    /** manifest 中最近 transcript 之前已归档的条数，用于重算 transcript_count。 */
+    private fun transcriptStartOf(manifest: JsonObject): Int =
+        manifest["transcript_start"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.coerceAtLeast(0) ?: 0
 
     private fun jsonValueToAny(value: kotlinx.serialization.json.JsonElement?): Any? = when (value) {
         null -> null
@@ -862,21 +1014,29 @@ class DialogueAdvancedService(
     /**
      * 创建分支会话：复制源会话并截断 transcript。
      */
+    private data class ImportedSwipeFork(val id: String, val selection: SillyTavernChatTransfer.SwipeSelection)
+
     private fun forkSession(
         runId: String,
         source: JsonObject,
         sourceTurnId: String,
         keepFrom: Int,
+        swipe: ImportedSwipeFork? = null,
     ): JsonObject {
         val transcript = transcriptOf(source)
         val kept = transcript.take(keepFrom)
-        val branchId = "sess-" + randomUuid().replace("-", "").take(12)
+        val branchId = swipe?.id ?: "sess-" + randomUuid().replace("-", "").take(12)
         val timestamp = nowIsoString()
+        val swipeLabel = swipe?.selection?.let { "回复版本 ${it.index + 1}" }
         val branchOrigin = buildJsonObject {
             put("source_session_id", source["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty())
             if (sourceTurnId.isNotBlank()) put("source_turn_id", sourceTurnId)
             put("created_at", timestamp)
-            put("fork_type", "branch")
+            put("fork_type", if (swipe == null) "branch" else "imported_swipe")
+            swipe?.selection?.let {
+                put("sillytavern_message_index", it.messageIndex)
+                put("sillytavern_swipe_index", it.index)
+            }
         }
         val parentGraph = source["branch_graph"]?.jsonObject ?: JsonObject(emptyMap())
         val graph = buildJsonObject {
@@ -893,20 +1053,26 @@ class DialogueAdvancedService(
         val branch = buildJsonObject {
             source.forEach { (key, value) -> put(key, value) }
             put("session_id", branchId)
-            put("title", (source["title"]?.jsonPrimitive?.contentOrNull ?: "").ifBlank { "分支会话" })
+            val title = source["title"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "分支会话" }
+            put("title", swipeLabel?.let { "${title.take(96)} · $it" } ?: title)
+            swipe?.selection?.let { put("last_entry_preview", it.text.take(200)) }
             put("created_at", timestamp)
             put("updated_at", timestamp)
             put("transcript", buildJsonArray { kept.forEach(::add) })
+            put("transcript_start", 0)
+            put("transcript_count", kept.size)
+            put("revision", if (kept.isEmpty()) 0 else 1)
             put("branch_origin", branchOrigin)
             put("branch_graph", graph)
             put("branch_meta", buildJsonObject {
-                put("label", "分支")
+                put("label", swipeLabel ?: "分支")
                 put("is_mainline", false)
             })
             put("status", "ready")
-            put("turn_count", kept.count { item ->
-                val role = item["role"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                role != "scene"
+            put("turn_count", if (swipe == null) {
+                kept.count { it["role"]?.jsonPrimitive?.contentOrNull.orEmpty() != "scene" }
+            } else {
+                kept.mapNotNull { it["turn_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) }.distinct().size
             })
             put("current_turn_id", kept.lastOrNull()?.get("turn_id")?.jsonPrimitive?.contentOrNull.orEmpty())
         }
@@ -952,14 +1118,28 @@ class DialogueAdvancedService(
         }
         val dir = storage.getDialogueSessionsDirectory(runId) / branchId
         storage.mkdirs(dir)
+        val compacted = storage.compactSessionTranscript(
+            runId, branchId, branchWithState, JsonArray(kept),
+        )
+        val branchManifest = buildJsonObject {
+            branchWithState.forEach { (key, value) -> put(key, value) }
+            put("transcript", compacted.recent)
+            put("transcript_start", compacted.startIndex)
+            put("transcript_count", compacted.totalCount)
+        }
         val file = dir / "session_manifest.json"
-        storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), branchWithState))
+        chatTransfer.copyBranchMetadata(
+            runId, source["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty(), branchId, kept,
+            selection = swipe?.selection,
+        )
+        storage.writeTextAtomically(file, json.encodeToString(JsonObject.serializer(), branchManifest))
         longTermMemory.copyForBranch(
             runId = runId,
             sourceSessionId = source["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             targetSessionId = branchId,
-            retainedTurnIds = retainedTurnIds,
+            retainedTurnIds = if (swipe == null) retainedTurnIds else retainedTurnIds - sourceTurnId,
         )
+        projections?.rebuild(runId, branchId)
         return branchWithState
     }
 
@@ -977,7 +1157,12 @@ class DialogueAdvancedService(
         return try {
             json.parseToJsonElement(normalized).jsonObject
         } catch (error: Exception) {
-            PlatformLog.e(TAG, "LLM returned non-JSON content: $content", error)
+            // 只记录截断切片与长度：完整模型输出可能包含整章原文或用户隐私数据。
+            PlatformLog.e(
+                TAG,
+                "LLM returned non-JSON content (${content.length} chars, first 500): ${content.take(500)}",
+                error,
+            )
             JsonObject(emptyMap())
         }
     }

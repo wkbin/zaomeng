@@ -49,6 +49,14 @@ class PersonaService(
         )
     }
 
+    fun exportSillyTavernCard(runId: String, character: String): JsonObject {
+        val profile = getReview(runId, character)
+        val original = storage.readTextOrNull(storage.getRunDirectory(runId) / SillyTavernImport.CARD_FILE)?.let {
+            SillyTavernImport.parseCard(it.encodeToByteArray(), stored = true)
+        }
+        return SillyTavernExport.characterCard(character, profile.fields, original)
+    }
+
     fun deletePersona(runId: String, character: String): DeleteStatusDto {
         val normalized = character.trim()
         if (normalized.isBlank() || normalized.contains('/') || normalized.contains('\\') || normalized.contains("..")) {
@@ -73,7 +81,10 @@ class PersonaService(
         storage.deleteRecursively(profileDir)
         storage.deletePersonaEntities(runId, entityNovelId, profileNames)
         val relationGraph = relations.removeCharacter(runId, normalized)
-        storage.writeRunManifest(runId, removeCharacterFromManifest(manifest, normalized, relationGraph))
+        // 基于最新清单合并：删除档案/关系图期间可能已有新回合或进度写入。
+        storage.updateRunManifest(runId) { latest ->
+            removeCharacterFromManifest(latest, normalized, relationGraph)
+        }
         return DeleteStatusDto(status = "deleted")
     }
 
@@ -606,22 +617,24 @@ class PersonaService(
     }
 
     private fun updateAvatarVersion(runId: String, character: String, version: String) {
-        val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
-        val artifactIndex = manifest["artifact_index"]?.jsonObject ?: JsonObject(emptyMap())
-        val characters = artifactIndex["characters"]?.jsonArray ?: JsonArray(emptyList())
-        var found = false
-        val updatedCharacters = buildJsonArray {
-            characters.forEach { element ->
-                val item = element.jsonObject
-                if (item["name"]?.jsonPrimitive?.contentOrNull == character) {
-                    found = true
-                    add(buildJsonObject { item.forEach { (k, v) -> put(k, v) }; put("avatar_version", JsonPrimitive(version)) })
-                } else add(item)
+        // 只改 artifact_index.characters[].avatar_version，其余字段以 latest 为准。
+        storage.updateRunManifest(runId) { manifest ->
+            val artifactIndex = manifest["artifact_index"]?.jsonObject ?: JsonObject(emptyMap())
+            val characters = artifactIndex["characters"]?.jsonArray ?: JsonArray(emptyList())
+            var found = false
+            val updatedCharacters = buildJsonArray {
+                characters.forEach { element ->
+                    val item = element.jsonObject
+                    if (item["name"]?.jsonPrimitive?.contentOrNull == character) {
+                        found = true
+                        add(buildJsonObject { item.forEach { (k, v) -> put(k, v) }; put("avatar_version", JsonPrimitive(version)) })
+                    } else add(item)
+                }
             }
+            if (!found) throw NoSuchElementException("Character not found: $character")
+            val updatedIndex = buildJsonObject { artifactIndex.forEach { (k, v) -> put(k, v) }; put("characters", updatedCharacters) }
+            buildJsonObject { manifest.forEach { (k, v) -> put(k, v) }; put("artifact_index", updatedIndex) }
         }
-        if (!found) throw NoSuchElementException("Character not found: $character")
-        val updatedIndex = buildJsonObject { artifactIndex.forEach { (k, v) -> put(k, v) }; put("characters", updatedCharacters) }
-        storage.writeRunManifest(runId, buildJsonObject { manifest.forEach { (k, v) -> put(k, v) }; put("artifact_index", updatedIndex) })
     }
 
     private fun isSupportedImage(bytes: ByteArray): Boolean =
@@ -630,8 +643,8 @@ class PersonaService(
             (bytes.size >= 12 && bytes.copyOfRange(0, 4).contentEquals("RIFF".encodeToByteArray()) && bytes.copyOfRange(8, 12).contentEquals("WEBP".encodeToByteArray()))
 
     private fun ByteArray.startsWith(prefix: ByteArray) = size >= prefix.size && copyOfRange(0, prefix.size).contentEquals(prefix)
-    private fun String.frontmatter(): String? = if (startsWith("---")) split("---", limit = 3).getOrNull(1) else null
-    private fun String.substringAfterFrontmatter(): String = if (startsWith("---")) split("---", limit = 3).getOrNull(2)?.trimStart().orEmpty() else this
+    private fun String.frontmatter(): String? = splitPersonaFrontmatter()?.first
+    private fun String.substringAfterFrontmatter(): String = splitPersonaFrontmatter()?.second?.trimStart() ?: this
 
     companion object {
         private const val TAG = "PersonaService"

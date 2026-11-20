@@ -26,6 +26,7 @@ data class ExportedRunPackage(
     val filename: String,
     val file: Path,
     val byteCount: Long,
+    val mimeType: String = "application/zip",
 )
 
 @Serializable

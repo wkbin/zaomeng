@@ -15,25 +15,29 @@ class KtorServiceGraph(platform: ServerPlatform) {
         documentStore,
         DomainStore(platform.dataRoot, database.domainDao(), documentStore),
     )
-    val diagnostics = DiagnosticsService(storage.getStorageRoot(), storage)
+    val modelRequests = ModelRequestDiagnostics()
+    val diagnostics = DiagnosticsService(storage.getStorageRoot(), storage, modelRequests)
     val modelApiKeys = ModelApiKeyService(platform.secureStore())
     val promptLoader = PromptLoader(platform.promptSource)
-    val llm = LlmClient(modelApiKeys, storage)
+    val llm = LlmClient(modelApiKeys, storage, requestDiagnostics = modelRequests)
     val worldMemory = WorldMemoryService(storage)
     val originalKnowledge = OriginalKnowledgeService(storage)
     val plugins = PluginService(storage, top.wkbin.zaomeng.plugins.builtin.BuiltinPlugins.all)
     val pluginRules = PluginRuleEngine(storage, plugins)
-    val dialogue = DialogueService(storage, llm, promptLoader, worldMemory, pluginRules)
-    val dialogueStream = DialogueStreamService(storage, llm, promptLoader, dialogue)
+    val replyOperations = DialogueReplyOperationCoordinator(storage)
+    val projections = SessionProjectionService(storage, llm, promptLoader)
+    val historyRetrieval = DialogueHistoryRetrievalService(storage, llm, promptLoader)
+    val dialogue = DialogueService(storage, llm, promptLoader, worldMemory, pluginRules, replyOperations, projections, historyRetrieval)
+    val dialogueStream = DialogueStreamService(storage, llm, promptLoader, dialogue, replyOperations, projections)
     val suggestions = SuggestionsService(storage, llm, promptLoader)
-    val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader)
-    val sessionManagement = SessionManagementService(storage, dialogue, worldMemory)
+    val dialogueAdvanced = DialogueAdvancedService(storage, llm, promptLoader, dialogue, projections)
+    val sessionManagement = SessionManagementService(storage, dialogue, worldMemory, projections)
     val distillExecutor = DistillExecutor(storage, llm, promptLoader, originalKnowledge)
-    val runManagement = RunManagementService(storage, distillExecutor)
+    val runManagement = RunManagementService(storage, distillExecutor, dialogue)
     val runPackages = RunPackageService(storage)
     val settingsManagement = SettingsManagementService(storage, modelApiKeys)
     val chapter = ChapterService(storage, llm, promptLoader)
-    val chapterManagement = ChapterManagementService(storage, sessionManagement, llm, promptLoader)
+    val chapterManagement = ChapterManagementService(storage, sessionManagement, llm, promptLoader, projections)
     val cards = CardsService(storage, llm, promptLoader)
     val cardsManagement = CardsManagementService(storage)
     val relations = RelationsService(storage)
@@ -44,7 +48,7 @@ class KtorServiceGraph(platform: ServerPlatform) {
         runPackages,
         distillExecutor,
     )
-    val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins)
+    val pluginHost = PluginHostImpl(storage, llm, dialogueAdvanced, suggestions, plugins, projections)
     val pluginOperations = PluginOperationsService(storage, plugins, pluginHost)
     val pluginBuilder = PluginBuilderService { messages ->
         llm.chatCompletion(
@@ -60,5 +64,6 @@ class KtorServiceGraph(platform: ServerPlatform) {
         // a persisted "running" manifest no longer has a worker behind it; expose it as
         // an interruptible run so the existing resume flow can recover it.
         distillExecutor.markPersistedRunsInterrupted()
+        dialogue.recoverDerivedOperations()
     }
 }

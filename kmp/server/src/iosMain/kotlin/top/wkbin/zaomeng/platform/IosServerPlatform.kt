@@ -15,7 +15,7 @@ import platform.Foundation.NSUserDomainMask
 import top.wkbin.zaomeng.db.ZaomengDatabase
 import top.wkbin.zaomeng.db.getDatabaseBuilder
 
-/** iOS 平台：数据目录 = ApplicationSupport/zaomeng，提示词走主 bundle 资源，密钥为本地文件。 */
+/** iOS 平台：数据目录 = ApplicationSupport/zaomeng，提示词走主 bundle 资源，密钥存 Keychain。 */
 class IosServerPlatform : ServerPlatform {
     private val appSupportPath: String = requireNotNull(
         NSFileManager.defaultManager.URLForDirectory(
@@ -31,7 +31,10 @@ class IosServerPlatform : ServerPlatform {
 
     override val promptSource: PromptSource = IosPromptSource()
 
-    private val store = IosFileSecureStore(dataRoot / "secrets.properties")
+    private val store = IosKeychainSecureStore(
+        service = "top.wkbin.zaomeng.model-keys",
+        legacyFile = dataRoot / "secrets.properties",
+    )
 
     override fun secureStore(): SecureKeyValueStore = store
 
@@ -67,7 +70,7 @@ class IosPromptSource : PromptSource {
     }
 }
 
-/** iOS 安全密钥存储：明文 properties 文件（与桌面一致；后续可升级 Keychain）。 */
+/** 旧版明文 `secrets.properties` 读取器：现仅用于 [IosKeychainSecureStore] 的一次性迁移。 */
 class IosFileSecureStore(
     private val file: Path,
 ) : SecureKeyValueStore {

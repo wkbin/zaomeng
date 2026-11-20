@@ -40,7 +40,15 @@ fun base64Decode(text: String): ByteArray =
 data class ZipEntryData(val name: String, val content: ByteArray)
 
 /** 读取 zip 归档全部文件条目（跳过目录条目）。 */
-expect fun readZipEntries(bytes: ByteArray): List<ZipEntryData>
+fun readZipEntries(bytes: ByteArray): List<ZipEntryData> =
+    buildList { forEachZipEntry(bytes) { add(it) } }
+
+internal const val MAX_ZIP_ENTRIES = 10_000
+internal const val MAX_ZIP_ENTRY_BYTES = 64L * 1024 * 1024
+internal const val MAX_ZIP_TOTAL_BYTES = 512L * 1024 * 1024
+internal const val MAX_ZIP_COMPRESSION_RATIO = 200
+
+internal expect fun forEachZipEntry(bytes: ByteArray, consume: (ZipEntryData) -> Unit)
 
 /** 写入 zip 归档。 */
 expect fun writeZipEntries(entries: List<ZipEntryData>): ByteArray
