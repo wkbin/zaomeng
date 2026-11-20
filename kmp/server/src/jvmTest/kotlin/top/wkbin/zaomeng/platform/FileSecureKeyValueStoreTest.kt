@@ -89,7 +89,11 @@ class FileSecureKeyValueStoreTest {
                 val backups = Files.list(dir).use { paths ->
                     paths.filter { it.fileName.toString().endsWith(".legacy") }.toList()
                 }
-                assertEquals("应保留一个明文备份用于回滚", 1, backups.size)
+                assertEquals(
+                    "应保留一个明文备份用于回滚，实际: ${backups.map { it.fileName }}",
+                    1,
+                    backups.size,
+                )
                 assertTrue(Files.readString(backups.single()).contains("sk-legacy-1"))
             }
         } finally {

@@ -150,14 +150,35 @@ class FileSecureKeyValueStore internal constructor(
         if (!codec.canEncrypt) return
         val raw = load()
         if (raw.isEmpty() || raw.values.none { !codec.isEncoded(it) }) return
+        // 先加密到内存：任一条目加密失败就保持原文件，避免出现“备份没了、明文还在”的中间态。
+        val encoded = raw.mapValues { (_, value) -> codec.encode(value) }
+        if (encoded.values.any { !codec.isEncoded(it) }) {
+            PlatformLog.w(TAG, "Skip secret migration: OS protection unavailable")
+            return
+        }
         synchronized(lock) {
             val backup = file.parent!! / "${file.name}.${nowEpochMillis()}.legacy"
-            runCatching { fs.atomicMove(file, backup) }
+            if (!writeLegacyBackup(backup)) {
+                // 备份失败就不改写：宁可继续用明文文件，也不要丢掉回滚能力。
+                PlatformLog.w(TAG, "Skip secret migration: cannot write backup")
+                return
+            }
             // 备份里仍是明文，至少收紧到仅当前用户可读。
             runCatching { restrictSecretFilePermissions(secretFilePath(backup.toString())) }
-            save(raw.mapValues { (_, value) -> codec.encode(value) })
+            save(encoded)
             PlatformLog.i(TAG, "Migrated ${raw.size} plaintext secret(s) to DPAPI; backup=${backup.name}")
         }
+    }
+
+    /**
+     * 复制原文件作为备份。
+     *
+     * 这里不用 `atomicMove`：它在部分磁盘/杀软/CI 临时目录上会失败，而备份是迁移的前置条件，
+     * 失败被吞掉就会得到“已加密但没有备份”的结果。复制只要求读句柄，退路才是整文件移动。
+     */
+    private fun writeLegacyBackup(backup: Path): Boolean {
+        if (runCatching { fs.copy(file, backup) }.isSuccess) return true
+        return runCatching { fs.atomicMove(file, backup) }.isSuccess
     }
 
     private companion object {
