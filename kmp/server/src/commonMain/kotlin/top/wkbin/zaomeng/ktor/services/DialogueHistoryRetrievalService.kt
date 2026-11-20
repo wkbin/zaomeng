@@ -282,7 +282,9 @@ class DialogueHistoryRetrievalService(
         complete: Boolean,
     ): List<Map<String, Any?>> {
         var remaining = MAX_EVIDENCE_CHARS
-        return entries.toSortedMap().values.mapNotNull { (entry, fullTurn) ->
+        // 不用 toSortedMap：它是 JVM 专有扩展，iOS/Native 目标没有。
+        return entries.entries.sortedBy { it.key }.mapNotNull { (_, payload) ->
+            val (entry, fullTurn) = payload
             if (remaining <= 0) return@mapNotNull null
             val rawMessage = entry.value["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val text = rawMessage.take(remaining)
