@@ -36,6 +36,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":core:runtime"))
             implementation(project(":data:remote"))
             implementation(libs.bundles.compose.ui)
             implementation(libs.material.kolor)

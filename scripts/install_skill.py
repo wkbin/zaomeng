@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 from pathlib import Path
+
+
+_SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 PROMPT_FIRST_FILES = (
@@ -32,7 +36,19 @@ def iter_skill_entries() -> tuple[str, ...]:
 
 
 def copy_skill_bundle(src: Path, dst_root: Path, skill_name: str) -> Path:
-    dst = dst_root / skill_name
+    # skill_name 会被拼成目录名并递归删除：空串等于目标根目录本身，`..` 会逃出目标目录。
+    normalized = str(skill_name or "").strip()
+    if (
+        normalized in {"", ".", ".."}
+        or _SKILL_NAME_PATTERN.fullmatch(normalized) is None
+    ):
+        raise ValueError(
+            f"Invalid skill name: {skill_name!r}. Use only letters, numbers, '.', '_' and '-'."
+        )
+    root = dst_root.resolve(strict=False)
+    dst = (root / normalized).resolve(strict=False)
+    if dst.parent != root:
+        raise ValueError(f"Invalid skill name: {skill_name!r} escapes the skills directory.")
     if dst.exists():
         shutil.rmtree(dst)
     dst.mkdir(parents=True, exist_ok=True)

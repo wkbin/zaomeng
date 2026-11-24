@@ -415,9 +415,12 @@ class LlmClient(
         val client = httpClient.config { followRedirects = false }
         try {
             val response = client.get(endpoint) {
-                bearerAuth(apiKey)
+                if (apiKey.isNotBlank()) bearerAuth(apiKey)
                 accept(ContentType.Application.Json)
                 timeout { requestTimeoutMillis = 20_000 }
+            }
+            if (response.status == HttpStatusCode.Unauthorized) {
+                throw ModelDiscoveryException("模型服务返回 HTTP 401，请填写或核对 API Key。")
             }
             if (!response.status.isSuccess()) {
                 throw ModelDiscoveryException("模型服务返回 HTTP ${response.status.value}。")

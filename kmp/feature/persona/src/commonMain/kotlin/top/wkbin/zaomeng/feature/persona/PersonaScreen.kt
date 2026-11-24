@@ -172,14 +172,16 @@ fun PersonaContent(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = onRequestEvolution,
-                        enabled = state.hasLoaded && !state.isBusy,
-                    ) {
-                        if (state.isGeneratingEvolution) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = "成长提炼")
+                    if (!state.isSillyTavernCard) {
+                        IconButton(
+                            onClick = onRequestEvolution,
+                            enabled = state.hasLoaded && !state.isBusy,
+                        ) {
+                            if (state.isGeneratingEvolution) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Rounded.AutoAwesome, contentDescription = "成长提炼")
+                            }
                         }
                     }
                     IconButton(onClick = onRetry, enabled = !state.isBusy) {
@@ -222,6 +224,12 @@ fun PersonaContent(
                     .padding(innerPadding),
             )
 
+            state.isSillyTavernCard -> SillyTavernCardEditor(
+                state = state,
+                onFieldChange = onFieldChange,
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+            )
+
             else -> PersonaEditor(
                 state = state,
                 expandedGroups = expandedGroups,
@@ -260,6 +268,31 @@ fun PersonaContent(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun SillyTavernCardEditor(
+    state: PersonaUiState,
+    onFieldChange: (String, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(SILLYTAVERN_CARD_FIELDS, key = { it.key }) { field ->
+            OutlinedTextField(
+                value = state.fields[field.key].orEmpty(),
+                onValueChange = { onFieldChange(field.key, it) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(field.label) },
+                minLines = if (field.key == "description") 5 else 3,
+                maxLines = 12,
+                enabled = !state.isSaving,
+            )
+        }
     }
 }
 

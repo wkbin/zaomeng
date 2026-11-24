@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.core.config import Config
 from src.core.path_provider import PathProvider
@@ -11,6 +12,20 @@ from src.utils.file_utils import load_markdown_data
 
 
 class SessionStoreTests(unittest.TestCase):
+    def test_local_summary_lookup_reuses_unchanged_memory_and_refreshes_after_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Config()
+            config.update({"paths": {"sessions": str(Path(tmp) / "sessions")}, "memory": {"vector_provider": "local"}})
+            store = MarkdownSessionStore(PathProvider(config))
+            store.append_long_term_memory("session-one", "关系 线索 初次")
+            with patch.object(store, "search_long_term_memory", wraps=store.search_long_term_memory) as search:
+                self.assertEqual("关系 线索 初次", store.top_memory_text("session-one", "关系 线索"))
+                self.assertEqual("关系 线索 初次", store.top_memory_text("session-one", "关系 线索"))
+                self.assertEqual(1, search.call_count)
+                store.append_long_term_memory("session-one", "关系 线索 更新")
+                self.assertEqual("关系 线索 更新", store.top_memory_text("session-one", "关系 线索"))
+                self.assertEqual(2, search.call_count)
+
     def test_markdown_session_store_persists_session_and_relation_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -11,6 +11,22 @@ from uuid import uuid4
 
 from .persona_bundle import load_profile_source, render_profile_md
 
+_CARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _resolve_card_dir(cards_root: str | Path, card_id: str) -> Path:
+    """卡片 id 会直接拼进目录名：拒绝 `..`、分隔符与绝对路径，防止删除卡根以外的目录。"""
+    normalized = str(card_id or "").strip()
+    if _CARD_ID_PATTERN.fullmatch(normalized) is None:
+        raise ValueError(
+            "Invalid card_id. Use only letters, numbers, underscores, and hyphens."
+        )
+    root = Path(cards_root).resolve(strict=False)
+    candidate = (root / normalized).resolve(strict=False)
+    if candidate.parent != root:
+        raise ValueError("Invalid card_id: path escapes cards root.")
+    return candidate
+
 PERSONA_REVIEW_FIELD_LABELS = {
     "core_identity": "核心身份",
     "story_role": "故事位置",
@@ -463,7 +479,7 @@ def list_self_cards_payload(cards_root: str | Path) -> list[dict[str, Any]]:
 
 
 def load_self_card_payload(cards_root: str | Path, card_id: str) -> dict[str, Any]:
-    card_dir = Path(cards_root) / str(card_id or "").strip()
+    card_dir = _resolve_card_dir(cards_root, card_id)
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     meta = _load_card_meta(card_dir)
@@ -487,7 +503,7 @@ def save_self_card_payload(cards_root: str | Path, *, card_id: str, fields: dict
     validate_self_card_fields(normalized)
 
     resolved_card_id = str(card_id or "").strip() or f"card-{uuid4().hex[:10]}"
-    card_dir = Path(cards_root) / resolved_card_id
+    card_dir = _resolve_card_dir(cards_root, resolved_card_id)
     if str(card_id or "").strip() and not card_dir.exists():
         raise FileNotFoundError(card_id)
     card_dir.mkdir(parents=True, exist_ok=True)
@@ -514,7 +530,7 @@ def save_self_card_payload(cards_root: str | Path, *, card_id: str, fields: dict
 
 
 def delete_self_card_payload(cards_root: str | Path, card_id: str) -> dict[str, str]:
-    card_dir = Path(cards_root) / str(card_id or "").strip()
+    card_dir = _resolve_card_dir(cards_root, card_id)
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     for path in sorted(card_dir.rglob("*"), reverse=True):

@@ -246,6 +246,7 @@ data class ImportRunPackageRequest(
     @SerialName("content_base64") val contentBase64: String,
     @SerialName("library_package") val libraryPackage: LibraryPackageImportDto? = null,
     @SerialName("target_run_id") val targetRunId: String? = null,
+    @SerialName("expected_world_book_revision") val expectedWorldBookRevision: String? = null,
 )
 
 @Serializable
@@ -272,7 +273,32 @@ data class SillyTavernPreviewDto(
     @SerialName("unsupported_rules") val unsupportedRules: List<String> = emptyList(),
     @SerialName("tested_entries") val testedEntries: List<WorldBookMatchDto>? = null,
     @SerialName("injected_count") val injectedCount: Int = 0,
+    @SerialName("previous_book_revision") val previousBookRevision: String? = null,
 )
+
+@Serializable
+enum class WorldBookInjectionPosition(val sillyTavernId: Int) {
+    @SerialName("before_char") BeforeCharacter(0),
+    @SerialName("after_char") AfterCharacter(1),
+    @SerialName("before_author_note") BeforeAuthorNote(2),
+    @SerialName("after_author_note") AfterAuthorNote(3),
+    @SerialName("before_examples") BeforeExamples(5),
+    @SerialName("after_examples") AfterExamples(6),
+    @SerialName("at_depth") AtDepth(4),
+    @SerialName("outlet") Outlet(7);
+
+    val isAuthorNote: Boolean get() = this == BeforeAuthorNote || this == AfterAuthorNote
+}
+
+@Serializable
+enum class WorldBookInjectionRole(val chatRole: String, val sillyTavernId: Int) {
+    @SerialName("system") System("system", 0),
+    @SerialName("user") User("user", 1),
+    @SerialName("assistant") Assistant("assistant", 2),
+}
+
+/** Total raw world-book text per turn, retaining the previous maximum of 18 × 240. */
+const val WORLD_BOOK_CONTENT_CHAR_LIMIT = 4_320
 
 @Serializable
 data class WorldBookMatchDto(
@@ -281,6 +307,16 @@ data class WorldBookMatchDto(
     val status: String,
     val keywords: List<String> = emptyList(),
     val source: String = "",
+    @SerialName("trigger_probability") val triggerProbability: Double? = null,
+    @SerialName("recursion_depth") val recursionDepth: Int = 0,
+    val position: WorldBookInjectionPosition? = null,
+    @SerialName("insertion_order") val insertionOrder: Int = 0,
+    @SerialName("injection_depth") val injectionDepth: Int? = null,
+    @SerialName("injection_role") val injectionRole: WorldBookInjectionRole? = null,
+    @SerialName("outlet_name") val outletName: String? = null,
+    @SerialName("sticky_active") val stickyActive: Boolean = false,
+    @SerialName("ignore_budget") val ignoreBudget: Boolean = false,
+    @SerialName("forced_activation") val forcedActivation: Boolean = false,
 )
 
 @Serializable
@@ -292,6 +328,7 @@ data class ManagedWorldBookDto(
     val name: String,
     val revision: String,
     val entries: List<ManagedWorldBookEntryDto>,
+    @SerialName("recursion_enabled") val recursionEnabled: Boolean = false,
 )
 
 @Serializable
@@ -303,13 +340,135 @@ data class ManagedWorldBookEntryDto(
     val constant: Boolean,
     val keywords: List<String>,
     @SerialName("secondary_keywords") val secondaryKeywords: List<String>,
+    val comment: String = "",
+    val position: WorldBookInjectionPosition? = null,
+    @SerialName("injection_depth") val injectionDepth: Int? = null,
+    @SerialName("injection_role") val injectionRole: WorldBookInjectionRole? = null,
+    @SerialName("outlet_name") val outletName: String? = null,
+    @SerialName("delay") val activationDelay: Int = 0,
+    val sticky: Int = 0,
+    val cooldown: Int = 0,
+    val group: WorldBookGroupSettings? = null,
+    val triggers: List<WorldBookGenerationType> = emptyList(),
+    @SerialName("has_unknown_triggers") val hasUnknownTriggers: Boolean = false,
+    val matching: WorldBookKeywordMatching = WorldBookKeywordMatching(),
+    @SerialName("ignore_budget") val ignoreBudget: Boolean = false,
+)
+
+@Serializable
+data class WorldBookKeywordMatching(
+    @SerialName("scan_depth") val scanDepth: Int? = null,
+    @SerialName("case_sensitive") val caseSensitive: Boolean? = null,
+    @SerialName("whole_words") val wholeWords: Boolean? = null,
+    @SerialName("use_secondary") val useSecondary: Boolean = true,
+    @SerialName("secondary_logic") val secondaryLogic: WorldBookSecondaryLogic = WorldBookSecondaryLogic.AndAny,
+    val sources: List<WorldBookScanSource> = emptyList(),
+) {
+    companion object {
+        const val MAX_SCAN_DEPTH = 32
+    }
+}
+
+@Serializable
+enum class WorldBookScanSource(val nativeField: String, val embeddedField: String) {
+    @SerialName("persona_description") PersonaDescription("matchPersonaDescription", "match_persona_description"),
+    @SerialName("character_description") CharacterDescription("matchCharacterDescription", "match_character_description"),
+    @SerialName("character_personality") CharacterPersonality("matchCharacterPersonality", "match_character_personality"),
+    @SerialName("character_depth_prompt") CharacterDepthPrompt("matchCharacterDepthPrompt", "match_character_depth_prompt"),
+    @SerialName("scenario") Scenario("matchScenario", "match_scenario"),
+    @SerialName("creator_notes") CreatorNotes("matchCreatorNotes", "match_creator_notes"),
+}
+
+@Serializable
+enum class WorldBookSecondaryLogic(val sillyTavernId: Int) {
+    @SerialName("and_any") AndAny(0),
+    @SerialName("not_all") NotAll(1),
+    @SerialName("not_any") NotAny(2),
+    @SerialName("and_all") AndAll(3),
+}
+
+@Serializable
+enum class WorldBookGenerationType(val sillyTavernId: String) {
+    @SerialName("normal") Normal("normal"),
+    @SerialName("continue") Continue("continue"),
+    @SerialName("regenerate") Regenerate("regenerate"),
+    @SerialName("impersonate") Impersonate("impersonate"),
+    @SerialName("quiet") Quiet("quiet"),
+    @SerialName("swipe") Swipe("swipe"),
+}
+
+@Serializable
+data class WorldBookGroupSettings(
+    val names: String = "",
+    val priority: Boolean = false,
+    val weight: Int = 100,
+    val scoring: Boolean? = null,
 )
 
 @Serializable
 data class SetWorldBookEntryRequest(val revision: String, val enabled: Boolean)
 
 @Serializable
-data class TestWorldBooksRequest(val text: String)
+data class WorldBookEntryPlacement(
+    val position: WorldBookInjectionPosition,
+    val depth: Int? = null,
+    val role: WorldBookInjectionRole? = null,
+    @SerialName("outlet_name") val outletName: String? = null,
+)
+
+@Serializable
+data class CreateWorldBookEntryRequest(
+    val revision: String,
+    val content: String,
+    val keywords: List<String>,
+    val comment: String = "",
+    @SerialName("secondary_keywords") val secondaryKeywords: List<String> = emptyList(),
+    val constant: Boolean = false,
+    val placement: WorldBookEntryPlacement? = null,
+    @SerialName("delay") val activationDelay: Int? = null,
+    val sticky: Int? = null,
+    val cooldown: Int? = null,
+    val group: WorldBookGroupSettings? = null,
+    val triggers: List<WorldBookGenerationType>? = null,
+    val matching: WorldBookKeywordMatching? = null,
+    @SerialName("ignore_budget") val ignoreBudget: Boolean? = null,
+)
+
+@Serializable
+data class EditWorldBookEntryRequest(
+    val revision: String,
+    val comment: String? = null,
+    val content: String? = null,
+    val keywords: List<String>? = null,
+    @SerialName("secondary_keywords") val secondaryKeywords: List<String>? = null,
+    val constant: Boolean? = null,
+    val placement: WorldBookEntryPlacement? = null,
+    @SerialName("delay") val activationDelay: Int? = null,
+    val sticky: Int? = null,
+    val cooldown: Int? = null,
+    val group: WorldBookGroupSettings? = null,
+    val triggers: List<WorldBookGenerationType>? = null,
+    val matching: WorldBookKeywordMatching? = null,
+    @SerialName("ignore_budget") val ignoreBudget: Boolean? = null,
+)
+
+@Serializable
+data class SetWorldBookRecursionRequest(val revision: String, val enabled: Boolean)
+
+@Serializable
+data class TestWorldBooksRequest(
+    val text: String,
+    @SerialName("message_count") val messageCount: Int = 1,
+    @SerialName("generation_type") val generationType: WorldBookGenerationType = WorldBookGenerationType.Normal,
+    val history: List<String> = emptyList(),
+    val context: WorldBookTestContext = WorldBookTestContext(),
+)
+
+@Serializable
+data class WorldBookTestContext(
+    @SerialName("persona_description") val personaDescription: String = "",
+    val scenario: String = "",
+)
 
 @Serializable
 data class WorldBookTestDto(

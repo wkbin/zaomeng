@@ -305,7 +305,7 @@ class WebFrontendBridgeSyncTests(unittest.TestCase):
         self.assertIn('const automaticPlotPush = messageKind === "plot" && !requestedMessage;', main_content)
         self.assertIn("const silentOptimistic = Boolean(options?.silentOptimistic);", main_content)
         self.assertIn('const suppressTranscriptMessage = Boolean(options?.suppressTranscriptMessage) || messageKind === "plot";', main_content)
-        self.assertIn("if (silentOptimistic && requestedMessage) {", main_content)
+        self.assertIn('if (silentOptimistic && requestedMessage && !trimmedValue("dialogue-message", "")) {', main_content)
         self.assertIn("留空则由系统主动推进", main_content)
         self.assertIn('normalizeDialogueMessageKind(currentDialogueMessageKind) === "narration"', main_content)
         self.assertIn('sendButton.textContent = isPlotPush ? "推进" : "送出";', main_content)

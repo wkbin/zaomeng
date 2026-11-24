@@ -17,6 +17,8 @@ import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -25,6 +27,7 @@ import top.wkbin.zaomeng.data.api.EstimateSamplingRequest
 import top.wkbin.zaomeng.data.api.RestartRunRequest
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
 import top.wkbin.zaomeng.ktor.services.RunOperationsService
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 
 /**
  * 运行操作路由
@@ -122,7 +125,9 @@ fun Route.runOperationsRoutes(service: RunOperationsService) {
 
 private suspend fun runOpsCall(call: ApplicationCall, block: suspend () -> JsonObject) {
     try {
-        call.respond(HttpStatusCode.OK, block())
+        call.respond(HttpStatusCode.OK, withContext(platformIoDispatcher) { block() })
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: NoSuchElementException) {
         call.respondError(HttpStatusCode.NotFound, (e.message ?: "Not found"))
     } catch (e: IllegalArgumentException) {

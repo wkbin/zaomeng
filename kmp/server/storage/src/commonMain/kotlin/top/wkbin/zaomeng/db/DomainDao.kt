@@ -17,8 +17,11 @@ interface DomainDao {
     @Query("SELECT * FROM runs ORDER BY updatedAtMillis DESC")
     suspend fun allRuns(): List<RunEntity>
 
-    @Query("SELECT * FROM runs WHERE runId = :runId")
-    suspend fun runById(runId: String): RunEntity?
+    @Query("SELECT runId FROM runs ORDER BY updatedAtMillis DESC")
+    suspend fun runIds(): List<String>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM runs WHERE runId = :runId)")
+    suspend fun runExists(runId: String): Boolean
 
     @Query("SELECT COUNT(*) FROM runs")
     suspend fun runCount(): Int
@@ -33,6 +36,12 @@ interface DomainDao {
 
     @Query("SELECT * FROM sessions WHERE runId = :runId ORDER BY updatedAtMillis DESC")
     suspend fun sessionsOf(runId: String): List<SessionEntity>
+
+    @Query("SELECT sessionId FROM sessions WHERE runId = :runId ORDER BY updatedAtMillis DESC")
+    suspend fun sessionIdsOf(runId: String): List<String>
+
+    @Query("SELECT DISTINCT runId FROM sessions ORDER BY runId")
+    suspend fun sessionRunIds(): List<String>
 
     @Query("SELECT COUNT(*) FROM sessions WHERE runId = :runId")
     suspend fun sessionCountOf(runId: String): Int

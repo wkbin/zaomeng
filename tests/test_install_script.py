@@ -28,7 +28,8 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("install_system_packages python", script_text)
         self.assertIn("install_system_packages python3 python3-venv", script_text)
         self.assertIn('pkg install -y "$@"', script_text)
-        self.assertIn('apt-get update -y && apt-get install -y $*', script_text)
+        self.assertIn('run_pkg_manager apt-get update -y && run_pkg_manager apt-get install -y "$@"', script_text)
+        self.assertNotIn('sh -c "$install_cmd"', script_text)
         self.assertIn('if auto_install_python; then', script_text)
         self.assertIn('pkg install python', script_text)
         self.assertIn('sudo apt-get install python3 python3-venv', script_text)
@@ -87,6 +88,14 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn('run_webui() {', script_text)
         self.assertIn('"\\${PYTHON_BIN}" "\\${INSTALL_ROOT}/scripts/run_webui.py"', script_text)
         self.assertNotIn('env ZAOMENG_WEB_BUILTIN_NOVELS_ROOT="\\${BUILTIN_NOVELS_ROOT}"     exec "\\${PYTHON_BIN}"', script_text)
+
+    def test_update_uses_local_installer_and_checks_supplied_archive_digest_before_extraction(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts" / "install.sh").read_text(encoding="utf-8")
+        update = script.split("run_update() {", 1)[1].split("remove_path_line() {", 1)[0]
+        self.assertIn('local installer="\\${INSTALL_ROOT}/scripts/install.sh"', update)
+        self.assertIn('bash "\\${installer}"', update)
+        self.assertNotIn("raw.githubusercontent.com", update)
+        self.assertLess(script.index('verify_archive "$archive_path"'), script.index('tar -xzf "$archive_path"'))
 
 
 if __name__ == "__main__":

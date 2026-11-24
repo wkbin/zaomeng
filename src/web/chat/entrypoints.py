@@ -84,10 +84,12 @@ def _complete_prepared_dialogue_turn(
         except LLMRequestError as exc:
             raise ValueError(friendly_dialogue_llm_error(exc)) from exc
         responses, generation_cache = _unpack_dialogue_generation(generated)
-        evolve_relations_from_turn(run_id, pending_payload, responses)
         ingested = _ingest_generated_dialogue(
             dialogue, run_id, session_id, responses, generation_cache
         )
+        # 关系/快照副作用必须在回合成功提交之后再写：ingest 失败时 abort 只清 pending，
+        # 不会回滚这里已落盘的 delta；若先写，重试会在脏 delta 上二次累加。
+        evolve_relations_from_turn(run_id, pending_payload, responses)
         if callable(refresh_scene_progress):
             ingested = refresh_scene_progress(run_id, ingested)
         return ingested

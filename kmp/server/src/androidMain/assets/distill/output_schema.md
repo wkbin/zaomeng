@@ -106,6 +106,13 @@
 ## Performance Boundary
 - ooc_redline: 绝对不能捏造给该角色的 OOC 行为清单
 
+## SillyTavern Character Card
+- card_description: 可直接用于角色卡的自足描述，综合关键身份、经历、关系与行为边界；写成自然段
+- card_personality: 用简洁的短语概括性格、动机与说话方式
+- card_scenario: 明确互动开始时的地点、处境与双方关系，写成可供扮演的场景
+- card_first_mes: 根据原文中有依据的场景写一段可直接发送的角色开场；以 \n 表示换行
+- card_mes_example: 以 <START> 开始，用 {{user}}: 与 {{char}}: 标示双方台词，以 \n 分隔行
+
 ## Evidence
 - description_count: 1
 - dialogue_count: 2
@@ -116,6 +123,7 @@
 ```
 
 规则：
+- 把角色卡字段当作独立可用的交付物。描述、性格和场景各司其职，避免重复字段清单；需要称呼双方时使用 {{char}} 和 {{user}}。开场和示例体现原作已知的口吻与行为边界；证据不足时留空。开场只代替角色行动，给玩家留下回应空间；示例用短小的拟写片段展示口吻，别把创作内容标成原文引语。
 - “留空”表示保留 `- key:` 且冒号后零字符；不得输出“留空”“空白”“无证据”“N/A”等字面占位值
 - `core_traits` max 10 unique items
 - `typical_lines` max 8 unique items

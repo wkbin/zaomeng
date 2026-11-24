@@ -24,6 +24,7 @@ import top.wkbin.zaomeng.ktor.services.SessionRevisionConflictException
 import top.wkbin.zaomeng.ktor.services.leanSession
 import top.wkbin.zaomeng.ktor.services.transcriptSize
 import top.wkbin.zaomeng.ktor.services.withTranscriptCount
+import top.wkbin.zaomeng.ktor.services.withoutWorldBookTimingDelta
 import top.wkbin.zaomeng.ktor.utils.SseEncoder
 import top.wkbin.zaomeng.platform.PlatformLog
 
@@ -141,7 +142,7 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService) {
                                 put("transcript_count", transcriptSize(session))
                                 if (!request.includeTranscript) {
                                     put("appended_transcript", buildJsonArray {
-                                        outcome.appendedTranscript.forEach(::add)
+                                        outcome.appendedTranscript.forEach { add(it.withoutWorldBookTimingDelta()) }
                                     })
                                 }
                             }))

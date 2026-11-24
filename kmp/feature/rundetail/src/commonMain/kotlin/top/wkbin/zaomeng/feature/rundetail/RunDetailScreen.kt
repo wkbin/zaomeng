@@ -10,7 +10,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Forum
@@ -50,14 +49,15 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.graphicsLayer
@@ -91,8 +92,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.koinInject
 import kotlin.math.roundToLong
-import androidx.window.core.layout.WindowSizeClass
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.PlatformBackHandler
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberFileExporter
 import top.wkbin.zaomeng.platform.rememberNotificationPermissionRequester
@@ -112,7 +113,7 @@ private const val AVATAR_ZOOM_MAX = 4f
 private const val AVATAR_ZOOM_STEP = 1.25f
 private const val AVATAR_ZOOM_WHEEL_STEP = 1.1f
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunDetailScreen(
     viewModel: RunDetailViewModel,
@@ -120,6 +121,7 @@ fun RunDetailScreen(
     onBack: () -> Unit,
     onOpenPersona: (runId: String, character: String) -> Unit,
     onOpenSessions: (runId: String) -> Unit,
+    onOpenChat: (runId: String, sessionId: String) -> Unit,
     onOpenChapters: (runId: String) -> Unit,
     onOpenRelations: (runId: String) -> Unit,
     onOpenWorldTimeline: (runId: String) -> Unit,
@@ -129,9 +131,14 @@ fun RunDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val cardPersona = state.run?.takeIf { it.isSillyTavernCharacterCard }
+        ?.let { run -> run.artifactIndex.characters.singleOrNull { it.name in run.availableCharacters } }
+    LaunchedEffect(state.startedCardChat) {
+        val chat = state.startedCardChat ?: return@LaunchedEffect
+        viewModel.consumeStartedCardChat()
+        onOpenChat(chat.runId, chat.sessionId)
+    }
     val distillationForeground: DistillationForeground = koinInject()
-    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
-    val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
     var confirmStop by rememberSaveable { mutableStateOf(false) }
     var confirmRedistill by rememberSaveable { mutableStateOf(false) }
     var confirmResume by rememberSaveable { mutableStateOf(false) }
@@ -139,21 +146,13 @@ fun RunDetailScreen(
     var chooseExportFormat by rememberSaveable { mutableStateOf(false) }
     var confirmExport by rememberSaveable { mutableStateOf(false) }
     var chooseExportCharacter by rememberSaveable { mutableStateOf(false) }
+    var exportCardCharacter by rememberSaveable { mutableStateOf<String?>(null) }
     var showWorldBooks by rememberSaveable { mutableStateOf(false) }
+    val detailStateHolder = rememberSaveableStateHolder()
     LaunchedEffect(showWorldBooks) {
         if (showWorldBooks) viewModel.loadWorldBooks()
     }
-    if (showWorldBooks) {
-        WorldBooksDialog(
-            viewModel,
-            exportEnabled = !state.exporting,
-            onClose = { showWorldBooks = false },
-            onExport = {
-                showWorldBooks = false
-                viewModel.exportWorldBook(it)
-            },
-        )
-    }
+    PlatformBackHandler(enabled = showWorldBooks) { showWorldBooks = false }
     var selectedAvatarPersona by remember { mutableStateOf<PersonaIndexDto?>(null) }
     var avatarCropBytes by remember { mutableStateOf<ByteArray?>(null) }
     val avatarPicker = rememberDocumentPicker { name, bytes ->
@@ -275,7 +274,9 @@ fun RunDetailScreen(
                         enabled = state.run?.availableCharacters.orEmpty().isNotEmpty(),
                         onClick = {
                             chooseExportFormat = false
-                            chooseExportCharacter = true
+                            val singleCharacter = state.run?.availableCharacters?.singleOrNull()
+                            if (singleCharacter != null) exportCardCharacter = singleCharacter
+                            else chooseExportCharacter = true
                         },
                     ) { Text("SillyTavern 角色卡") }
                 }
@@ -300,19 +301,50 @@ fun RunDetailScreen(
             title = { Text("导出 SillyTavern 角色卡") },
             text = {
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                    item { Text("V2 JSON 包含人物设定和卡内世界书。头像需在 SillyTavern 中另行设置。") }
                     items(state.run?.availableCharacters.orEmpty(), key = { it }) { character ->
                         TextButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 chooseExportCharacter = false
-                                viewModel.exportSillyTavernCard(character)
+                                exportCardCharacter = character
                             },
                         ) { Text(character) }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { chooseExportCharacter = false }) { Text("取消") } },
+        )
+    }
+
+    exportCardCharacter?.let { character ->
+        val avatarVersion = state.run?.artifactIndex?.characters
+            ?.firstOrNull { it.name == character }?.avatarVersion.orEmpty()
+        AlertDialog(
+            onDismissRequest = { exportCardCharacter = null },
+            title = { Text("导出「$character」") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            exportCardCharacter = null
+                            viewModel.exportSillyTavernPngCard(character, avatarVersion)
+                        },
+                        enabled = avatarVersion.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("PNG · 含头像") }
+                    if (avatarVersion.isBlank()) {
+                        Text("添加头像后即可导出 PNG。", style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            exportCardCharacter = null
+                            viewModel.exportSillyTavernCard(character)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("JSON · 角色数据") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { exportCardCharacter = null }) { Text("取消") } },
         )
     }
 
@@ -377,73 +409,135 @@ fun RunDetailScreen(
         )
     }
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = state.run?.title ?: "书卷详情",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { showWorldBooks = true }, enabled = state.run != null) {
-                        Text("世界书")
-                    }
-                    IconButton(
-                        onClick = viewModel::refresh,
-                        enabled = !state.refreshing && !state.loading,
-                    ) {
-                        if (state.refreshing) {
-                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新详情")
+    if (showWorldBooks) {
+        WorldBooksScreen(
+            viewModel = viewModel,
+            exportState = state,
+            onClose = { showWorldBooks = false },
+            modifier = modifier,
+        )
+        return
+    }
+    detailStateHolder.SaveableStateProvider("detail") {
+        Scaffold(
+            modifier = modifier,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = if (cardPersona == null) "书卷详情" else "角色卡",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
-                    }
-                    IconButton(onClick = { chooseExportFormat = true }, enabled = state.run != null && !state.exporting) {
-                        Icon(Icons.Default.Download, contentDescription = "导出")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
-        },
-    ) { innerPadding ->
-        when {
-            state.loading -> DetailLoading(Modifier.padding(innerPadding))
-            state.run == null -> DetailFailure(
-                message = state.error.ifBlank { "没有找到这份书卷。" },
-                onRetry = viewModel::load,
-                modifier = Modifier.padding(innerPadding),
-            )
-            else -> RunDetailContent(
-                state = state,
-                wideLayout = wideLayout,
-                onDismissNotice = viewModel::dismissNotice,
-                onRetryExportDestination = viewModel::retryExportDestination,
-                onStop = { confirmStop = true },
-                onResume = { confirmResume = true },
-                onRedistill = { confirmRedistill = true },
-                onExport = { confirmExport = true },
-                onOpenPersona = { character -> onOpenPersona(viewModel.runId, character) },
-                onAvatarClick = { selectedAvatarPersona = it },
-                onOpenSessions = { onOpenSessions(viewModel.runId) },
-                onOpenChapters = { onOpenChapters(viewModel.runId) },
-                onOpenRelations = { onOpenRelations(viewModel.runId) },
-                onOpenWorldTimeline = { onOpenWorldTimeline(viewModel.runId) },
-                onOpenOriginalKnowledge = { onOpenOriginalKnowledge(viewModel.runId) },
-                onOpenRedistill = { onOpenRedistill(viewModel.runId) },
-                onDelete = { confirmDelete = true },
-                modifier = Modifier.padding(innerPadding),
-            )
+                    },
+                    actions = {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "书卷选项")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("世界书") },
+                                    enabled = state.run != null,
+                                    onClick = {
+                                        menuOpen = false
+                                        showWorldBooks = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("导出") },
+                                    enabled = state.run != null && !state.exporting,
+                                    onClick = {
+                                        menuOpen = false
+                                        chooseExportFormat = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (state.refreshing) "正在刷新…" else "刷新详情") },
+                                    enabled = !state.refreshing && !state.loading,
+                                    onClick = {
+                                        menuOpen = false
+                                        viewModel.refresh()
+                                    },
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            },
+        ) { innerPadding ->
+            when {
+                state.loading -> DetailLoading(Modifier.padding(innerPadding))
+                state.run == null -> DetailFailure(
+                    message = state.error.ifBlank { "没有找到这份书卷。" },
+                    onRetry = viewModel::load,
+                    modifier = Modifier.padding(innerPadding),
+                )
+                cardPersona != null -> {
+                    val run = requireNotNull(state.run)
+                    CardPlayScreen(
+                        persona = cardPersona,
+                        avatar = state.avatarBytes[cardPersona.name],
+                        refreshEpoch = refreshEpoch,
+                        viewModel = viewModel,
+                        state = state,
+                        onAvatarClick = { selectedAvatarPersona = cardPersona },
+                        onEdit = { onOpenPersona(run.runId, cardPersona.name) },
+                        onHistory = { onOpenSessions(run.runId) },
+                        onWorldBooks = { showWorldBooks = true },
+                        onExport = { chooseExportFormat = true },
+                        onDismissNotice = viewModel::dismissNotice,
+                        onRetryExportDestination = viewModel::retryExportDestination,
+                        modifier = Modifier.padding(innerPadding),
+                        management = {
+                            ActionCard(
+                                run = run,
+                                stopping = state.stopping,
+                                redistilling = state.redistilling,
+                                exporting = state.exporting,
+                                deleting = state.deleting,
+                                onStop = { confirmStop = true },
+                                onResume = { confirmResume = true },
+                                onRedistill = { confirmRedistill = true },
+                                onExport = { confirmExport = true },
+                                onOpenRelations = { onOpenRelations(run.runId) },
+                                onOpenWorldTimeline = { onOpenWorldTimeline(run.runId) },
+                                onOpenOriginalKnowledge = { onOpenOriginalKnowledge(run.runId) },
+                                onOpenRedistill = { onOpenRedistill(run.runId) },
+                                onDelete = { confirmDelete = true },
+                            )
+                        },
+                    )
+                }
+                else -> RunDetailContent(
+                    state = state,
+                    onDismissNotice = viewModel::dismissNotice,
+                    onRetryExportDestination = viewModel::retryExportDestination,
+                    onStop = { confirmStop = true },
+                    onResume = { confirmResume = true },
+                    onRedistill = { confirmRedistill = true },
+                    onExport = { confirmExport = true },
+                    onOpenPersona = { character -> onOpenPersona(viewModel.runId, character) },
+                    onAvatarClick = { selectedAvatarPersona = it },
+                    onOpenSessions = { onOpenSessions(viewModel.runId) },
+                    onOpenChapters = { onOpenChapters(viewModel.runId) },
+                    onOpenRelations = { onOpenRelations(viewModel.runId) },
+                    onOpenWorldTimeline = { onOpenWorldTimeline(viewModel.runId) },
+                    onOpenOriginalKnowledge = { onOpenOriginalKnowledge(viewModel.runId) },
+                    onOpenRedistill = { onOpenRedistill(viewModel.runId) },
+                    onDelete = { confirmDelete = true },
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
         }
     }
 }
@@ -451,7 +545,6 @@ fun RunDetailScreen(
 @Composable
 private fun RunDetailContent(
     state: RunDetailUiState,
-    wideLayout: Boolean,
     onDismissNotice: () -> Unit,
     onRetryExportDestination: () -> Unit,
     onStop: () -> Unit,
@@ -480,14 +573,6 @@ private fun RunDetailContent(
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) { RunHero(run) }
 
-        run.betaFeature?.takeIf { it.kind == "cross_book_crossover" }?.let { beta ->
-            item(span = { GridItemSpan(maxLineSpan) }) { CrossoverBetaCard(beta) }
-        }
-
-        run.importedFrom.onlineLibrary?.takeIf { it.id.isNotBlank() }?.let { source ->
-            item(span = { GridItemSpan(maxLineSpan) }) { OnlinePackageSourceCard(source) }
-        }
-
         if (state.error.isNotBlank() || state.message.isNotBlank()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 NoticeCard(
@@ -504,14 +589,29 @@ private fun RunDetailContent(
             }
         }
 
-        val reviewAvailable = state.reviewLoading || state.reviewOverview != null
-        if (wideLayout && reviewAvailable) {
-            // 宽屏：推荐下一步 + 作品体检 左右并排
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppDimens.iconTextGap)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.iconTextGap),
+                    verticalArrangement = Arrangement.spacedBy(AppDimens.iconTextGap),
                 ) {
+                    if (run.availableCharacters.isNotEmpty()) {
+                        Button(onClick = onOpenSessions) {
+                            Icon(Icons.Outlined.Forum, contentDescription = null)
+                            Spacer(Modifier.width(AppDimens.iconTextGap))
+                            Text("进入本书对话")
+                        }
+                    }
+                    OutlinedButton(onClick = onOpenChapters) {
+                        Text("查看章节")
+                    }
+                    if (run.status == "running") {
+                        TextButton(onClick = onStop, enabled = !state.stopping) {
+                            Text(if (state.stopping) "正在停止…" else "停止蒸馏")
+                        }
+                    }
+                }
+                if (run.status != "ready" && nextActionFor(run).target != RunNextActionTarget.OpenSessions) {
                     NextActionCard(
                         run = run,
                         onResume = onResume,
@@ -519,86 +619,72 @@ private fun RunDetailContent(
                         onOpenPersona = onOpenPersona,
                         onOpenRelations = onOpenRelations,
                         onOpenSessions = onOpenSessions,
-                        modifier = Modifier.weight(1f),
-                    )
-                    BookReviewCard(
-                        loading = state.reviewLoading,
-                        overview = state.reviewOverview,
-                        onOpenPersona = onOpenPersona,
-                        onOpenRelations = onOpenRelations,
-                        onOpenWorldTimeline = onOpenWorldTimeline,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        } else {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                NextActionCard(
-                    run = run,
-                    onResume = onResume,
-                    onOpenRedistill = onOpenRedistill,
-                    onOpenPersona = onOpenPersona,
-                    onOpenRelations = onOpenRelations,
-                    onOpenSessions = onOpenSessions,
-                )
-            }
-            if (reviewAvailable) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    BookReviewCard(
-                        loading = state.reviewLoading,
-                        overview = state.reviewOverview,
-                        onOpenPersona = onOpenPersona,
-                        onOpenRelations = onOpenRelations,
-                        onOpenWorldTimeline = onOpenWorldTimeline,
                     )
                 }
             }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
-            ActionCard(
-                run = run,
-                wideLayout = wideLayout,
-                stopping = state.stopping,
-                redistilling = state.redistilling,
-                exporting = state.exporting,
-                deleting = state.deleting,
-                onStop = onStop,
-                onResume = onResume,
-                onRedistill = onRedistill,
-                onExport = onExport,
-                onOpenSessions = onOpenSessions,
-                onOpenChapters = onOpenChapters,
-                onOpenRelations = onOpenRelations,
-                onOpenWorldTimeline = onOpenWorldTimeline,
-                onOpenOriginalKnowledge = onOpenOriginalKnowledge,
-                onOpenRedistill = onOpenRedistill,
-                onDelete = onDelete,
-            )
-        }
-
-        if (run.novelSources.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SourceHistoryCard(
-                    run = run,
-                    expanded = showAllSources,
-                    onToggleExpanded = { showAllSources = !showAllSources },
-                )
+            var showTools by rememberSaveable(run.runId) { mutableStateOf(false) }
+            Column(verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing)) {
+                OutlinedButton(
+                    onClick = { showTools = !showTools },
+                ) {
+                    Text(if (showTools) "收起书卷工具" else "书卷工具与管理")
+                }
+                if (showTools) {
+                    ActionCard(
+                        run = run,
+                        stopping = state.stopping,
+                        redistilling = state.redistilling,
+                        exporting = state.exporting,
+                        deleting = state.deleting,
+                        onStop = onStop,
+                        onResume = onResume,
+                        onRedistill = onRedistill,
+                        onExport = onExport,
+                        onOpenRelations = onOpenRelations,
+                        onOpenWorldTimeline = onOpenWorldTimeline,
+                        onOpenOriginalKnowledge = onOpenOriginalKnowledge,
+                        onOpenRedistill = onOpenRedistill,
+                        onDelete = onDelete,
+                    )
+                    if (state.reviewLoading || state.reviewOverview != null) {
+                        BookReviewCard(
+                            loading = state.reviewLoading,
+                            overview = state.reviewOverview,
+                            onOpenPersona = onOpenPersona,
+                            onOpenRelations = onOpenRelations,
+                            onOpenWorldTimeline = onOpenWorldTimeline,
+                        )
+                    }
+                    run.betaFeature?.takeIf { it.kind == "cross_book_crossover" }?.let { CrossoverBetaCard(it) }
+                    run.importedFrom.onlineLibrary?.takeIf { it.id.isNotBlank() }?.let { OnlinePackageSourceCard(it) }
+                    if (run.novelSources.isNotEmpty()) {
+                        SourceHistoryCard(run, showAllSources) { showAllSources = !showAllSources }
+                    }
+                }
             }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("可用人物", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = if (run.availableCharacters.isEmpty()) {
-                        if (run.status == "running") "人物资料完成后会陆续出现在这里。" else "目前没有可用的人物资料。"
-                    } else {
-                        "${run.availableCharacters.size} 位人物可以查看和校对"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
+                    if (run.isSillyTavernCharacterCard) "角色卡" else "可用人物",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
+                if (!run.isSillyTavernCharacterCard) {
+                    Text(
+                        text = if (run.availableCharacters.isEmpty()) {
+                            if (run.status == "running") "人物资料完成后会陆续出现在这里。" else "目前没有可用的人物资料。"
+                        } else {
+                            "${run.availableCharacters.size} 位人物可以查看和校对"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
 
@@ -616,6 +702,7 @@ private fun RunDetailContent(
             items(run.artifactIndex.characters, key = PersonaIndexDto::name) { persona ->
                 PersonaCard(
                     persona = persona,
+                    isSillyTavernCard = run.isSillyTavernCharacterCard,
                     avatarBytes = state.avatarBytes[persona.name],
                     onAvatarClick = { onAvatarClick(persona) },
                     onClick = { onOpenPersona(persona.name) },
@@ -878,13 +965,6 @@ private fun RunHero(run: RunManifestDto) {
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
-                    Text(
-                        run.novelId.ifBlank { run.runId },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
                 Spacer(Modifier.width(12.dp))
                 RunStatus(run.status)
@@ -909,7 +989,12 @@ private fun RunHero(run: RunManifestDto) {
                 style = MaterialTheme.typography.bodyLarge,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Metric("人物", if (total > 0) "$completed / $total" else "未开始", Modifier.weight(1f))
+                Metric(
+                    "人物",
+                    if (run.status == "running" && total > 0) "$completed / $total"
+                    else run.availableCharacters.size.toString(),
+                    Modifier.weight(1f),
+                )
                 Metric(
                     "关系图",
                     graphLabel(run.progress.graphStatus.ifBlank { run.summary.graphStatus }),
@@ -987,7 +1072,6 @@ private fun ExportRunPackageDialog(
 @Composable
 private fun ActionCard(
     run: RunManifestDto,
-    wideLayout: Boolean,
     stopping: Boolean,
     redistilling: Boolean,
     exporting: Boolean,
@@ -996,8 +1080,6 @@ private fun ActionCard(
     onResume: () -> Unit,
     onRedistill: () -> Unit,
     onExport: () -> Unit,
-    onOpenSessions: () -> Unit,
-    onOpenChapters: () -> Unit,
     onOpenRelations: () -> Unit,
     onOpenWorldTimeline: () -> Unit,
     onOpenOriginalKnowledge: () -> Unit,
@@ -1008,115 +1090,43 @@ private fun ActionCard(
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("书卷操作", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             val showAdvancedManagement = rememberSaveable(run.runId) { mutableStateOf(false) }
-            if (wideLayout) {
-                // 宽屏：操作按钮左右两列排布
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Button(onClick = onOpenSessions, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Outlined.Forum, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("查看会话与开始聊天")
-                        }
-                        OutlinedButton(onClick = onOpenChapters, modifier = Modifier.fillMaxWidth()) {
-                            Text("章节工作台与全书导出")
-                        }
-                        Text(
-                            "故事资料",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedButton(onClick = onOpenRelations, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Outlined.People, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("查看与校对人物关系")
-                        }
-                        OutlinedButton(onClick = onOpenWorldTimeline, modifier = Modifier.fillMaxWidth()) {
-                            Text("查看故事时间线与剧情事实")
-                        }
-                        OutlinedButton(onClick = onOpenOriginalKnowledge, modifier = Modifier.fillMaxWidth()) {
-                            Text("搜索与校对原文证据")
-                        }
-                    }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            "书卷管理",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        ManagementActions(
-                            run = run,
-                            stopping = stopping,
-                            redistilling = redistilling,
-                            exporting = exporting,
-                            deleting = deleting,
-                            onStop = onStop,
-                            onResume = onResume,
-                            onRedistill = onRedistill,
-                            onExport = onExport,
-                            onOpenRedistill = onOpenRedistill,
-                            onDelete = onDelete,
-                            showAdvanced = showAdvancedManagement.value,
-                            onToggleAdvanced = { showAdvancedManagement.value = !showAdvancedManagement.value },
-                        )
-                    }
-                }
-            } else {
-                Button(onClick = onOpenSessions, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Forum, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("查看会话与开始聊天")
-                }
-                OutlinedButton(onClick = onOpenChapters, modifier = Modifier.fillMaxWidth()) {
-                    Text("章节工作台与全书导出")
-                }
-                HorizontalDivider()
-                Text(
-                    "故事资料",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(onClick = onOpenRelations, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.People, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("查看与校对人物关系")
-                }
-                OutlinedButton(onClick = onOpenWorldTimeline, modifier = Modifier.fillMaxWidth()) {
-                    Text("查看故事时间线与剧情事实")
-                }
-                OutlinedButton(onClick = onOpenOriginalKnowledge, modifier = Modifier.fillMaxWidth()) {
-                    Text("搜索与校对原文证据")
-                }
-                HorizontalDivider()
-                Text(
-                    "书卷管理",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                ManagementActions(
-                    run = run,
-                    stopping = stopping,
-                    redistilling = redistilling,
-                    exporting = exporting,
-                    deleting = deleting,
-                    onStop = onStop,
-                    onResume = onResume,
-                    onRedistill = onRedistill,
-                    onExport = onExport,
-                    onOpenRedistill = onOpenRedistill,
-                    onDelete = onDelete,
-                    showAdvanced = showAdvancedManagement.value,
-                    onToggleAdvanced = { showAdvancedManagement.value = !showAdvancedManagement.value },
-                )
+            Text(
+                "故事资料",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onOpenRelations, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.People, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("查看与校对人物关系")
             }
+            OutlinedButton(onClick = onOpenWorldTimeline, modifier = Modifier.fillMaxWidth()) {
+                Text("查看故事时间线与剧情事实")
+            }
+            OutlinedButton(onClick = onOpenOriginalKnowledge, modifier = Modifier.fillMaxWidth()) {
+                Text("搜索与校对原文证据")
+            }
+            HorizontalDivider()
+            Text(
+                "书卷管理",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ManagementActions(
+                run = run,
+                stopping = stopping,
+                redistilling = redistilling,
+                exporting = exporting,
+                deleting = deleting,
+                onStop = onStop,
+                onResume = onResume,
+                onRedistill = onRedistill,
+                onExport = onExport,
+                onOpenRedistill = onOpenRedistill,
+                onDelete = onDelete,
+                showAdvanced = showAdvancedManagement.value,
+                onToggleAdvanced = { showAdvancedManagement.value = !showAdvancedManagement.value },
+            )
         }
     }
 }
@@ -1235,6 +1245,7 @@ private fun ManagementActions(
 @Composable
 private fun PersonaCard(
     persona: PersonaIndexDto,
+    isSillyTavernCard: Boolean,
     avatarBytes: ByteArray?,
     onAvatarClick: () -> Unit,
     onClick: () -> Unit,
@@ -1256,7 +1267,7 @@ private fun PersonaCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(persona.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = summary.ifBlank { "资料已生成，点此查看和校对。" },
+                    text = summary.ifBlank { if (isSillyTavernCard) "查看与编辑角色卡" else "资料已生成，点此查看和校对。" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -1500,7 +1511,7 @@ private fun RunStatus(status: String) {
 }
 
 @Composable
-private fun NoticeCard(
+internal fun NoticeCard(
     message: String,
     error: Boolean,
     onDismiss: () -> Unit,

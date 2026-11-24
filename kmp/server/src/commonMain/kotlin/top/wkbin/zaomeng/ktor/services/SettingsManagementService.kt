@@ -243,8 +243,6 @@ class SettingsManagementService(
                 ""
             }
         }
-        require(key.isNotBlank()) { "请填写模型服务的 API Key。" }
-
         val client = LlmClient(modelApiKeyService, storageService)
         return try {
             AvailableModelsDto(client.discoverModels(endpoint, key))

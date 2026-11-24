@@ -5,6 +5,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -12,6 +13,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okio.Path
 import top.wkbin.zaomeng.data.api.WorldBookMatchDto
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+import top.wkbin.zaomeng.data.api.WorldBookGenerationType
+import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
+import top.wkbin.zaomeng.data.api.referencedSillyTavernOutlets
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.parseYaml
 import top.wkbin.zaomeng.platform.randomUuid
@@ -349,6 +354,9 @@ class DialoguePayloadBuilder(
         mode: String,
         controlledCharacter: String,
         snapshots: Map<String, Any?>,
+        card: SillyTavernImport.Card?,
+        cardUser: String,
+        cardUserPersona: String,
     ): List<Map<String, Any?>> {
         val artifactIndex = runManifest["artifact_index"]?.jsonObject
         val characters = artifactIndex?.get("characters")?.jsonArray ?: JsonArray(emptyList())
@@ -386,7 +394,23 @@ class DialoguePayloadBuilder(
                 // 对齐 Python _compact_persona_context：profile 只取 12 个关键字段并截断，避免完整档案撑大 prompt
                 "profile" to compactPersonaProfile(profile),
                 "session_snapshot" to (mapValue(snapshots[name])),
-            )
+            ) + if (card != null && (card.data["name"] as? JsonPrimitive)?.contentOrNull?.trim() == name) {
+                val fields = SillyTavernExport.importedProfileFields(profile, card)
+                fun text(field: String, limit: Int): String {
+                    val value = fields[field] ?: (card.data[field] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+                    return SillyTavernImport.cardText(value, name, limit, cardUser).trim()
+                }
+                mapOf("sillytavern_card" to mapOf(
+                    "name" to name,
+                    "description" to text("description", 4000),
+                    "personality" to text("personality", 1200),
+                    "scenario" to text("scenario", 1600),
+                    "mes_example" to text("mes_example", 1800),
+                    "user_persona" to SillyTavernImport.cardText(cardUserPersona, name, 1200, cardUser).trim(),
+                    "system_prompt" to text("system_prompt", 1600),
+                    "post_history_instructions" to text("post_history_instructions", 1600),
+                ))
+            } else emptyMap()
         }
         val participantsNames = (participants + activeParticipants).distinct()
         val result = mutableListOf<Map<String, Any?>>()
@@ -752,6 +776,8 @@ class DialoguePayloadBuilder(
         messageKind: String = "dialogue",
         speakerOverride: String = "",
         includeInnerThoughts: Boolean = false,
+        countsCurrentInput: Boolean = true,
+        generationType: WorldBookGenerationType? = null,
     ): Map<String, Any?> {
         val participants = stringList(jsonValueToAny(session["participants"]))
         val mutedCharacters = stringList(jsonValueToAny(session["muted_characters"]))
@@ -794,8 +820,19 @@ class DialoguePayloadBuilder(
             ?: session["scene_card"]?.jsonObject?.let { jsonMap(it) }
             ?: emptyMap()
         val selfInsert = session["self_profile"]?.jsonObject?.let { jsonMap(it) } ?: emptyMap()
+        val savedNote = session.sessionAuthorNote() ?: AuthorNoteDto()
         val transcript = (session["transcript"]?.jsonArray ?: JsonArray(emptyList()))
             .mapNotNull { it.jsonObject }
+        val authorNote = if (savedNote.enabled && savedNote.interval > 1) {
+            val newUserMessage = countsCurrentInput && message.isNotBlank() &&
+                (requestedSpeakerOverride.isBlank() || normalizedMessageKind == "fourth_wall")
+            val archivedCount = storage.archivedUserMessageCount(session)
+            val userCount = archivedCount?.let {
+                it.toLong() + transcript.count { entry -> entry["role"]?.jsonPrimitive?.contentOrNull == "user" } +
+                    if (newUserMessage) 1 else 0
+            }
+            savedNote.copy(enabled = userCount != null && userCount > 0 && userCount % savedNote.interval == 0L)
+        } else savedNote
         val history = transcript.map { entry ->
             mapOf(
                 "speaker" to (entry["speaker"]?.jsonPrimitive?.contentOrNull.orEmpty()),
@@ -833,9 +870,25 @@ class DialoguePayloadBuilder(
 
         val runId = runManifest["run_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val historyCount = sessionTranscriptCount(session)
+        val messageCount = historyCount + if (countsCurrentInput && message.isNotBlank()) 1 else 0
+        val worldBookGenerationType = generationType ?: if (!countsCurrentInput && historyCount > 0) {
+            WorldBookGenerationType.Continue
+        } else WorldBookGenerationType.Normal
+        val worldBookTiming = WorldBookTiming(session, messageCount.toLong())
         // These sources are independent and may involve separate document reads. Load them
         // concurrently so a cold cache pays the slowest read rather than the sum of all reads.
         val contextSources = coroutineScope {
+            val root = storage.getRunDirectory(runId)
+            val cardFile = root / SillyTavernImport.CARD_FILE
+            val loreRevision = runManifest[SillyTavernImport.REVISION_FIELD]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val storedCard = async(platformIoDispatcher) {
+                if (storage.isFile(cardFile)) {
+                    cachedFileResult(cardFile.toString(), storage.lastModifiedMillis(cardFile), loreRevision) {
+                        runCatching { SillyTavernImport.parseCard(storage.readBytes(cardFile), stored = true) }.getOrNull()
+                    }
+                } else null
+            }
             val persona = async(platformIoDispatcher) {
                 buildPersonaContexts(
                     runManifest = runManifest,
@@ -844,6 +897,12 @@ class DialoguePayloadBuilder(
                     mode = mode,
                     controlledCharacter = controlledCharacterName,
                     snapshots = snapshots,
+                    card = if (mode == "insert" && normalizedMessageKind == "dialogue" &&
+                        participants.size == 1 && participants.first() in allowedResponders
+                    ) storedCard.await() else null,
+                    cardUser = selfInsert["display_name"]?.toString()?.trim().orEmpty().ifBlank { speaker },
+                    cardUserPersona = selfInsert["scene_identity"]?.toString().orEmpty()
+                        .ifBlank { selfInsert["core_identity"]?.toString().orEmpty() },
                 )
             }
             val relation = async(platformIoDispatcher) {
@@ -853,15 +912,8 @@ class DialoguePayloadBuilder(
             }
             val world = async(platformIoDispatcher) {
                 val nativeFacts = loadWorldFacts(runId, session)
-                val root = storage.getRunDirectory(runId)
-                val cardFile = root / SillyTavernImport.CARD_FILE
                 val worldFile = root / SillyTavernImport.WORLD_BOOK
-                val loreRevision = runManifest[SillyTavernImport.REVISION_FIELD]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val card = if (storage.isFile(cardFile)) {
-                    cachedFileResult(cardFile.toString(), storage.lastModifiedMillis(cardFile), loreRevision) {
-                        runCatching { SillyTavernImport.parseCard(storage.readBytes(cardFile), stored = true) }.getOrNull()
-                    }
-                } else null
+                val card = storedCard.await()
                 val standalone = if (storage.isFile(worldFile)) {
                     cachedFileResult(worldFile.toString(), storage.lastModifiedMillis(worldFile), loreRevision) {
                         runCatching {
@@ -876,13 +928,49 @@ class DialoguePayloadBuilder(
                 }
                 val scan = history.takeLast(SillyTavernImport.MAX_SCAN_DEPTH - 1).map { it["message"].orEmpty() } + message
                 val locked = nativeFacts.filter { it["locked"] == true }
+                val scanContext = if (SillyTavernImport.usesScanSources(embedded, standalone)) {
+                    val currentCard = card?.takeIf {
+                        (it.data["name"] as? JsonPrimitive)?.contentOrNull.orEmpty() in participants
+                    }
+                    val activeProfiles = persona.await().filter { (it["name"] as? String).orEmpty() in activeParticipants }
+                    val cardPrompt = activeProfiles.firstNotNullOfOrNull { it["sillytavern_card"] } as? Map<*, *>
+                    fun nativeProfiles(field: String): String? = activeProfiles.asSequence()
+                        .mapNotNull { (it["profile"] as? Map<*, *>)?.get(field) as? String }
+                        .map { it.take(1200) }.take(8).joinToString("\n").takeIf(String::isNotBlank)
+                    val sceneDescription = listOf("title", "location", "atmosphere", "opening_situation", "public_goal", "scene_drive")
+                        .mapNotNull { sceneCard[it] as? String }.joinToString("\n")
+                    SillyTavernImport.scanContext(
+                        card = currentCard,
+                        personaDescription = (selfInsert["scene_identity"] as? String).orEmpty()
+                            .ifBlank { (selfInsert["core_identity"] as? String).orEmpty() },
+                        scenario = sceneDescription,
+                        characterDescription = cardPrompt?.get("description") as? String
+                            ?: if (currentCard == null) nativeProfiles("core_identity") else null,
+                        characterPersonality = cardPrompt?.get("personality") as? String
+                            ?: if (currentCard == null) nativeProfiles("temperament_type") else null,
+                        cardScenario = cardPrompt?.get("scenario") as? String,
+                        user = (selfInsert["display_name"] as? String).orEmpty().ifBlank { speaker },
+                    )
+                } else emptyMap()
                 val matches = SillyTavernImport.evaluateBooks(
                     embedded, standalone, scan,
                     availableSlots = DialoguePromptRules.WORLD_FACT_LIMIT - locked.size,
                     collectDiagnostics = false,
-                )
-                val lore = matches.map {
-                    mapOf("category" to "sillytavern_lore", "summary" to it.excerpt)
+                    probabilitySeed = "$runId\u0000$sessionId\u0000$turnId",
+                    messageCount = messageCount,
+                    timing = worldBookTiming,
+                    generationType = worldBookGenerationType,
+                    scanContext = scanContext,
+                ).filter { authorNote.enabled || it.position?.isAuthorNote != true }
+                val lore = matches.filterNot {
+                    it.position == WorldBookInjectionPosition.Outlet || it.position?.isAuthorNote == true
+                }.map {
+                    mapOf(
+                        "category" to "sillytavern_lore",
+                        "summary" to it.excerpt,
+                        "world_book_position" to it.position,
+                        "ignore_budget" to it.ignoreBudget,
+                    )
                 }
                 (locked + lore + nativeFacts.filter { it["locked"] != true }) to matches
             }
@@ -917,12 +1005,17 @@ class DialoguePayloadBuilder(
                 retrievedMemories = memories.await(),
             )
         }
-        val personaContexts = contextSources.personaContexts
+        val cardPrompt = contextSources.personaContexts.firstNotNullOfOrNull { it["sillytavern_card"] } as? Map<*, *>
+        val referencedOutlets = referencedSillyTavernOutlets(cardPrompt)
+        val injectedLore = contextSources.worldBookMatches.filter { match ->
+            match.position != WorldBookInjectionPosition.Outlet || match.outletName?.let { it in referencedOutlets } == true
+        }
+        val personaContexts = contextSources.personaContexts.map { it - "sillytavern_card" }
         val relationExcerpt = contextSources.relationExcerpt
         val worldFacts = contextSources.worldFacts
         val knowledgeContext = loadKnowledgeContext(
             session = session,
-            worldFacts = worldFacts,
+            worldFacts = worldFacts.filter { it["world_book_position"] == null },
             query = message,
             participants = participants,
         )
@@ -1096,11 +1189,14 @@ class DialoguePayloadBuilder(
             "history" to latestHistory,
             "scene_card" to sceneCard,
             "memory_context" to memoryContext,
-            "world_book_matches" to contextSources.worldBookMatches,
+            "world_book_matches" to injectedLore,
+            WorldBookTiming.DELTA to worldBookTiming.finish(injectedLore),
             "original_source_context" to originalSourceContext,
             "knowledge_context" to knowledgeContext,
             "scene_progress" to sceneProgress,
             "persona_contexts" to personaContexts,
+            "sillytavern_card" to cardPrompt,
+            "author_note" to authorNote,
             "relation_context" to mapOf(
                 "graph" to jsonMap(runManifest["artifact_index"]?.jsonObject?.get("relation_graph")?.jsonObject),
                 "relations_excerpt" to relationExcerpt,
@@ -1130,6 +1226,7 @@ class DialoguePayloadBuilder(
         seedText: String = "",
         direction: String = "",
         speakerOverride: String = "",
+        generationType: WorldBookGenerationType = WorldBookGenerationType.Impersonate,
     ): Map<String, Any?> {
         val payload = buildTurnPayload(
             runManifest = runManifest,
@@ -1137,6 +1234,8 @@ class DialoguePayloadBuilder(
             turnId = "suggest-${randomUuid().replace("-", "").take(8)}",
             message = seedText,
             speakerOverride = speakerOverride,
+            countsCurrentInput = false,
+            generationType = generationType,
         ).toMutableMap()
         val mode = payload["mode"]?.toString()?.trim().orEmpty().ifBlank { "observe" }
         val speaker = (payload["input"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.get("speaker")?.toString()?.trim().orEmpty()
@@ -1210,7 +1309,7 @@ class DialoguePayloadBuilder(
         session: JsonObject,
         optionCount: Int = 3,
     ): Map<String, Any?> {
-        val payload = buildSuggestionPayload(runManifest, session).toMutableMap()
+        val payload = buildSuggestionPayload(runManifest, session, generationType = WorldBookGenerationType.Quiet).toMutableMap()
         val count = optionCount.coerceIn(2, 4)
         payload["kind"] = "zaomeng_dialogue_associations"
         payload["latest_exchange"] = buildLatestExchange(session)
@@ -1252,7 +1351,7 @@ class DialoguePayloadBuilder(
         if (normalizedAction !in setOf("advance", "slow_emotion", "conflict", "viewpoint", "fourth_wall")) {
             throw IllegalArgumentException("不支持的导演操作。")
         }
-        val payload = buildSuggestionPayload(runManifest, session).toMutableMap()
+        val payload = buildSuggestionPayload(runManifest, session, generationType = WorldBookGenerationType.Quiet).toMutableMap()
         payload["kind"] = "zaomeng_dialogue_director_options"
         payload["director_goal"] = normalizedGoal
         payload["director_action"] = normalizedAction

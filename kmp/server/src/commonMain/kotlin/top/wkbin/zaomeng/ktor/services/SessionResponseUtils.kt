@@ -12,6 +12,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.data.api.TranscriptItemDto
@@ -19,17 +20,30 @@ import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 
 /** 会话响应统一带上 transcript_count（轻量/全量响应均携带）。 */
 fun withTranscriptCount(session: JsonObject): JsonObject = buildJsonObject {
-    session.forEach { (key, value) -> put(key, value) }
+    session.forEach { (key, value) ->
+        when {
+            key == WorldBookTiming.FIELD -> Unit
+            key == "transcript" && value is JsonArray -> put(key, JsonArray(value.map {
+                (it as? JsonObject)?.withoutWorldBookTimingDelta() ?: it
+            }))
+            else -> put(key, value)
+        }
+    }
     put("transcript_count", transcriptSize(session))
     put("revision", sessionHistoryRevision(session))
 }
 
 /** 轻量会话：去掉 transcript 大字段，保留 transcript_count，供聊天页增量模型使用。 */
 fun leanSession(session: JsonObject): JsonObject = buildJsonObject {
-    session.forEach { (key, value) -> if (key != "transcript") put(key, value) }
+    session.forEach { (key, value) ->
+        if (key != "transcript" && key != WorldBookTiming.FIELD) put(key, value)
+    }
     put("transcript_count", transcriptSize(session))
     put("revision", sessionHistoryRevision(session))
 }
+
+internal fun JsonObject.withoutWorldBookTimingDelta(): JsonObject =
+    if (WorldBookTiming.DELTA in this) JsonObject(this - WorldBookTiming.DELTA) else this
 
 fun transcriptSize(session: JsonObject): Int =
     (session["transcript"] as? JsonArray)?.let { transcript ->
@@ -41,6 +55,11 @@ fun transcriptOf(session: JsonObject): List<JsonObject> =
     (session["transcript"] as? JsonArray)
         ?.mapNotNull { runCatching { it.jsonObject }.getOrNull() }
         .orEmpty()
+
+internal fun JsonObject.sessionAuthorNote(): AuthorNoteDto? =
+    (get("author_note") as? JsonObject)?.let {
+        runCatching { Json.decodeFromJsonElement<AuthorNoteDto>(it) }.getOrNull()
+    }
 
 /** 按 turn_id 提取某轮新增的 transcript 条目（幂等重放时同样能取到已提交的条目）。 */
 fun transcriptByTurnId(session: JsonObject, turnId: String): List<JsonObject> {

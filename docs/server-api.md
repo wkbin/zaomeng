@@ -112,15 +112,17 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
-| GET | `/api/web/runs` | 无 | `200` `{"items":[RunManifest...]}`；SillyTavern 角色卡直接导入的书卷带有 `entrypoint: "sillytavern"` |
-| GET | `/api/web/runs/{run_id}` | 无 | `200` `RunManifest`；人物索引注入实时 `avatar_version` |
+| GET | `/api/web/runs` | 无 | `200` `{"items":[RunManifest...]}`；SillyTavern 角色卡书卷带有 `entrypoint: "sillytavern"`，包括从造梦书卷包恢复的角色卡书卷 |
+| GET | `/api/web/runs/{run_id}` | 无 | `200` `RunManifest`；人物索引注入实时 `avatar_version`，角色卡书卷来源与列表一致 |
 | POST | `/api/web/runs` | `CreateRunRequest` | `201` 新运行 manifest |
-| POST | `/api/web/runs/import` | `ImportRunPackageRequest`，接受 ZIP 书卷包、SillyTavern JSON/PNG 角色卡或带 `target_run_id` 的 JSON 世界书 | `201` 运行 manifest，`400` 文件或参数无效，`404` 目标书卷不存在 |
+| POST | `/api/web/runs/import` | `ImportRunPackageRequest`，接受 ZIP 书卷包、SillyTavern JSON/PNG 角色卡或带 `target_run_id` 的 JSON 世界书 | `201` 运行 manifest，恢复角色卡书卷时保留 `entrypoint: "sillytavern"`；`400` 文件或参数无效，`404` 目标书卷不存在，`409` 独立世界书在预览后发生变化 |
 | POST | `/api/web/runs/import/sillytavern/preview` | `SillyTavernPreviewRequest` | `200` 导入预览，`400` 文件或参数无效，`404` 目标书卷不存在 |
 | POST | `/api/web/runs/{run_id}/control/stop` | 无 | `200` 停止后的运行 manifest |
 | POST | `/api/web/runs/{run_id}/stop` | 无 | 同上；旧 WebUI 兼容别名 |
 | DELETE | `/api/web/runs/{run_id}` | 无 | `200` 删除统计 |
 | POST | `/api/web/runs/{run_id}/refresh` | 无 | `200` 刷新后的运行 manifest |
+
+删除书卷时，Ktor 会先停止并等待蒸馏任务，再清理该书卷的会话及其后台任务。清理开始后，请求断开也会继续删除。
 
 `CreateRunRequest`：
 
@@ -152,21 +154,77 @@ Authorization: Bearer <token>
 
 SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数据的 PNG。导入会创建新的可用书卷并保留卡内世界书。在未指定场景的单人「加入对话」模式中，默认使用角色卡首句，也可选择备用开场。预览返回可选的 `alternate_greeting_count`。
 
-独立 JSON 世界书必须传 `target_run_id`，会替换该书卷之前挂载的独立世界书。世界书支持禁用、常驻、主次关键词、优先级、区分大小写和整词匹配。扫描包含当前输入，默认 6 条，条目设置可覆盖书级设置，上限 32 条；深度为 0 时只考虑常驻条目。整词匹配对含空白的短语仍按字面子串匹配。两个来源合计注入最多 4 条，每条最多 240 字符。JSON 数据上限为 1 MB，PNG 文件上限为 5 MB。
+导入角色卡的单人入场对话注入角色描述、性格、场景、玩家人设和对话示例，并展开 `{{char}}`、`{{user}}`。角色卡 `system_prompt` 可替换默认创作目标，`{{original}}` 可引用该目标。最近的用户和角色消息以各自的角色发送，`post_history_instructions` 随后注入。模型回复仍采用造梦的 NDJSON 协议。
 
-预览请求包含 `filename`、`content_base64` 和 `world_book`（独立世界书传 `true`）。可选 `target_run_id` 用于查询拟替换的独立世界书，可选 `test_text`（最多 2000 字符）用于试触发。此接口只读取数据。返回人物和开场信息、可映射字段、世界书条目数及暂不支持的规则；试触发附上 `injected_count` 和最多 50 个 `tested_entries`。试触发只扫描本次输入和拟导入文件，实际对话还使用近期消息、已挂载的其他条目和锁定的世界事实。条目状态为 `injected`、`budget`、`disabled`、`empty`、`no_keyword`、`secondary` 或 `duplicate`。
+独立 JSON 世界书必须传 `target_run_id`，会替换该书卷之前挂载的独立世界书。世界书支持禁用、常驻、主次关键词、优先级、区分大小写和整词匹配。扫描包含当前输入，默认 6 条，条目设置可覆盖书级设置，上限 32 条；深度为 0 时跳过对话和额外来源的直接扫描。整词匹配对含空白的短语仍按字面子串匹配。JSON 数据上限为 1 MB，PNG 文件上限为 5 MB。
+
+世界书条目的 `position` 支持角色定义前（`0` 或 `before_char`）与角色定义后（`1` 或 `after_char`）。卡内条目优先读 `extensions.position`，独立世界书优先读顶层字段。先按现有优先级和预算选择条目，再按插入顺序从低到高排列各位置内的文本。未指定位置的条目继续进入普通世界设定上下文，未识别的位置同样使用该回退并在导入预览提示。
+
+对话示例前（`5`）和对话示例后（`6`）分别报告为 `before_examples` 和 `after_examples`。条目放入对话示例区，支持 `<START>` 分块及 `{{char}}`、`{{user}}`，角色卡本身没有示例时也可生效。前置条目按优先级从高到低显示，后置条目从低到高显示。
+
+作者注释前（`2`）与作者注释后（`3`）分别报告为 `before_author_note` 与 `after_author_note`。注释触发时，匹配条目按各自位置归并在注释内容前后，随注释一起注入。注释正文可以留空，由世界书提供注释内容。
+
+也支持按聊天深度（`position: 4`，接口报告为 `at_depth`）。卡内条目优先读取 `extensions.depth`、`extensions.role`，独立世界书优先读取顶层字段。默认深度为 4，角色默认是系统（`0`），还支持用户（`1`）和助手（`2`）。深度从本轮输入向前数，深度 0 在本轮输入后，深度 1 在本轮输入前，超出有界聊天历史时放在最早可用消息之前。管理列表、试触发和聊天记录会返回 `injection_depth` 与 `injection_role`。
+
+命名出口使用 `position: 7` 和 `outletName`，接口报告为 `outlet` 和 `outlet_name`。导入角色卡的单人入场对话可在角色描述、性格、场景、对话示例、系统提示和后置指令中使用 `{{outlet::名称}}`。入选的同名条目按优先级从高到低合并，名称区分大小写，缺少匹配时宏展开为空。试触发显示候选出口，聊天记录只记录实际被引用的入选条目。条目匹配后缺少有效出口名称时，试触发返回 `missing_outlet`。
+
+独立世界书预览指定 `target_run_id` 时，返回当前挂载内容的 `previous_book_revision`。空字符串表示尚无挂载。导入时将该值原样作为 `expected_world_book_revision` 发送，服务端在写入前核对，版本不一致时返回 `409` 并保留当前内容。省略该字段沿用旧客户端的导入行为。
+
+独立和卡内世界书都支持 `probability`，`useProbability: false` 会跳过概率筛选。通过关键词条件的条目和常驻条目均参与筛选，0% 永不进入上下文，100% 总能通过概率筛选，仍受注入上限约束。对话在同一书卷、会话、回合和条目位置上使用稳定的抽样结果，重试同一回合时不会重新抽样。每次试触发独立抽样。
+
+延迟激活读取独立世界书的 `delay` 或卡内世界书的 `extensions.delay`。达到消息数之后，条目再按关键词、常驻或递归等条件判断是否触发。生成使用会话消息总数，计入归档和本轮实际发送的消息；自动续写指令不额外增加消息数。管理列表以 `delay` 返回阈值，未达到时试触发报告 `activation_delay`。导入预览以 1 条消息试触发。
+
+世界书支持 `sticky`（粘滞）和 `cooldown`（冷却），单位为消息条数。卡内世界书也接受 `extensions` 中的同名字段。粘滞期间条目无需再次命中关键词或通过概率筛选，优先参加注入，仍占用注入预算。冷却期间暂停激活。两者同时设置时，粘滞结束后的第一次生成进入冷却。计时以成功提交的对话为准，分支按保留的消息恢复状态。管理页试触发是独立模拟，不读取或修改会话计时。聊天记录里的 `sticky_active: true` 表示本轮由粘滞维持注入。
+
+卡内和独立世界书中同名的互斥分组会合并比较。支持逗号分隔的多组名。已粘滞的候选保留在同组中，同组其他候选让位；启用按命中评分的候选如果低于同组最高分，会在抽选前退出。剩余候选中，设置组内优先的条目按插入顺序值从高到低择一，否则按权重抽选，默认权重为 100。选出的候选随后接受触发概率和注入预算筛选。正式生成的组内抽选在同一回合的重试中保持稳定，试触发每次重新抽选。被分组淘汰的试触发条目会报告 `group_suppressed`。
+
+普通条目共用最多 4 条的配额，生成时配额还受锁定世界事实和可用容量影响。独立世界书的 `ignoreBudget: true` 或卡内世界书的 `extensions.ignore_budget: true` 可以跳过普通条目配额。关键词、概率、分组和递归等匹配条件仍生效。每轮最多注入 18 条世界书条目，原始正文合计最多 4320 字符。剩余预算足够时整条注入，放不下的条目跳过，由后续候选继续竞争。试触发以 `budget` 表示普通配额已满，以 `total_budget` 表示世界书总条数已满，以 `content_budget` 表示剩余正文预算不足。匹配结果的 `excerpt` 对已注入条目包含完整正文，其余情况最多返回前 240 字符。
+
+条目可以用 `triggers` 限定适用的生成类型，卡内世界书也接受 `extensions.triggers`。空列表表示不限，未匹配的试触发条目报告 `generation_type`。`normal` 适用于普通回复和模型开场，`continue` 适用于已有历史后的无用户输入续写，`regenerate` 适用于重新生成和修正版，`impersonate` 适用于代写，`quiet` 适用于关联建议和导演选项。`swipe` 可导入、导出及试触发。造梦的导入备选回复功能会读取已有回复，读取时不执行模型生成。
+
+世界书可通过管理页的递归开关或顶层 `recursive_scanning: true`（也接受 `recursiveScanning`）启用递归。先处理对话直接命中的条目，再扫描已入选条目中实际注入的正文片段。开启递归的卡内与独立世界书可相互触发，保留原有注入上限，最多追加四轮扫描。支持 `excludeRecursion`、`preventRecursion` 和布尔或数字形式的 `delayUntilRecursion`，也支持卡内世界书 `extensions` 下对应的蛇形字段。延迟层级从小到大，在当前层没有新正文可传递时进入下一层。扫描深度为 0 的条目仍可由递归正文触发。未启用递归的世界书仅参加直接扫描。
+
+预览请求包含 `filename`、`content_base64` 和 `world_book`（独立世界书传 `true`）。可选 `target_run_id` 用于查询拟替换的独立世界书，可选 `test_text`（最多 2000 字符）用于试触发。此接口只读取数据。返回人物和开场信息、可映射字段、世界书条目数及暂不支持的规则；试触发附上 `injected_count` 和最多 50 个 `tested_entries`。试触发只扫描本次输入和拟导入文件，实际对话还使用近期消息、已挂载的其他条目和锁定的世界事实。条目状态为 `injected`、`budget`、`disabled`、`empty`、`no_keyword`、`secondary`、`probability`、`recursion_only` 或 `duplicate`。`probability` 表示匹配条件成立但未通过抽样。`recursion_only` 表示条目仍在等待递归。`trigger_probability` 表示用于筛选的百分比，`recursion_depth` 为 0 时表示直接扫描，正数表示第几轮递归扫描。
+
+卡内和独立世界书支持正文开头独占一行的 `@@activate` 和 `@@dont_activate`。前者跳过关键词条件，后者阻止触发，两者同时出现时优先强制触发。停用、生成类型、延迟、冷却、递归限制、分组、概率和预算仍按各自的规则处理。正文开头连续的 `@@` 指令行只在预览与生成时去除，编辑和导出保留原文。试触发结果用 `decorator_suppressed` 标记被正文指令禁止触发的条目，用可选布尔字段 `forced_activation` 标记由指令触发的候选，字段默认关闭。
 
 已挂载的世界书通过以下接口管理。书卷不存在时返回 `404`，无效参数返回 `400`。
 
 | 方法 | 路径 | 请求 | 成功响应 |
 |---|---|---|---|
-| GET | `/api/web/runs/{run_id}/world-books` | 无 | `200 ManagedWorldBooksDto`，包含来源、版本和条目 |
+| GET | `/api/web/runs/{run_id}/world-books` | 无 | `200 ManagedWorldBooksDto`，包含来源、版本、条目和 `recursion_enabled` |
 | GET | `/api/web/runs/{run_id}/world-books/{source}/export` | 来源为 `character_book` 或 `world_book` | `200` SillyTavern 独立世界书 JSON 附件；来源不存在为 `404` |
-| POST | `/api/web/runs/{run_id}/world-books/test` | `{"text":"测试台词"}`，1–2000 字符 | `200 WorldBookTestDto`，用已挂载的世界书试触发，最多返回 50 个条目结果；每项的 `source` 标明是 `character_book` 还是 `world_book` |
+| POST | `/api/web/runs/{run_id}/world-books/test` | `{"text":"测试台词","history":[],"message_count":1,"generation_type":"normal"}`，仅台词必填 | `200 WorldBookTestDto`，用已挂载的世界书试触发，最多返回 50 个条目结果；每项的 `source` 标明是 `character_book` 还是 `world_book` |
 | PATCH | `/api/web/runs/{run_id}/world-books/{source}/entries/{index}` | `{"revision":"…","enabled":false}`；来源为 `character_book` 或 `world_book`，序号从 0 开始 | `200 ManagedWorldBooksDto`；书或条目不存在为 `404` |
+| PATCH | `/api/web/runs/{run_id}/world-books/{source}/entries/{index}/content` | `revision` 必填，且至少传一项条目设置 | `200 ManagedWorldBooksDto`；内容无效为 `400`，书或条目不存在为 `404`，版本过期为 `409` |
+| POST | `/api/web/runs/{run_id}/world-books/{source}/entries` | 必填 `revision`、`content`、`keywords`；其余条目设置可选 | `200 ManagedWorldBooksDto`；内容无效或超过条目上限为 `400`，世界书不存在为 `404`，版本过期为 `409` |
+| DELETE | `/api/web/runs/{run_id}/world-books/{source}/entries/{index}?revision=…` | 无请求体；条目序号和版本取自同一次世界书列表响应 | `200 ManagedWorldBooksDto`；缺少版本或序号无效为 `400`，书或条目不存在为 `404`，版本过期为 `409` |
+| PATCH | `/api/web/runs/{run_id}/world-books/{source}/recursion` | `{"revision":"…","enabled":true}`；来源为 `character_book` 或 `world_book` | `200 ManagedWorldBooksDto`；书不存在为 `404`，版本过期为 `409` |
 | DELETE | `/api/web/runs/{run_id}/world-books/standalone?revision=…` | 无请求体 | `200 ManagedWorldBooksDto`；独立世界书不存在为 `404` |
 
-修改和移除使用列表返回的 `revision`。版本不匹配时返回 `409`，客户端应重新加载。条目修改保留文件中的其他设定，移除只解绑独立世界书。管理页试触发仅扫描测试台词，同时评估两个已挂载来源。
+修改和移除使用列表返回的 `revision`。版本不匹配时返回 `409`，客户端应重新加载。条目修改保留文件中的其他设定，移除只解绑独立世界书。管理页试触发扫描测试台词和可选的 `history`，同时评估两个已挂载来源。`history` 由早到晚排列，最多 31 条，每条与测试台词均须为 1 至 2000 字符。生成类型默认 `normal`。`message_count` 为正整数，默认 1，实际取该值和提供的消息条数（含测试台词）的较大者。
+
+新增或编辑条目时，`delay`、`sticky`、`cooldown` 为非负整数，0 关闭对应规则。编辑时省略会保留原值。试触发的 `message_count` 仅控制延迟门槛，包含测试台词本身。
+
+管理接口用 `group` 表示分组设置，字段为 `names`、`priority`、`weight`、`scoring`。组名在同一行内用英文逗号分隔，总长最多 512 个字符，区分大小写。权重为 0 至 10000 的整数。优先默认关闭，评分为 `null` 时保留酒馆的继承设定，在造梦内按默认关闭处理。`names` 为空时退出分组，编辑时省略 `group` 会保留原值。SillyTavern 世界书导出使用 `group`、`groupOverride`、`groupWeight`、`useGroupScoring`，角色卡的卡内世界书使用 `extensions` 中的对应字段。
+
+新增、编辑和列表支持 `triggers`，值为生成类型 ID 数组。编辑时省略会保留原值，传入空数组可清除限制。列表通过 `has_unknown_triggers` 标明原文件是否包含未知类型，未知类型不参与匹配，编辑其他字段时会随原文件保留。
+
+新增、编辑、列表和匹配结果支持布尔字段 `ignore_budget`，默认关闭。编辑时省略会保留原值。独立世界书导出为 `ignoreBudget`，角色卡中的条目导出到 `extensions.ignore_budget`。
+
+删除条目后，管理列表按剩余条目的原有顺序重新编号。目标世界书继续挂载，即使删除的是最后一条。
+
+新增条目追加到目标世界书末尾，默认启用，按关键词触发。配置次关键词时默认要求至少命中一个主关键词和一个次关键词。设置 `constant: true` 可创建常驻条目，`keywords` 可传空数组。编辑时切回关键词触发，保存后必须至少有一个主关键词。只修改 `constant` 会保留已有关键词以及概率、优先级等设置。正文须为 1 至 16000 字符，标题最多 120 字符，每组最多 32 个关键词，每个关键词最多 120 字符。
+
+新增、编辑和列表支持 `matching`。其字段为 `scan_depth`（非负整数，实际最多 32，0 仅跳过对话消息扫描）、`case_sensitive`、`whole_words`、`use_secondary`（默认启用）和 `secondary_logic`（`and_any`、`not_all`、`not_any`、`and_all`）。扫描深度包含本轮输入。深度和两项匹配开关为 `null` 时继承默认值。编辑时省略整个 `matching` 会保留原值。
+
+`matching.sources` 可选 `persona_description`、`character_description`、`character_personality`、`character_depth_prompt`、`scenario`、`creator_notes`，默认空列表。扫描深度大于 0 时，主关键词和次关键词都会查找所选来源。场景优先取当前会话场景，缺省时查找角色卡场景。角色深度提示词和作者备注只作为匹配输入。导出用酒馆的 `matchPersonaDescription`、`matchCharacterDescription`、`matchCharacterPersonality`、`matchCharacterDepthPrompt`、`matchScenario`、`matchCreatorNotes`，角色卡内使用 `extensions` 下的蛇形字段。
+
+管理页试触发读取已导入角色卡的设定。`context` 可选 `persona_description` 和 `scenario`，各最多 4000 个字符，用于模拟玩家和场景。导入预览使用待导入角色卡或目标书卷的角色卡设定。
+
+`placement.position` 可选 `before_char`、`after_char`、`before_author_note`、`after_author_note`、`before_examples`、`after_examples`、`at_depth` 或 `outlet`。仅 `at_depth` 可携带 `depth`（0 至 10000）和 `role`（`system`、`user`、`assistant`），其默认值分别为 4 和 `system`。`outlet` 必须填写 `outlet_name`，去除首尾空白后长度为 1 至 120 个字符，不允许花括号或换行。新增时省略 `placement` 使用角色定义前，编辑时省略会保留导入的原位置和扩展配置。
+
+条目列表的 `title` 是显示标题，`comment` 是可编辑标题。将 `comment` 设为空字符串恢复自动标题。`content` 长度为 1 至 16000 字符且须有非空白内容。每组关键词可传空数组清空，最多 32 项，每项去除首尾空白后须为 1 至 120 字符。省略的字段保留原始值。
 
 世界书导出使用 SillyTavern 的 `{"entries":{"0":{…}}}` 格式。卡内世界书也可单独导出，条目启停状态、触发词、优先级和适用的扩展规则一同带出。
 
@@ -180,6 +238,9 @@ SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数
 | POST | `/api/web/runs/{run_id}/redistill` | `RestartRunRequest` | `200` 重蒸馏后的运行 manifest |
 | POST | `/api/web/runs/{run_id}/resume-distill` | 无 | `200` 恢复后的运行 manifest |
 | POST | `/api/web/runs/{run_id}/redistill/recommend` | `SuggestRedistillSegmentsRequest` | `200` 推荐原文片段 |
+
+旧蒸馏任务尚未退出或书卷正在删除时，重蒸馏与恢复请求返回 `400`。删除书卷会等待正在执行的蒸馏退出。
+重蒸馏使用请求中的 `max_sentences`（20–300）和 `max_chars`（2,000–200,000）。重新选择已保存的同一段原文会复用文件，并将其设为本轮来源。
 
 估算请求：
 
@@ -239,7 +300,8 @@ SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数
 | DELETE | `/api/web/sessions` | `DeleteSessionsRequest` | `200` 批量删除结果 |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions` | 公共会话分页 Query | `200 SessionsPageResponse` |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions` | `CreateDialogueSessionRequest` | `201` 会话对象 |
-| GET | `/api/web/runs/{run_id}/dialogue/card-greetings` | 无 | `200 CardGreetingsDto`，含 `character` 和 `options`（每项含 `index`、`text`）；书卷不存在为 `404` |
+| GET | `/api/web/runs/{run_id}/dialogue/card-greetings` | 无 | `200 CardGreetingsDto`，含 `character`、`options`、`revision` 和可选的 `next_alternate_index`；书卷不存在为 `404` |
+| PUT | `/api/web/runs/{run_id}/dialogue/card-greetings` | `{"revision":"…","index":1,"text":"开场白"}` | 更新一条开场并返回 `200 CardGreetingsDto`。参数无效为 `400`，角色卡不存在为 `404`，版本过期为 `409` |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/import-sillytavern` | `{"filename":"会话.jsonl","content_base64":"…"}` | `201` 新建轻量会话；文件或角色映射无效返回 `400`，目标不存在返回 `404` |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/export-sillytavern` | 无 | `200 application/x-ndjson`，会话不存在返回 `404` |
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/imported-swipes/{message_index}` | `offset=0&limit=4`，每页 1–10 条 | `200 ImportedSwipePageDto`；参数无效返回 `400`，会话或迁移消息不存在返回 `404` |
@@ -247,7 +309,14 @@ SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数
 | GET | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}` | `include_transcript=true` | `200` 完整或轻量会话对象 |
 | DELETE | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}` | 无 | `200 {"status":"deleted"}` |
 | PATCH | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/title` | `{"title":"新标题"}` | `200` 更新后的会话对象 |
+| PUT | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/author-note` | `{"text":"保持简洁。","enabled":true,"depth":4,"role":"system","interval":1,"position":"in_chat"}` | `200` 已保存的注释；内容超过 4000 字符、深度超出 0 至 10000 或间隔小于 1 返回 `400`，会话不存在返回 `404` |
 | POST | `/api/web/runs/{run_id}/dialogue/sessions/{session_id}/prepare` | `PrepareDialogueTurnRequest` | `200` 写入待处理用户消息后的会话对象 |
+
+单个或批量删除会话时，Ktor 会先停止并等待该会话的记忆派生和摘要任务，再移除会话。删除后，迟到的对话回执和轮次写入不会重新创建会话目录。
+
+会话的 `author_note.interval` 默认是 1，每轮触发。大于 1 时，当该会话的用户消息总数为间隔的正整数倍，才注入作者注释及其前后的世界书条目。计入本轮实际发送的用户消息和归档中的用户消息，角色回复与自动续写不增加计数。`enabled: false` 停用注释及其前后的世界书条目。
+
+`author_note.position` 可选 `before_prompt`（主提示词前）、`after_prompt`（主提示词后）和 `in_chat`（默认）。聊天中按 `depth` 和 `role` 注入。主提示词前后使用系统消息，并保留深度和角色设置供切回聊天中或重新导出。
 
 创建会话请求：
 
@@ -266,9 +335,13 @@ SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数
 
 `mode` 默认为 `observe`。参与者、受控人物和卡片组合的进一步约束由业务服务校验。
 
-未指定场景的单人 `insert` 会话可以传 `card_greeting_index`。`0` 对应角色卡首句，正数对应卡内备用开场的原始顺序，最多读取前 20 个。省略时使用原始首句，首句为空则生成普通开场。无效序号或不符合会话条件时返回 `400`。使用角色卡开场后，会话详情和列表返回实际使用的索引。
+未指定场景的单人 `insert` 会话可以传 `card_greeting_index`。`0` 对应角色卡首句，正数对应卡内备用开场的原始顺序，最多读取前 20 个。省略时使用已保存的首句，首句为空则生成普通开场。无效序号或不符合会话条件时返回 `400`。使用角色卡开场后，会话详情和列表返回实际使用的索引。
 
-SillyTavern 聊天迁移使用 UTF-8 JSONL，导入上限 8 MB、20,000 条文本消息、单条 16,000 字符。导入新建会话，支持私聊和群聊以及无文件头的群聊记录。按发言者名称映射到目标书卷人物；仅当来源与目标均只有一名角色时允许名称不同。发送者、文本、旁白、原始发送时间和备选回复随文件迁移。导出包括当前会话的归档历史。当在造梦里创建分支时，保留分支内消息的备选回复；每个文件对应一条会话时间线。附件和 SillyTavern 专用的聊天状态不在迁移范围内。
+开场编辑使用 GET 返回的 `revision`，单次只修改指定位置，正文最多 4000 字符。传空正文可以清空该位置，其他开场的编号照旧。新增时可用 `next_alternate_index`。读取结果的 `options` 仅包含非空开场，每项包含 `index`、`text`，原文超过 4000 字符时还有 `truncated: true`。保存后的内容用于新会话和之后的角色卡导出，已有会话保留已写入的开场消息。
+
+SillyTavern 聊天迁移使用 UTF-8 JSONL，导入上限 8 MB、20,000 条文本消息、单条 16,000 字符。导入新建会话，支持私聊和群聊以及无文件头的群聊记录。按发言者名称映射到目标书卷人物；仅当来源与目标均只有一名角色时允许名称不同。发送者、文本、旁白、原始发送时间和备选回复随文件迁移。导出包括当前会话的归档历史。当在造梦里创建分支时，保留分支内消息的备选回复；每个文件对应一条会话时间线。
+
+文件头 `chat_metadata` 支持作者注释的 `note_prompt`、`note_interval`、`note_depth`、`note_position` 和 `note_role`。停用导出为 `note_interval: 0`。位置 `0/1/2` 分别为主提示词后、聊天中、主提示词前，角色 `0/1/2` 分别为系统、用户、助手。未知位置、角色和超范围深度使用默认值，注释超过 4000 字符返回 `400`。无作者注释设置的文件使用会话默认值。附件和其余 SillyTavern 专用的聊天状态不在迁移范围内。
 
 迁移的 transcript 项可以包含 `sillytavern_message_index` 和 `sillytavern_swipe_count`。完整备用回复存放在会话的独立文档中。查看接口返回 `total`、当前选中的 `selected_index` 和 `items`（含 `index`、`text`、`truncated`）；所有索引从 0 开始。查看页每个版本最多返回 16,000 字符，JSONL 导出保留原文。
 
@@ -394,7 +467,7 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 - `replayed=true` 表示本次没有重新生成，而是返回已提交 operation 的结果。
 - `base_revision` 是生成前历史版本，`committed_revision` 是本 operation 提交后的版本。客户端快速合并前应校验本地基线；不一致时重新读取当前 header 和 tail。
 
-流式和普通对话会在本轮第一条回复的 transcript 项记录可选的 `world_book_matches`。每项含 `title`、`excerpt`、`status`（`injected`）、`keywords`（常驻条目为空）和 `source`（`character_book` 或 `world_book`），只列出实际进入该轮上下文的世界书条目。
+流式和普通对话会在本轮第一条回复的 transcript 项记录可选的 `world_book_matches`。每项含 `title`、`excerpt`、`status`（`injected`）、`keywords`（常驻或指令触发的条目为空）、`source`（`character_book` 或 `world_book`），可另带 `trigger_probability`、`recursion_depth`、`position`、`insertion_order` 和 `forced_activation`。管理条目也会返回已识别的 `position`。这里只列出实际进入该轮上下文的世界书条目。
 
 preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `code`、`message`、`retryable`。主要错误码包括 `OPERATION_ID_CONFLICT`、`OPERATION_IN_PROGRESS` 和 `SESSION_REVISION_CONFLICT`。
 
@@ -510,6 +583,8 @@ preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `c
 
 深度复核（`deep-review`）只检查最新角色回合，并把语义问题合并进该回合已有的确定性报告（保留 `turn_id`、重算 `status`/`score`、标记 `coverage.semantic_review`）；同一回合重复复核只保留一条历史记录。若复核期间会话已提交新回合，返回 `400` 并提示结果过期，不会覆盖最新状态。
 
+切换场景卡时只需传 `sceneCardId`：服务端按 id 读取 `scene-cards/{card_id}/scene-card.json`，并把卡内 `fields` 写入会话；显式传入的 `sceneProfile` 覆盖同名卡字段。卡不存在返回 `400`。
+
 导演请求：
 
 ```json
@@ -603,6 +678,14 @@ preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `c
 | GET | `/sillytavern-card` | 无 | `200` Character Card V2 JSON 附件；人物不存在为 `404` |
 
 角色卡导出读取当前已保存的人物档案。对于 SillyTavern 导入的人物，会保留原卡首句、备用开场和卡内世界书。JSON 文件不含头像和会话记录。
+
+造梦客户端也可生成带头像的 PNG 角色卡。客户端读取同一个 JSON 接口和头像接口，把 V2 角色数据写入 PNG 的 `chara` 文本块，并去除旧的 `chara` 和 `ccv3` 角色数据。PNG 须符合重新导入的尺寸和大小限制，最终文件最多 5 MiB，内嵌 JSON 最多 1 MiB。
+
+小说蒸馏时同时生成人物档案和角色卡文本。导出 V2 时优先使用 `card_description`、`card_personality`、`card_scenario`、`card_first_mes` 和 `card_mes_example`，分别对应 `description`、`personality`、`scenario`、`first_mes` 和 `mes_example`。旧档案的描述、性格和场景可由已有档案字段映射。示例使用 `<START>` 及 `{{user}}:`、`{{char}}:` 区分双方台词。
+
+导入角色卡的人物资料响应包含 `card_fields`，提供 `description`、`personality`、`scenario`、`mes_example` 的原始文本。可在人物资料的 PUT 请求中使用这些原生键修改对应文本，省略的字段保持原值。此类人物的质量报告返回 `applicable: false`，造梦的蒸馏完整度评分不适用。
+
+导入角色卡的人物资料还返回只读的 `card_metadata`，包含 `creator`、`creator_notes`、`character_version` 和 `tags`。旧卡可用 `creatorcomment` 作为作者说明。展示字段中的作者和版本最多各 120 字符，标签去重后最多 32 个，每个最多 64 字符。作者说明最多返回 16000 字符，超出时 `creator_notes_truncated` 为 `true`。角色卡导出保留原始作者信息。
 
 人物档案更新示例：
 
@@ -728,14 +811,14 @@ preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `c
 | GET | `/api/web/settings/model` | 无 | `200 ModelSettings` |
 | PUT | `/api/web/settings/model` | `SaveModelSettingsRequest` | `200 ModelSettings` |
 | POST | `/api/web/settings/model/test` | `TestModelSettingsRequest` | `200 ModelConnectionTest` |
-| POST | `/api/web/settings/model/discover` | `base_url`、`api_key`、`profile_id`（均可省略） | `200 {"models":["model-id"]}`，`400` 地址或密钥无效，`502` 上游请求或解析失败，`500` 内部错误 |
+| POST | `/api/web/settings/model/discover` | `base_url`、`api_key`、`profile_id`（均可省略） | `200 {"models":["model-id"]}`，`400` 请求或地址无效，`502` 上游请求或解析失败，`500` 内部错误 |
 | POST | `/api/web/settings/model/detect-capabilities` | `TestModelSettingsRequest` | `200 ModelCapabilityReport` |
 | POST | `/api/web/settings/model/profiles/{profile_id}/activate` | 无 | `200 ModelSettings` |
 | DELETE | `/api/web/settings/model/profiles/{profile_id}` | 无 | `200 ModelSettings` |
 
 `ModelSettings` 和各档案返回 `request_timeout_seconds`。保存、测试连接和检测模型能力的请求可提供该字段，范围为 1–300 秒，越界返回 `400`。省略时沿用对应档案值，旧档案或新档案缺省时使用 60 秒。该设置用于单次非流式模型请求，包括连接测试和非流式能力探测。
 
-模型发现向 OpenAI 兼容接口发送 `GET {base_url}/models`，读取 `data[].id` 并返回去重、排序后的模型 ID。接口地址留空时使用 `https://api.openai.com/v1`。密钥留空时，仅在指定档案的模型列表地址与请求地址一致时复用该档案的密钥。请求不会保存模型设置。
+模型发现向 OpenAI 兼容接口发送 `GET {base_url}/models`，读取 `data[].id` 并返回去重、排序后的模型 ID。接口地址留空时使用 `https://api.openai.com/v1`。密钥留空时，仅在指定档案的模型列表地址与请求地址一致时复用该档案的密钥。没有可用密钥时，向上游发送不带 `Authorization` 的请求，以支持公开的模型列表。上游返回 `401` 时，此接口返回 `502` 并提示填写或核对 API Key。请求不会保存模型设置。
 
 保存请求：
 

@@ -97,7 +97,7 @@ class DomainStore(
     // ------------------------------------------------------------------ 读取
 
     fun listRunIds(): List<String> {
-        return runBlockingPlatform { dao.allRuns().map { it.runId } }
+        return runBlockingPlatform { dao.runIds() }
     }
 
     fun listRunManifests(): List<JsonObject> {
@@ -106,12 +106,14 @@ class DomainStore(
     }
 
     fun runExists(runId: String): Boolean {
-        return runBlockingPlatform { dao.runById(runId) != null }
+        return runBlockingPlatform { dao.runExists(runId) }
     }
 
     fun listSessionIds(runId: String): List<String> {
-        return runBlockingPlatform { dao.sessionsOf(runId).map { it.sessionId } }
+        return runBlockingPlatform { dao.sessionIdsOf(runId) }
     }
+
+    fun listSessionRunIds(): List<String> = runBlockingPlatform { dao.sessionRunIds() }
 
     fun listSessionManifests(runId: String): List<JsonObject> {
         return runBlockingPlatform { dao.sessionsOf(runId) }

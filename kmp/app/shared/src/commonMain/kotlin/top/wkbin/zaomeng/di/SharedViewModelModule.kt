@@ -52,6 +52,6 @@ internal fun sharedViewModelModule(platform: AppPlatform) = module {
     viewModel { ImportBookViewModel(get(), get(), get(), get(), get()) }
     viewModel { parameters -> RedistillViewModel(get(), parameters.get(), get(), get(), get()) }
     viewModel { parameters ->
-        RunDetailViewModel(get(), get(), parameters.get(), platform.cacheDir, get(), get())
+        RunDetailViewModel(get(), get(), parameters.get(), platform.cacheDir, get(), get(), get(), get())
     }
 }

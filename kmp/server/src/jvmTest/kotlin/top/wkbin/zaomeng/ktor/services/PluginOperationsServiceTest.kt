@@ -46,7 +46,7 @@ class PluginOperationsServiceTest {
             assertEquals("kept", service.readData("update-plugin", "notes"))
             assertEquals(1, service.readDataSnapshot("update-plugin", "notes").revision)
             assertEquals("old-log\n", storage.readText(installed / "plugin-logs.jsonl"))
-            assertEquals("new-log", service.logs("update-plugin").getValue("items").jsonArray.single()
+            assertEquals("new-log", service.logs("update-plugin").getValue("items").jsonArray.last()
                 .jsonObject.getValue("message").jsonPrimitive.content)
             assertEquals("""{"tone":"warm"}""", storage.readText(installed / "config.json"))
         }

@@ -174,7 +174,9 @@ class DialogueStreamService(
             if (result != null) {
                 put("committed_revision", result.committedRevision)
                 put("session", leanSession(current))
-                put("appended_transcript", buildJsonArray { result.appendedTranscript.forEach(::add) })
+                put("appended_transcript", buildJsonArray {
+                    result.appendedTranscript.forEach { add(it.withoutWorldBookTimingDelta()) }
+                })
             }
         }
     }
@@ -237,6 +239,7 @@ class DialogueStreamService(
             messageKind = messageKind,
             speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
+            countsCurrentInput = !suppressTranscriptMessage,
         )
         val payload = dialogue.enrichHistory(
             runId = runId,
@@ -424,6 +427,7 @@ class DialogueStreamService(
                 existingSession = sessionManifestJson,
                 evidence = dialogue.extractOriginalEvidence(payload),
                 worldBookMatches = dialogue.extractWorldBookMatches(payload),
+                worldBookTimingDelta = payload[WorldBookTiming.DELTA] as? JsonObject,
                 operation = operation,
             )
             val outcome = if (operations != null && operation != null) {

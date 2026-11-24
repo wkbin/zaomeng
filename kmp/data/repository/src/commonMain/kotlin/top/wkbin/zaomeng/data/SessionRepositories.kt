@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.data
 
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+
 import io.ktor.client.statement.bodyAsChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +27,7 @@ import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
 import top.wkbin.zaomeng.data.api.CreateDialogueSessionRequest
 import top.wkbin.zaomeng.data.api.CardGreetingsDto
+import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
 import top.wkbin.zaomeng.data.api.BranchImportedSwipeRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsRequest
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
@@ -131,6 +134,9 @@ class SessionRepositoryImpl(
         ktorSessions.getCardGreetings(runId)
     }
 
+    override suspend fun updateCardGreeting(runId: String, request: UpdateCardGreetingRequest): CardGreetingsDto =
+        repositoryRequest { ktorSessions.updateCardGreeting(runId, request) }
+
     override suspend fun importSillyTavernChat(runId: String, filename: String, bytes: ByteArray): DialogueSessionDto =
         repositoryRequest {
             val payload = withContext(Dispatchers.Default) { ImportSillyTavernChatRequest(filename, clientBase64Encode(bytes)) }
@@ -201,6 +207,9 @@ class SessionRepositoryImpl(
     ): DialogueSessionDto = repositoryRequest {
         ktorSessions.updateTitle(runId, sessionId, title)
     }
+
+    override suspend fun updateAuthorNote(runId: String, sessionId: String, note: AuthorNoteDto): AuthorNoteDto =
+        repositoryRequest { ktorSessions.updateAuthorNote(runId, sessionId, note) }
 
     override suspend fun recoverSession(
         runId: String,

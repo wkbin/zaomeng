@@ -7,7 +7,10 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 import kotlinx.coroutines.withContext
+import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
 import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.SetWorldBookRecursionRequest
 import top.wkbin.zaomeng.data.api.TestWorldBooksRequest
 import top.wkbin.zaomeng.ktor.http.respondError
 import top.wkbin.zaomeng.ktor.services.SillyTavernImport
@@ -28,7 +31,16 @@ internal fun Route.worldBookRoutes(service: SillyTavernImport) {
         }
         post("/test") {
             val request = call.receive<TestWorldBooksRequest>()
-            call.worldBookResponse { runId -> service.testWorldBooks(runId, request.text) }
+            call.worldBookResponse { runId ->
+                service.testWorldBooks(runId, request.text, request.messageCount, request.generationType, request.history, request.context)
+            }
+        }
+        post("/{source}/entries") {
+            val request = call.receive<CreateWorldBookEntryRequest>()
+            call.worldBookResponse { runId ->
+                val source = requireNotNull(call.parameters["source"])
+                service.createBookEntry(runId, source, request)
+            }
         }
         patch("/{source}/entries/{index}") {
             val request = call.receive<SetWorldBookEntryRequest>()
@@ -36,6 +48,31 @@ internal fun Route.worldBookRoutes(service: SillyTavernImport) {
                 val source = requireNotNull(call.parameters["source"])
                 val index = requireNotNull(call.parameters["index"]?.toIntOrNull()) { "条目序号无效。" }
                 service.setEntryEnabled(runId, source, index, request.revision, request.enabled)
+            }
+        }
+        patch("/{source}/recursion") {
+            val request = call.receive<SetWorldBookRecursionRequest>()
+            call.worldBookResponse { runId ->
+                val source = requireNotNull(call.parameters["source"])
+                service.setBookRecursion(runId, source, request.revision, request.enabled)
+            }
+        }
+        patch("/{source}/entries/{index}/content") {
+            val request = call.receive<EditWorldBookEntryRequest>()
+            call.worldBookResponse { runId ->
+                val source = requireNotNull(call.parameters["source"])
+                val index = requireNotNull(call.parameters["index"]?.toIntOrNull()) { "条目序号无效。" }
+                service.editBookEntry(runId, source, index, request)
+            }
+        }
+        delete("/{source}/entries/{index}") {
+            call.worldBookResponse { runId ->
+                val source = requireNotNull(call.parameters["source"])
+                val index = requireNotNull(call.parameters["index"]?.toIntOrNull()) { "条目序号无效。" }
+                val revision = requireNotNull(call.request.queryParameters["revision"]?.takeIf { it.isNotBlank() }) {
+                    "缺少世界书版本。"
+                }
+                service.deleteBookEntry(runId, source, index, revision)
             }
         }
         delete("/standalone") {

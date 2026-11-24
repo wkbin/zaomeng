@@ -16,12 +16,15 @@ from _skill_support.workflow_completion import build_capability_status, default_
 
 
 def _default_output_dir(source: Path, profile: dict[str, object]) -> Path:
-    if source.suffix.lower() == ".json":
-        name = str(profile.get("name", "")).strip() or source.stem
-        return source.parent / name
-    if source.name.startswith("PROFILE"):
+    if source.suffix.lower() != ".json" and source.name.startswith("PROFILE"):
         return source.parent
-    return source.parent / (str(profile.get("name", "")).strip() or source.stem)
+    name = str(profile.get("name", "")).strip() or source.stem
+    if name in {".", ".."} or any(char in name for char in '/\\:\0') or name.endswith("."):
+        raise ValueError("Character name must be a single directory name.")
+    output_dir = source.parent / name
+    if output_dir.resolve().parent != source.parent.resolve() or output_dir.is_symlink():
+        raise ValueError("Character output directory must be inside the source folder.")
+    return output_dir
 
 
 def main() -> int:

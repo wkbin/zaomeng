@@ -75,7 +75,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -271,22 +271,122 @@ internal fun ChatComposer(
             item {
                 Box {
                     OutlinedButton(
-                        onClick = { pluginsOpen = true },
-                        enabled = inputEnabled && (
-                                state.pluginActions.isNotEmpty() ||
-                                        state.generationEnhancers.isNotEmpty()
-                                ),
+                        onClick = { messageKindMenuOpen = true },
+                        enabled = inputEnabled,
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) {
+                        Text(
+                            messageKindOptions.firstOrNull { it.value == state.messageKind }
+                                ?.label ?: "对话",
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "切换输入模式",
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = messageKindMenuOpen,
+                        onDismissRequest = { messageKindMenuOpen = false },
+                    ) {
+                        messageKindOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = {
+                                    onMessageKindChange(option.value)
+                                    messageKindMenuOpen = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                Box {
+                    OutlinedButton(
+                        onClick = { toolsOpen = true },
+                        // 连续旁观期间也要能打开工具菜单（暂停入口在里面）
+                        enabled = inputEnabled || state.continuousObserveEnabled,
                         modifier = Modifier.height(36.dp),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp),
                     ) {
                         Icon(
-                            Icons.Outlined.AutoAwesome,
+                            Icons.Default.MoreVert,
                             contentDescription = null,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (pluginActionBusy) "插件运行中…" else "插件")
+                        Spacer(Modifier.width(2.dp))
+                        Text("工具")
+                    }
+                    DropdownMenu(
+                        expanded = toolsOpen,
+                        onDismissRequest = { toolsOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("剧情导演") },
+                            leadingIcon = { Icon(Icons.Outlined.Movie, contentDescription = null) },
+                            enabled = state.canUseTools,
+                            onClick = {
+                                toolsOpen = false
+                                onOpenDirector()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("回复节奏") },
+                            enabled = inputEnabled,
+                            onClick = {
+                                toolsOpen = false
+                                pacingMenuOpen = true
+                            },
+                        )
+                        if (state.pluginActions.isNotEmpty() || state.generationEnhancers.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(if (pluginActionBusy) "插件运行中…" else "插件") },
+                                enabled = inputEnabled,
+                                onClick = {
+                                    toolsOpen = false
+                                    pluginsOpen = true
+                                },
+                            )
+                        }
+                        if (state.session?.mode == "observe") {
+                            DropdownMenuItem(
+                                text = { Text(if (state.continuousObserveEnabled) "暂停旁观" else "开启旁观") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (state.continuousObserveEnabled) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                    )
+                                },
+                                enabled = state.canToggleContinuousObserve,
+                                onClick = {
+                                    toolsOpen = false
+                                    onToggleContinuousObserve()
+                                },
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = pacingMenuOpen,
+                        onDismissRequest = { pacingMenuOpen = false },
+                    ) {
+                        listOf(
+                            "brief" to "简洁 · 每人一两句",
+                            "normal" to "适中 · 默认节奏",
+                            "detailed" to "细腻 · 展开动作环境",
+                        ).forEach { (value, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    onPacingChange(value)
+                                    pacingMenuOpen = false
+                                },
+                            )
+                        }
                     }
                     DropdownMenu(
                         expanded = pluginsOpen,
@@ -333,135 +433,6 @@ internal fun ChatComposer(
                                 onClick = {
                                     pluginsOpen = false
                                     onInvokePluginAction(action)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                Box {
-                    OutlinedButton(
-                        onClick = { messageKindMenuOpen = true },
-                        enabled = inputEnabled,
-                        modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                    ) {
-                        Text(
-                            messageKindOptions.firstOrNull { it.value == state.messageKind }
-                                ?.label ?: "对话",
-                        )
-                        Spacer(Modifier.size(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "切换输入模式",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = messageKindMenuOpen,
-                        onDismissRequest = { messageKindMenuOpen = false },
-                    ) {
-                        messageKindOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.label) },
-                                onClick = {
-                                    onMessageKindChange(option.value)
-                                    messageKindMenuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                Box {
-                    OutlinedButton(
-                        onClick = { pacingMenuOpen = true },
-                        enabled = inputEnabled,
-                        modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Text(
-                            when (state.pacing) {
-                                "brief" -> "简洁"
-                                "detailed" -> "细腻"
-                                else -> "适中"
-                            },
-                        )
-                        Spacer(Modifier.size(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "切换回复节奏",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = pacingMenuOpen,
-                        onDismissRequest = { pacingMenuOpen = false },
-                    ) {
-                        listOf(
-                            "brief" to "简洁 · 每人一两句",
-                            "normal" to "适中 · 默认节奏",
-                            "detailed" to "细腻 · 展开动作环境",
-                        ).forEach { (value, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    onPacingChange(value)
-                                    pacingMenuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                Box {
-                    OutlinedButton(
-                        onClick = { toolsOpen = true },
-                        // 连续旁观期间也要能打开工具菜单（暂停入口在里面）
-                        enabled = inputEnabled || state.continuousObserveEnabled,
-                        modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(2.dp))
-                        Text("工具")
-                    }
-                    DropdownMenu(
-                        expanded = toolsOpen,
-                        onDismissRequest = { toolsOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("剧情导演") },
-                            leadingIcon = { Icon(Icons.Outlined.Movie, contentDescription = null) },
-                            enabled = state.canUseTools,
-                            onClick = {
-                                toolsOpen = false
-                                onOpenDirector()
-                            },
-                        )
-                        if (state.session?.mode == "observe") {
-                            DropdownMenuItem(
-                                text = { Text(if (state.continuousObserveEnabled) "暂停旁观" else "开启旁观") },
-                                leadingIcon = {
-                                    Icon(
-                                        if (state.continuousObserveEnabled) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                    )
-                                },
-                                enabled = state.canToggleContinuousObserve,
-                                onClick = {
-                                    toolsOpen = false
-                                    onToggleContinuousObserve()
                                 },
                             )
                         }
@@ -546,7 +517,7 @@ internal fun ChatComposer(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (state.canSend) onSend() }),
             )
-            Spacer(Modifier.size(2.dp))
+            Spacer(Modifier.width(8.dp))
             if (state.continuousObserveEnabled) {
                 // 连续旁观中：发送区替换为常驻“暂停旁观”，保证随时可以停下
                 Button(
@@ -560,18 +531,13 @@ internal fun ChatComposer(
                     Text("暂停")
                 }
             } else {
-                IconButton(
+                FilledIconButton(
                     onClick = onSend,
                     enabled = state.canSend,
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
                         contentDescription = "发送",
-                        tint = if (state.canSend) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                        },
                     )
                 }
             }

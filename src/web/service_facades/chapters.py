@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import wraps
 from typing import Any
 from uuid import uuid4
 
@@ -54,6 +55,17 @@ def _trim_chapter_content(content: str, limit: int) -> str:
     if boundary > limit * 0.6:
         candidate = candidate[: boundary + 1]
     return candidate.rstrip() + "…"
+
+
+def _run_locked(method):
+    """把 chapter_book.json 的"读-改-写"整体放进 run 级锁，避免并发保存互相覆盖。"""
+
+    @wraps(method)
+    def wrapper(self, run_id: str, *args, **kwargs):
+        with self._manifest_lock_for_run(run_id):
+            return method(self, run_id, *args, **kwargs)
+
+    return wrapper
 
 
 class ChapterServiceMixin:
@@ -113,17 +125,14 @@ class ChapterServiceMixin:
             )
             if len(results) >= limit:
                 return results
-        for session in self.dialogue.list_sessions(run_id)[:100]:
+        for session in self.dialogue.iter_sessions_for_book_search(run_id, limit=100):
             session_id = str(session.get("session_id", "")).strip()
             if not session_id:
                 continue
-            try:
-                detail = self.dialogue.get_session(run_id, session_id)
-            except FileNotFoundError:
-                continue
             transcript = "\n".join(
                 f"{str(item.get('speaker', '')).strip()}：{str(item.get('message', '')).strip()}"
-                for item in list(detail.get("transcript", []) or [])
+                for item in session.get("history", []) or []
+                if isinstance(item, dict)
                 if str(item.get("message", "")).strip()
             )
             if needle not in transcript.casefold():
@@ -168,6 +177,7 @@ class ChapterServiceMixin:
         result = LLMClient(config).chat_completion([{"role": "user", "content": f"只依据以下书卷证据回答问题；没有证据就说明不知道。不要编造。\n问题：{normalized}\n\n证据：\n{source_text}"}], temperature=0.2, max_tokens=900)
         return {"answer": str(result.get("content", "")).strip(), "evidence": evidence[:12]}
 
+    @_run_locked
     def save_chapter(
         self,
         run_id: str,
@@ -238,6 +248,7 @@ class ChapterServiceMixin:
         self._write_json(self._chapter_book_path(run_id), book)
         return next(item for item in book["chapters"] if item["chapter_id"] == chapter["chapter_id"])
 
+    @_run_locked
     def archive_dialogue_session_as_chapter(
         self, run_id: str, *, session_id: str, title: str = ""
     ) -> dict[str, Any]:
@@ -422,6 +433,7 @@ class ChapterServiceMixin:
             context_summary=context_summary,
         )
 
+    @_run_locked
     def delete_chapter(self, run_id: str, chapter_id: str) -> dict[str, str]:
         self._ensure_run_exists(run_id)
         book = self._chapter_book(run_id)
@@ -433,6 +445,7 @@ class ChapterServiceMixin:
         self._write_json(self._chapter_book_path(run_id), book)
         return {"status": "deleted", "chapter_id": chapter_id}
 
+    @_run_locked
     def continue_chapter_writing(self, run_id: str, chapter_id: str) -> dict[str, Any]:
         manifest = self._require_manifest(run_id)
         book = self._chapter_book(run_id)
@@ -469,6 +482,7 @@ class ChapterServiceMixin:
         self._write_json(self._chapter_book_path(run_id), book)
         return session
 
+    @_run_locked
     def sync_latest_session_to_chapter(self, run_id: str, chapter_id: str) -> dict[str, Any]:
         self._ensure_run_exists(run_id)
         book = self._chapter_book(run_id)
@@ -502,6 +516,7 @@ class ChapterServiceMixin:
         self._write_json(self._chapter_book_path(run_id), book)
         return next(item for item in book["chapters"] if item["chapter_id"] == chapter_id)
 
+    @_run_locked
     def reorder_chapter(self, run_id: str, chapter_id: str, *, target_order: int) -> list[dict[str, Any]]:
         self._ensure_run_exists(run_id)
         book = self._chapter_book(run_id)

@@ -3,10 +3,13 @@
 package top.wkbin.zaomeng.ktor.services
 
 import kotlinx.serialization.json.*
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+import top.wkbin.zaomeng.data.api.AuthorNotePosition
 import top.wkbin.zaomeng.data.api.ImportSillyTavernChatRequest
 import top.wkbin.zaomeng.data.api.ImportedSwipeDto
 import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
 import top.wkbin.zaomeng.data.api.SessionManifest
+import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
 import top.wkbin.zaomeng.platform.base64Decode
 import top.wkbin.zaomeng.platform.nowIsoString
 import top.wkbin.zaomeng.platform.randomUuid
@@ -33,6 +36,7 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
             throw IllegalArgumentException("聊天文件须使用 UTF-8。")
         }
         val parsed = parseChat(text)
+        val authorNote = importAuthorNote(parsed.header?.get("chat_metadata") as? JsonObject)
         val speakerNames = parsed.messages.filter { it.role == "character" }.map { it.speaker }.distinct()
         require(speakerNames.isNotEmpty()) { "聊天文件没有可映射的角色发言。" }
         val speakerMap = speakerNames.associateWith { speaker ->
@@ -93,9 +97,8 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
             val compacted = storage.compactSessionTranscript(runId, sessionId, manifest, transcript)
             val ready = buildJsonObject {
                 manifest.forEach { (key, value) -> put(key, value) }
-                put("transcript", compacted.recent)
-                put("transcript_start", compacted.startIndex)
-                put("transcript_count", compacted.totalCount)
+                compacted.writeFields(this)
+                if (authorNote != null) put("author_note", json.encodeToJsonElement(authorNote))
                 put("last_entry_preview", parsed.messages.last().content.take(200))
             }
             storage.writeTextAtomically(storage.getDialogueSessionManifestFile(runId, sessionId), ready.toString())
@@ -119,7 +122,7 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
             put("user_name", user)
             put("character_name", (participants.singleOrNull() as? JsonPrimitive)?.contentOrNull ?: "Group")
             put("create_date", session.text("created_at"))
-            put("chat_metadata", JsonObject(emptyMap()))
+            put("chat_metadata", exportAuthorNote(session.sessionAuthorNote()))
         }
         return sequenceOf(header) + transcript.asSequence().filterIsInstance<JsonObject>().map { item ->
             val extras = metadata[item.text(MESSAGE_INDEX)] as? JsonObject
@@ -143,6 +146,37 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
                     }
                 }
             }
+        }
+    }
+
+    private fun importAuthorNote(metadata: JsonObject?): AuthorNoteDto? {
+        if (metadata == null || authorNoteKeys.none { it in metadata }) return null
+        val defaults = AuthorNoteDto()
+        val text = metadata.text("note_prompt")
+        require(text.length <= AuthorNoteDto.MAX_TEXT_LENGTH) {
+            "聊天文件中的作者注释超过 ${AuthorNoteDto.MAX_TEXT_LENGTH} 个字符。"
+        }
+        val interval = metadata.int("note_interval") ?: defaults.interval
+        val depth = metadata.int("note_depth")?.takeIf { it in 0..10_000 }
+        val position = metadata.int("note_position")
+        val role = metadata.int("note_role")
+        return AuthorNoteDto(
+            text = text,
+            enabled = interval > 0,
+            interval = interval.takeIf { it > 0 } ?: defaults.interval,
+            depth = depth ?: defaults.depth,
+            position = AuthorNotePosition.entries.firstOrNull { it.sillyTavernId == position } ?: defaults.position,
+            role = WorldBookInjectionRole.entries.firstOrNull { it.sillyTavernId == role } ?: defaults.role,
+        )
+    }
+
+    private fun exportAuthorNote(note: AuthorNoteDto?) = buildJsonObject {
+        if (note != null) {
+            put("note_prompt", note.text)
+            put("note_interval", if (note.enabled) note.interval else 0)
+            put("note_depth", note.depth)
+            put("note_position", note.position.sillyTavernId)
+            put("note_role", note.role.sillyTavernId)
         }
     }
 
@@ -301,6 +335,7 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
         const val MAX_MESSAGE_CHARS = 16_000
         const val MESSAGE_INDEX = "sillytavern_message_index"
         const val METADATA_FILE = "sillytavern-chat-metadata.json"
+        val authorNoteKeys = setOf("note_prompt", "note_interval", "note_depth", "note_position", "note_role")
         val swipeTimingFields = setOf("send_date", "gen_started", "gen_finished")
         val json = Json { encodeDefaults = true }
 
@@ -308,5 +343,6 @@ internal class SillyTavernChatTransfer(private val storage: StorageService) {
             (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
 
         fun JsonObject.bool(key: String): Boolean? = (get(key) as? JsonPrimitive)?.booleanOrNull
+        fun JsonObject.int(key: String): Int? = (get(key) as? JsonPrimitive)?.intOrNull
     }
 }

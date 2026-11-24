@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import random
 import re
 import shutil
+from heapq import nlargest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterator, Protocol
 from uuid import uuid4
 
 from src.core.config import Config
@@ -19,6 +21,7 @@ from src.web.manifest.compat import (
 import src.web.chat.consistency as _consistency
 import src.web.chat.chapter_outline as _chapter_outline
 import src.web.chat.character_arc as _character_arc
+from src.web.chat.checkpoint_history import archive_checkpoint_history, restore_checkpoint_history
 import src.web.chat.event_signals as _event_signals
 from src.web.chat.cache_stats import (
     empty_generation_cache_stats,
@@ -249,29 +252,56 @@ class DialogueService:
 
     def list_sessions(self, run_id: str) -> list[dict[str, Any]]:
         root = self._sessions_root(run_id)
-        items: list[dict[str, Any]] = []
-        if not root.exists():
-            return items
-        for path in sorted(root.glob("*/session.json"), reverse=True):
-            payload = self._read_json(path)
-            items.append(self._serialize_session(run_id, payload))
+        payloads = list(self._iter_session_payloads(root))
+        family_payloads = {
+            session_id: payload
+            for payload in payloads
+            if (session_id := str(payload.get("session_id", "")).strip())
+        }
+        event_counts: dict[str, int] = {}
+        items = [
+            self._serialize_session(
+                run_id, payload, family_payloads=family_payloads, event_counts=event_counts,
+            )
+            for payload in payloads
+        ]
         items.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         return items
 
+    def iter_sessions_for_book_search(self, run_id: str, limit: int) -> Iterator[dict[str, Any]]:
+        root = self._sessions_root(run_id)
+        recent = nlargest(
+            limit,
+            self._iter_session_payloads(root),
+            key=lambda item: str(item.get("updated_at", "")),
+        )
+        for session in recent:
+            yield {
+                "session_id": session.get("session_id", ""),
+                "last_entry_preview": self._build_last_entry_preview(session),
+                "history": session.get("history", []),
+            }
+
+    def _iter_session_payloads(self, root: Path) -> Iterator[dict[str, Any]]:
+        for path in sorted(root.glob("*/session.json"), reverse=True):
+            try:
+                yield self._read_json(path)
+            except FileNotFoundError:
+                continue
+            except ValueError:
+                logging.getLogger(__name__).warning("Skipping unreadable session %s", path.parent.name)
+
     def _branch_family_payloads(
-        self, run_id: str, session_id: str
+        self, run_id: str, session_id: str, *, payloads: dict[str, dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
         """Return the raw sessions connected to ``session_id`` as one branch tree."""
 
-        root = self._sessions_root(run_id)
-        payloads: dict[str, dict[str, Any]] = {}
-        if not root.exists():
-            return []
-        for path in root.glob("*/session.json"):
-            item = self._read_json(path)
-            item_id = str(item.get("session_id", "")).strip()
-            if item_id:
-                payloads[item_id] = item
+        if payloads is None:
+            payloads = {
+                item_id: item
+                for item in self._iter_session_payloads(self._sessions_root(run_id))
+                if (item_id := str(item.get("session_id", "")).strip())
+            }
         if session_id not in payloads:
             return []
 
@@ -445,14 +475,21 @@ class DialogueService:
         current: dict[str, Any],
         *,
         current_records: list[dict[str, Any]] | None = None,
+        family_payloads: dict[str, dict[str, Any]] | None = None,
+        event_counts: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         current_id = str(current.get("session_id", "")).strip()
-        family = self._branch_family_payloads(run_id, current_id)
+        family = self._branch_family_payloads(run_id, current_id, payloads=family_payloads)
+        counts = event_counts if event_counts is not None else {}
         nodes: list[dict[str, Any]] = []
         for item in family:
             item_id = str(item.get("session_id", "")).strip()
             origin = dict(item.get("branch_origin", {}) or {})
             meta = dict(item.get("branch_meta", {}) or {})
+            if item_id not in counts:
+                counts[item_id] = len(self._serialize_event_timeline(
+                    run_id, item, records=current_records if item_id == current_id else None,
+                ))
             nodes.append(
                 {
                     "session_id": item_id,
@@ -465,15 +502,7 @@ class DialogueService:
                         origin.get("event_title", "") or origin.get("scene_title", "")
                     ).strip(),
                     "updated_at": str(item.get("updated_at", "")).strip(),
-                    "event_count": len(
-                        self._serialize_event_timeline(
-                            run_id,
-                            item,
-                            records=(
-                                current_records if item_id == current_id else None
-                            ),
-                        )
-                    ),
+                    "event_count": counts[item_id],
                     "relation_changes": self._branch_relation_changes(current, item),
                 }
             )
@@ -1191,9 +1220,12 @@ class DialogueService:
                 )
             raise ValueError("指定的剧情事件节点不存在。")
         target = records[target_index]
-        checkpoint = dict(target.get("checkpoint", {}) or {})
+        checkpoint = restore_checkpoint_history(
+            self._session_dir(run_id, session_id), dict(target.get("checkpoint", {}) or {}),
+        )
         if not checkpoint:
             checkpoint = self._build_legacy_turn_checkpoint(
+                self._session_dir(run_id, session_id),
                 source,
                 records,
                 target_index,
@@ -1386,6 +1418,9 @@ class DialogueService:
         original_message = str(input_payload.get("message", "")).strip()
         if not original_message or not original_responses:
             raise ValueError("Latest turn does not contain enough data to correct.")
+        checkpoint_before = restore_checkpoint_history(
+            self._session_dir(run_id, session_id), dict(turn_payload.get("checkpoint_before", {}) or {}),
+        )
 
         branch = self.create_session(
             run_manifest,
@@ -1408,7 +1443,6 @@ class DialogueService:
         )
         branch_id = str(branch.get("session_id", "")).strip()
         branch_payload = self._read_json(self._session_file(run_id, branch_id))
-        checkpoint_before = dict(turn_payload.get("checkpoint_before", {}) or {})
         if list(checkpoint_before.get("participants", []) or []):
             branch_payload["participants"] = list(
                 checkpoint_before.get("participants", []) or []
@@ -1861,6 +1895,12 @@ class DialogueService:
         turn_payload_path = self._turn_file(
             run_id, session_id, turn_id, "payload"
         )
+        checkpoint_before = payload.get("checkpoint_before")
+        if isinstance(checkpoint_before, dict):
+            payload = {
+                **payload,
+                "checkpoint_before": archive_checkpoint_history(turn_dir.parent, checkpoint_before),
+            }
         self._write_json(turn_payload_path, payload)
         session["pending_turn"] = {
             "turn_id": turn_id,
@@ -2014,7 +2054,9 @@ class DialogueService:
         result = self._read_json(result_path)
         if str(result.get("turn_id", "")).strip() != normalized_turn_id:
             return None
-        checkpoint = dict(result.get("checkpoint", {}) or {})
+        checkpoint = restore_checkpoint_history(
+            self._session_dir(run_id, session_id), dict(result.get("checkpoint", {}) or {}),
+        )
         checkpoint_history = list(checkpoint.get("history", []) or [])
         if not checkpoint_history or not any(
             str(dict(item or {}).get("turn_id", "")).strip() == normalized_turn_id
@@ -2449,7 +2491,9 @@ class DialogueService:
                 ],
                 "tracking_mode": "retrieved_context_only",
             },
-            "checkpoint": self._build_turn_checkpoint(session),
+            "checkpoint": archive_checkpoint_history(
+                self._session_dir(run_id, session_id), self._build_turn_checkpoint(session),
+            ),
             "updated_at": completed_at,
         }
         if generation_cache is not None:
@@ -2555,7 +2599,9 @@ class DialogueService:
         if not result_path.exists():
             return
         result = dict(latest.get("result", {}) or {})
-        result["checkpoint"] = self._build_turn_checkpoint(session)
+        result["checkpoint"] = archive_checkpoint_history(
+            self._session_dir(run_id, session_id), self._build_turn_checkpoint(session),
+        )
         result["checkpoint_refreshed_at"] = _utc_now()
         self._write_json(result_path, result)
 
@@ -3525,7 +3571,12 @@ class DialogueService:
         return list(run_manifest.get("artifact_index", {}).get("characters", []) or [])
 
     def _serialize_session(
-        self, run_id: str, payload: dict[str, Any]
+        self,
+        run_id: str,
+        payload: dict[str, Any],
+        *,
+        family_payloads: dict[str, dict[str, Any]] | None = None,
+        event_counts: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         session = dict(payload)
         session["title"] = str(session.get("title", "")).strip() or self._default_session_title(session)
@@ -3566,8 +3617,11 @@ class DialogueService:
             event["is_mainline_anchor"] = (
                 str(event.get("turn_id", "")).strip() in locked_event_ids
             )
+        counts = event_counts if event_counts is not None else {}
+        counts[session_id] = len(session["event_timeline"])
         session["branch_graph"] = self._build_branch_graph(
-            run_id, session, current_records=turn_records
+            run_id, session, current_records=turn_records,
+            family_payloads=family_payloads, event_counts=counts,
         )
         session["relation_timeline"] = self._serialize_relation_timeline(
             run_id, session, records=turn_records
@@ -4029,6 +4083,7 @@ class DialogueService:
 
     def _build_legacy_turn_checkpoint(
         self,
+        session_dir: Path,
         source: dict[str, Any],
         records: list[dict[str, Any]],
         target_index: int,
@@ -4054,7 +4109,9 @@ class DialogueService:
         state_source = source
         if target_index + 1 < len(records):
             next_payload = dict(records[target_index + 1].get("payload", {}) or {})
-            next_checkpoint = dict(next_payload.get("checkpoint_before", {}) or {})
+            next_checkpoint = restore_checkpoint_history(
+                session_dir, dict(next_payload.get("checkpoint_before", {}) or {}),
+            )
             if next_checkpoint:
                 checkpoint_history = [
                     dict(item or {})
@@ -4161,15 +4218,9 @@ class DialogueService:
         session_id = str(session.get("session_id", "")).strip()
         if session_id and self._ensure_memory_store(run_id):
             try:
-                hits = self._memory_stores[run_id].search_long_term_memory(
-                    session_id,
-                    "关系 冲突 目标",
-                    top_k=1,
-                )
+                semantic_hint = self._memory_stores[run_id].top_memory_text(session_id, "关系 冲突 目标")
             except Exception:
-                hits = []
-            if hits:
-                semantic_hint = str((hits[0] or {}).get("text", "")).strip()
+                semantic_hint = ""
         return _memory_summary.build_session_memory_summary(
             session,
             transcript,

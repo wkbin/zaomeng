@@ -71,9 +71,14 @@ def load_markdown_data(path: str | Path, default: Any = None) -> Any:
     text = resolved.read_text(encoding="utf-8")
     payload: Any = _CACHE_MISS
     if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            payload = yaml.safe_load(parts[1]) or {}
+        # 只认"独占一行"的分隔行：frontmatter 的值里可能包含 `---`（Markdown 分隔线、
+        # 多行引号标量），按字符切分会把 frontmatter 截断成半截 YAML。
+        opening = re.match(r"^---[ \t]*\r?\n", text)
+        if opening:
+            rest = text[opening.end():]
+            closing = re.search(r"(?m)^---[ \t]*(?:\r?\n|$)", rest)
+            if closing:
+                payload = yaml.safe_load(rest[: closing.start()]) or {}
 
     _MARKDOWN_DATA_CACHE[resolved] = (signature, payload)
     if payload is _CACHE_MISS:
@@ -107,15 +112,26 @@ def safe_filename(name: str) -> str:
     return clean or "unnamed"
 
 
+_ESCAPE_SEQUENCE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})|\\n|\\t|\\\\")
+
+
 def decode_escaped_text(value: Optional[str]) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
     if not any(token in text for token in ("\\u", "\\U", "\\x", "\\n", "\\t")):
         return text
+
+    def _replace(match: re.Match[str]) -> str:
+        code = match.group(1) or match.group(2) or match.group(3)
+        if code:
+            return chr(int(code, 16))
+        return {"\\n": "\n", "\\t": "\t", "\\\\": "\\"}[match.group(0)]
+
     try:
-        return bytes(text, "utf-8").decode("unicode_escape").strip()
-    except (UnicodeDecodeError, ValueError):
+        # 逐段替换转义序列：不能对整串做 unicode_escape，那会把已有中文按 latin-1 解成乱码。
+        return _ESCAPE_SEQUENCE.sub(_replace, text).strip()
+    except (ValueError, OverflowError):
         return text
 
 

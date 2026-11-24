@@ -446,44 +446,35 @@ class RunServiceMixin:
         novel_content_base64: str = "",
         max_sentences: int = 120,
         max_chars: int = 50_000,
+        resume_unfinished: bool = False,
     ) -> dict[str, Any]:
         if not self.model_is_configured():
             raise ValueError("Model is not configured yet.")
-        prepared = self._prepare_restart_run(
-            run_id,
-            characters=characters,
-            novel_name=novel_name,
-            novel_content_base64=novel_content_base64,
-        )
-        manifest = prepared["manifest"]
-        manifest_path = prepared["manifest_path"]
-        novel_path = prepared["novel_path"]
-        locked_characters = prepared["locked_characters"]
-        relation_characters = prepared["relation_characters"]
-        self._write_json(manifest_path, manifest)
-        self._start_background_run(
-            manifest_path=manifest_path,
-            novel_path=novel_path,
-            locked_characters=locked_characters,
-            relation_characters=relation_characters,
-            max_sentences=max_sentences,
-            max_chars=max_chars,
-        )
-        return self._serialize_manifest(self._load_manifest(manifest_path) or manifest)
+        with self._manifest_lock_context(self._manifest_path(run_id)):
+            self._require_background_run_idle(run_id)
+            prepared = self._prepare_restart_run(
+                run_id,
+                characters=characters,
+                novel_name=novel_name,
+                novel_content_base64=novel_content_base64,
+                resume_unfinished=resume_unfinished,
+            )
+            manifest = prepared["manifest"]
+            manifest_path = prepared["manifest_path"]
+            novel_path = prepared["novel_path"]
+            locked_characters = prepared["locked_characters"]
+            relation_characters = prepared["relation_characters"]
+            self._write_json(manifest_path, manifest)
+            self._start_background_run(
+                manifest_path=manifest_path,
+                novel_path=novel_path,
+                locked_characters=locked_characters,
+                relation_characters=relation_characters,
+                max_sentences=max_sentences,
+                max_chars=max_chars,
+            )
+            return self._serialize_manifest(self._load_manifest(manifest_path) or manifest)
 
     def resume_unfinished_characters(self, run_id: str) -> dict[str, Any]:
         """Continue a stopped or failed run without reprocessing completed personas."""
-        manifest = self._load_manifest(self._manifest_path(run_id))
-        if not manifest:
-            raise FileNotFoundError(run_id)
-        if str(manifest.get("status", "")).strip() == "running":
-            raise ValueError("This run is already running.")
-
-        locked_characters = self._normalize_characters(list(manifest.get("locked_characters", []) or []))
-        completed_characters = set(
-            self._normalize_characters(list((manifest.get("progress", {}) or {}).get("completed_characters", []) or []))
-        )
-        unfinished_characters = [name for name in locked_characters if name not in completed_characters]
-        if not unfinished_characters:
-            raise ValueError("All locked characters have already been distilled.")
-        return self.restart_run_distill(run_id, characters=unfinished_characters)
+        return self.restart_run_distill(run_id, characters=[], resume_unfinished=True)

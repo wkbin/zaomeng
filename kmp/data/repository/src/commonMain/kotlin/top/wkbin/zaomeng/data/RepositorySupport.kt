@@ -35,7 +35,8 @@ internal suspend fun <T> repositoryRequest(block: suspend () -> T): T = withCont
 
 internal fun errorDetail(body: String?, status: Int): String {
     val detail = runCatching {
-        repositoryJson.parseToJsonElement(body.orEmpty()).jsonObject["detail"]
+        val response = repositoryJson.parseToJsonElement(body.orEmpty()).jsonObject
+        response["detail"] ?: response["error"]
     }.getOrNull()
     val message = when (detail) {
         is JsonPrimitive -> detail.contentOrNull.orEmpty()

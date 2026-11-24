@@ -73,8 +73,13 @@ fun ImportBookScreen(
     onRunCreated: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val preview = state.sillyTavernPreview
+    val replacingWorldBook = state.documentKind == ImportDocumentKind.WorldBook && preview?.previousEntryCount != null
     var requestedKindName by rememberSaveable { mutableStateOf("") }
     var showEstimateConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showReplacementConfirmation by rememberSaveable(state.fileName, state.targetRunId, preview?.previousBookRevision) {
+        mutableStateOf(false)
+    }
     val distillationForeground: DistillationForeground = koinInject()
     val documentPicker = rememberDocumentPicker(
         onCancelled = {
@@ -108,10 +113,10 @@ fun ImportBookScreen(
     }
 
     fun requestImport() {
-        if (!state.packageFile && state.autoDistill && state.samplingPlan != null) {
-            showEstimateConfirmation = true
-        } else {
-            submitImport()
+        when {
+            replacingWorldBook -> showReplacementConfirmation = true
+            !state.packageFile && state.autoDistill && state.samplingPlan != null -> showEstimateConfirmation = true
+            else -> submitImport()
         }
     }
 
@@ -158,6 +163,32 @@ fun ImportBookScreen(
                     ) { Text("确认开始") }
                 },
             )
+    }
+
+    if (showReplacementConfirmation && replacingWorldBook && preview != null) {
+        val target = state.worldBookTargets.firstOrNull { it.runId == state.targetRunId }?.title.orEmpty()
+        val previousName = preview.previousBookName.orEmpty().ifBlank { "未命名世界书" }
+        val incomingName = preview.bookName.ifBlank { "未命名世界书" }
+        AlertDialog(
+            onDismissRequest = { showReplacementConfirmation = false },
+            title = { Text("替换独立世界书？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("目标书卷「$target」")
+                    Text("当前挂载「$previousName」 · ${preview.previousEntryCount} 条")
+                    Text("替换为「$incomingName」 · ${preview.entryCount} 条")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReplacementConfirmation = false }) { Text("取消") }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showReplacementConfirmation = false
+                    submitImport()
+                }) { Text("确认替换") }
+            },
+        )
     }
 
     val hasDocument = state.fileName.isNotBlank()
@@ -217,6 +248,7 @@ fun ImportBookScreen(
                                 when {
                                     state.submitting -> "处理中…"
                                     state.documentKind == ImportDocumentKind.CharacterCard -> "导入角色卡"
+                                    replacingWorldBook -> "替换世界书"
                                     worldBook -> "挂载世界书"
                                     state.packageFile -> "导入书卷包"
                                     state.autoDistill -> "导入并开始蒸馏"
@@ -291,7 +323,7 @@ fun ImportBookScreen(
                 }
             }
             if (state.documentKind == ImportDocumentKind.WorldBook && state.worldBookTargets.isNotEmpty()) {
-                item { Text("选择目标书卷。挂载后将替换该书卷已有的独立世界书。") }
+                item { Text("选择目标书卷") }
                 items(state.worldBookTargets, key = { it.runId }) { run ->
                     val selected = state.targetRunId == run.runId
                     Row(

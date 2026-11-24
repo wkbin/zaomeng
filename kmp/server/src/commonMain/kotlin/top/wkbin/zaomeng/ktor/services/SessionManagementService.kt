@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
@@ -14,9 +16,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import top.wkbin.zaomeng.data.api.SessionListItem
 import top.wkbin.zaomeng.data.api.CardGreetingsDto
+import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
 import top.wkbin.zaomeng.data.api.SessionManifest
 import top.wkbin.zaomeng.data.api.MessagesResponse
 import top.wkbin.zaomeng.data.api.SessionProjectionDto
@@ -230,17 +234,17 @@ class SessionManagementService(
         } catch (e: Exception) {
             // 开场失败：删除会话（对齐 Python create_dialogue_session_payload 的删除行为）
             runCatching {
-                dialogueService.cancelDerivedSession(runId, sessionId)
-                storageService.deleteRecursively(storageService.getDialogueSessionsDirectory(runId) / sessionId)
+                deleteDialogueSession(runId, sessionId)
             }
             throw e
         }
     }
 
-    fun getCardGreetings(runId: String): CardGreetingsDto {
-        if (storageService.readRunManifest(runId) == null) throw NoSuchElementException("书卷不存在。")
-        return readSillyTavernCard(runId)?.let { SillyTavernImport.cardGreetings(it) } ?: CardGreetingsDto()
-    }
+    fun getCardGreetings(runId: String): CardGreetingsDto =
+        SillyTavernImport(storageService).getCardGreetings(runId)
+
+    fun updateCardGreeting(runId: String, request: UpdateCardGreetingRequest): CardGreetingsDto =
+        SillyTavernImport(storageService).updateCardGreeting(runId, request)
 
     private fun readSillyTavernCard(runId: String): SillyTavernImport.Card? {
         val file = storageService.getRunDirectory(runId) / SillyTavernImport.CARD_FILE
@@ -349,6 +353,19 @@ class SessionManagementService(
      *
      * 对应 Python: run_service.update_dialogue_session_title()
      */
+    fun updateAuthorNote(runId: String, sessionId: String, note: AuthorNoteDto): AuthorNoteDto {
+        require(note.text.length <= AuthorNoteDto.MAX_TEXT_LENGTH) { "作者注释最多 ${AuthorNoteDto.MAX_TEXT_LENGTH} 个字符。" }
+        require(note.depth in 0..10_000) { "聊天深度须为 0 至 10000 的整数。" }
+        require(note.interval > 0) { "注入间隔须为正整数。" }
+        storageService.updateSessionManifest(runId, sessionId) { current ->
+            val manifest = if (note.enabled && note.interval > 1) {
+                storageService.withArchivedUserMessageCount(runId, sessionId, current)
+            } else current
+            JsonObject(manifest + ("author_note" to Json.encodeToJsonElement(AuthorNoteDto.serializer(), note)))
+        }
+        return note
+    }
+
     fun updateDialogueSessionTitle(
         runId: String,
         sessionId: String,
@@ -383,15 +400,8 @@ class SessionManagementService(
         query: String = "",
         sort: String = "recent",
     ): SessionsPage {
-        val runTitle = storageService.listRunManifests()
-            .firstOrNull { it["run_id"]?.jsonPrimitive?.contentOrNull == runId }
-            ?.let { it["title"]?.jsonPrimitive?.contentOrNull }
-            .orEmpty()
-        val sessions = storageService.listDialogueSessionManifests(runId).map { session ->
-            toSessionListItem(manifest = session, runTitle = runTitle)
-        }
         return pageSessions(
-            sessions = sessions,
+            sessions = sessionListItems(runId),
             offset = offset,
             limit = limit,
             query = query,
@@ -407,28 +417,20 @@ class SessionManagementService(
         query: String = "",
         sort: String = "recent",
     ): SessionsPage {
-        val runTitles = storageService.listRunManifests()
-            .mapNotNull { manifest ->
-                val runId = manifest["run_id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                runId to manifest["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            }
-            .toMap()
-        val sessions = storageService.listFiles(storageService.runsDir)
-            .asSequence()
-            .filter { storageService.isDirectory(it) && PathSafety.STORAGE_ID_PATTERN.matches(it.name) }
-            .flatMap { runDir ->
-                storageService.listDialogueSessionManifests(runDir.name).asSequence().map { session ->
-                    toSessionListItem(manifest = session, runTitle = runTitles[runDir.name].orEmpty())
-                }
-            }
-            .toList()
         return pageSessions(
-            sessions = sessions,
+            sessions = storageService.listDialogueSessionRunIds().flatMap(::sessionListItems),
             offset = offset,
             limit = limit,
             query = query,
             sort = sort,
         )
+    }
+
+    private fun sessionListItems(runId: String): List<SessionListItem> {
+        val manifests = storageService.listDialogueSessionManifests(runId, includeCharacterAvatars = false)
+        if (manifests.isEmpty()) return emptyList()
+        val title = storageService.readRunManifest(runId)?.stringValue("title").orEmpty()
+        return manifests.map { toSessionListItem(it, runId, title) }
     }
 
     /**
@@ -471,7 +473,18 @@ class SessionManagementService(
             else -> filtered.sortedByDescending { it.updatedAt }
         }
         val total = sorted.size
-        val items = sorted.drop(offset).take(limit)
+        val avatarVersions = mutableMapOf<Pair<String, String>, String>()
+        val items = sorted.drop(offset).take(limit).map { item ->
+            if (item.participants.isEmpty()) {
+                item
+            } else {
+                item.copy(characterAvatars = item.participants.associateWith { character ->
+                    avatarVersions.getOrPut(item.runId to character) {
+                        storageService.avatarVersion(item.runId, character)
+                    }
+                })
+            }
+        }
         return SessionsPage(
             items = items,
             total = total,
@@ -480,9 +493,9 @@ class SessionManagementService(
     }
 
     /** 把 manifest JsonObject 投影为列表项（唯一一处字符串取字段，集中收口）。 */
-    private fun toSessionListItem(manifest: JsonObject, runTitle: String): SessionListItem = SessionListItem(
+    private fun toSessionListItem(manifest: JsonObject, runId: String, runTitle: String): SessionListItem = SessionListItem(
         sessionId = manifest.stringValue("session_id"),
-        runId = manifest.stringValue("run_id"),
+        runId = runId,
         novelId = manifest.stringValue("novel_id"),
         runTitle = runTitle,
         title = manifest.stringValue("title"),
@@ -516,20 +529,16 @@ class SessionManagementService(
         else -> "旁观群聊"
     }
 
-    fun deleteDialogueSession(runId: String, sessionId: String): Boolean {
-        PathSafety.validateStorageId(runId, "run_id")
-        PathSafety.validateStorageId(sessionId, "session_id")
-        val directory = storageService.getDialogueSessionsDirectory(runId) / sessionId
-        dialogueService.cancelDerivedSession(runId, sessionId)
-        val deleted = storageService.exists(directory) && runCatching {
-            storageService.deleteRecursively(directory)
-            true
-        }.getOrDefault(false)
-        if (deleted) {
-            // 该会话归属的时间线/剧情事实（world_memory.json 中 source_session_id 匹配）一并清理
-            runCatching { worldMemory?.purgeSession(runId, sessionId) }
+    suspend fun deleteDialogueSession(runId: String, sessionId: String): Boolean {
+        val run = PathSafety.validateStorageId(runId, "run_id")
+        val session = PathSafety.validateStorageId(sessionId, "session_id")
+        return withContext(NonCancellable + platformIoDispatcher) {
+            val deleted = runCatching { dialogueService.deleteSessionData(run, session) }.getOrDefault(false)
+            if (deleted) {
+                runCatching { worldMemory?.purgeSession(run, session) }
+            }
+            deleted
         }
-        return deleted
     }
 
     /**
@@ -553,13 +562,6 @@ class SessionManagementService(
         val turnId = PathSafety.validateStorageId(operationId.ifBlank { generateId() }, "operation_id")
         val timestamp = nowIsoString()
 
-        // 读取会话清单
-        val manifestFile = storageService.getDialogueSessionManifestFile(runId, sessionId)
-
-        if (!storageService.exists(manifestFile)) {
-            throw NoSuchElementException("Session not found: $sessionId")
-        }
-
         // 创建轮次数据
         val turn = buildJsonObject {
             put("turn_id", turnId)
@@ -570,11 +572,12 @@ class SessionManagementService(
             put("status", "pending")
         }
 
-        // 写入轮次文件
-        val turnFile = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turn_$turnId.json"
-        storageService.writeTextAtomically(turnFile, json.encodeToString(JsonObject.serializer(), turn))
-
         storageService.updateSessionManifest(runId, sessionId) { current ->
+            val sessionDir = requireNotNull(storageService.getDialogueSessionManifestFile(runId, sessionId).parent)
+            val turnFile = sessionDir / "turn_$turnId.json"
+            storageService.writeExistingSessionText(
+                runId, sessionId, turnFile, json.encodeToString(JsonObject.serializer(), turn),
+            )
             buildJsonObject {
                 current.forEach { (key, value) -> put(key, value) }
                 val recentTurns = (current["turns"] as? JsonArray).orEmpty()

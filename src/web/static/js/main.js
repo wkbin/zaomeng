@@ -553,6 +553,8 @@ async function handleRedistill() {
   }
 }
 
+let redistillRecommendationRequest = 0;
+
 async function handleRedistillRecommend() {
   const character = getRedistillRecommendationTarget();
   if (!currentRunId || !character) {
@@ -562,8 +564,12 @@ async function handleRedistillRecommend() {
     });
     return;
   }
+  const runId = currentRunId;
+  const request = ++redistillRecommendationRequest;
+  const isCurrent = () => request === redistillRecommendationRequest
+    && runId === currentRunId && character === getRedistillRecommendationTarget();
   redistillSuggestionState.loading = true;
-  redistillSuggestionState.runId = currentRunId;
+  redistillSuggestionState.runId = runId;
   redistillSuggestionState.character = character;
   redistillSuggestionState.items = [];
   redistillSuggestionState.selectedSegmentId = "";
@@ -576,7 +582,7 @@ async function handleRedistillRecommend() {
   );
   try {
     const payload = await apiJson(
-      `/api/web/runs/${currentRunId}/redistill/recommend`,
+      `/api/web/runs/${runId}/redistill/recommend`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -584,8 +590,9 @@ async function handleRedistillRecommend() {
       },
       "推荐片段失败。"
     );
+    if (!isCurrent()) return;
     redistillSuggestionState.loading = false;
-    redistillSuggestionState.runId = currentRunId;
+    redistillSuggestionState.runId = runId;
     redistillSuggestionState.character = character;
     redistillSuggestionState.sourceName = String(payload?.source_name || "").trim();
     redistillSuggestionState.weakFieldLabels = Array.isArray(payload?.weak_field_labels) ? payload.weak_field_labels : [];
@@ -602,6 +609,7 @@ async function handleRedistillRecommend() {
         : "可以改用新书段，或直接沿用当前正文继续蒸馏。"
     );
   } catch (error) {
+    if (!isCurrent()) return;
     redistillSuggestionState.loading = false;
     redistillSuggestionState.items = [];
     redistillSuggestionState.selectedSegmentId = "";
@@ -613,7 +621,10 @@ async function handleRedistillRecommend() {
       { impact: "这不会影响这卷继续聊天或直接继续增量蒸馏。", affectsChatFlow: false }
     );
   } finally {
-    setButtonBusyState("redistill-recommend-button", false, { idleText: "推荐片段", busyText: "推荐中..." });
+    if (request === redistillRecommendationRequest) {
+      if (redistillSuggestionState.runId === runId) redistillSuggestionState.loading = false;
+      setButtonBusyState("redistill-recommend-button", false, { idleText: "推荐片段", busyText: "推荐中..." });
+    }
   }
 }
 
@@ -3402,6 +3413,9 @@ async function handleSendTurn(messageOverride = "", messageKindOverride = "", op
     setComposerWaiting(false, "先进入这一幕，再把话递出去。");
     return false;
   }
+  const runId = currentRunId;
+  const sessionId = currentDialogueSessionId;
+  const isCurrent = () => runId === currentRunId && sessionId === currentDialogueSessionId && !sessionBooting;
   const messageKind = normalizeDialogueMessageKind(messageKindOverride || readDialogueMessageKind());
   const requestedMessage = coerceMessageOverride(messageOverride).trim() || trimmedValue("dialogue-message", "");
   const automaticPlotPush = messageKind === "plot" && !requestedMessage;
@@ -3426,7 +3440,7 @@ async function handleSendTurn(messageOverride = "", messageKindOverride = "", op
     : null;
   setComposerDraft("", { publish: true });
   const retryFeedbackTimer = window.setTimeout(() => {
-    setComposerWaiting(true, DIALOGUE_SEND_RETRY_MESSAGE);
+    if (isCurrent()) setComposerWaiting(true, DIALOGUE_SEND_RETRY_MESSAGE);
   }, DIALOGUE_RETRY_FEEDBACK_DELAY_MS);
   setComposerWaiting(true, DIALOGUE_PLACEHOLDER_WAITING);
 
@@ -3451,7 +3465,7 @@ async function handleSendTurn(messageOverride = "", messageKindOverride = "", op
 
   try {
     const session = await apiJson(
-      `/api/web/runs/${currentRunId}/dialogue/sessions/${currentDialogueSessionId}/reply`,
+      `/api/web/runs/${runId}/dialogue/sessions/${sessionId}/reply`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3464,13 +3478,14 @@ async function handleSendTurn(messageOverride = "", messageKindOverride = "", op
       },
       "发送失败。"
     );
-    await renderDialogueSession(session);
     window.clearTimeout(retryFeedbackTimer);
-    setComposerWaiting(false, "");
-    setComposerDraft("", { publish: true });
+    if (!isCurrent()) return true;
+    await renderDialogueSession(session);
+    if (isCurrent()) setComposerWaiting(false, "");
     return true;
   } catch (error) {
     window.clearTimeout(retryFeedbackTimer);
+    if (!isCurrent()) return false;
     const errorText = String(error?.message || "").trim() || "这句话暂时没有送达。";
     if (sessionSnapshot && !silentOptimistic) {
       if (typeof UI_BRIDGE_TOOLS?.syncLegacyUiState === "function") {
@@ -3502,7 +3517,7 @@ async function handleSendTurn(messageOverride = "", messageKindOverride = "", op
         });
       }
     }
-    if (silentOptimistic && requestedMessage) {
+    if (silentOptimistic && requestedMessage && !trimmedValue("dialogue-message", "")) {
       setComposerDraft(requestedMessage, { publish: true });
     }
     setComposerWaiting(false, "");

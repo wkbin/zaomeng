@@ -57,15 +57,15 @@
       button.innerHTML = `
         <div class="work-character-head">
           <div class="work-character-title">
-            <strong>${item.name}</strong>
-            <small>${item.preview.core_identity || item.preview.story_role || "人物包已经落地，可继续补细节"}</small>
+            <strong>${escapeHtml(item.name)}</strong>
+            <small>${escapeHtml(item.preview.core_identity || item.preview.story_role || "人物包已经落地，可继续补细节")}</small>
           </div>
-          <span class="work-character-status is-${item.statusTone}">${item.statusText}</span>
+          <span class="work-character-status is-${escapeHtml(item.statusTone)}">${escapeHtml(item.statusText)}</span>
         </div>
-        <p class="work-character-copy">${item.preview.speech_style || item.preview.soul_goal || "说话方式或灵魂目标还可以继续补得更稳。"}</p>
+        <p class="work-character-copy">${escapeHtml(item.preview.speech_style || item.preview.soul_goal || "说话方式或灵魂目标还可以继续补得更稳。")}</p>
         <div class="work-character-meta">
-          <span>${item.weakCount > 0 ? `待补关键字段 ${item.weakCount}` : "关键字段已齐"}</span>
-          <span>${item.updatedText ? `最近更新 ${item.updatedText}` : "刚刚落成"}</span>
+          <span>${item.weakCount > 0 ? `待补关键字段 ${escapeHtml(item.weakCount)}` : "关键字段已齐"}</span>
+          <span>${item.updatedText ? `最近更新 ${escapeHtml(item.updatedText)}` : "刚刚落成"}</span>
         </div>
       `;
       button.addEventListener("click", () => {
@@ -94,23 +94,23 @@
       card.className = "work-priority-card";
       card.innerHTML = `
         <div class="work-priority-card-head">
-          <span class="work-priority-rank">优先 ${item.order}</span>
-          <span class="work-character-status is-${item.statusTone}">${item.statusText}</span>
+          <span class="work-priority-rank">优先 ${escapeHtml(item.order)}</span>
+          <span class="work-character-status is-${escapeHtml(item.statusTone)}">${escapeHtml(item.statusText)}</span>
         </div>
         <div class="work-priority-title">
-          <strong>${item.name}</strong>
-          <small>${item.preview.core_identity || item.preview.story_role || "人物轮廓还在慢慢站稳"}</small>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small>${escapeHtml(item.preview.core_identity || item.preview.story_role || "人物轮廓还在慢慢站稳")}</small>
         </div>
-        <p class="work-priority-headline">${item.headline}</p>
-        <p class="work-priority-copy">${item.reason}</p>
+        <p class="work-priority-headline">${escapeHtml(item.headline)}</p>
+        <p class="work-priority-copy">${escapeHtml(item.reason)}</p>
         <div class="work-priority-meta">
-          <span>${item.weakCount > 0 ? `待补关键字段 ${item.weakCount}` : "关键字段已齐"}</span>
-          <span>${item.updatedText ? `最近更新 ${item.updatedText}` : "刚刚落成"}</span>
+          <span>${item.weakCount > 0 ? `待补关键字段 ${escapeHtml(item.weakCount)}` : "关键字段已齐"}</span>
+          <span>${item.updatedText ? `最近更新 ${escapeHtml(item.updatedText)}` : "刚刚落成"}</span>
         </div>
-        <p class="work-priority-hint">${item.actionHint}</p>
+        <p class="work-priority-hint">${escapeHtml(item.actionHint)}</p>
         <div class="work-priority-actions">
-          <button type="button" class="soft-button" data-work-priority-open="${item.name}">打开角色页</button>
-          <button type="button" class="soft-button" data-work-priority-redistill="${item.name}">增量蒸馏</button>
+          <button type="button" class="soft-button" data-work-priority-open="${escapeHtml(item.name)}">打开角色页</button>
+          <button type="button" class="soft-button" data-work-priority-redistill="${escapeHtml(item.name)}">增量蒸馏</button>
         </div>
       `;
       root.appendChild(card);

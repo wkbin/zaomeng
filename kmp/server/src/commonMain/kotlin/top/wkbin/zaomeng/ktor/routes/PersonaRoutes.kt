@@ -21,7 +21,9 @@ import top.wkbin.zaomeng.ktor.services.PersonaService
 fun Route.personaRoutes(service: PersonaService) {
     route("/api/web/runs/{run_id}/personas/{character}") {
         get {
-            personaCall { runId, character -> call.respond(service.getReview(runId, character)) }
+            personaCall { runId, character ->
+                call.respond(withContext(platformIoDispatcher) { service.getReview(runId, character) })
+            }
         }
         get("/sillytavern-card") {
             personaCall { runId, character ->
@@ -34,14 +36,16 @@ fun Route.personaRoutes(service: PersonaService) {
             personaCall { runId, character ->
                 val payload = call.receive<JsonObject>()
                 val fields = payload.mapValues { it.value.jsonPrimitive.content }
-                call.respond(service.saveReview(runId, character, fields))
+                call.respond(withContext(platformIoDispatcher) { service.saveReview(runId, character, fields) })
             }
         }
         delete {
             personaCall { runId, character -> call.respond(service.deletePersona(runId, character)) }
         }
         get("/quality-report") {
-            personaCall { runId, character -> call.respond(service.getQualityReport(runId, character)) }
+            personaCall { runId, character ->
+                call.respond(withContext(platformIoDispatcher) { service.getQualityReport(runId, character) })
+            }
         }
         get("/repair-proposal") {
             personaCall { runId, character -> call.respond(service.getRepairProposal(runId, character)) }

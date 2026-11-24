@@ -7,6 +7,34 @@ from unittest.mock import patch
 
 
 class DialogueSerializationLatencyTests(unittest.TestCase):
+    def test_session_list_reuses_branch_file_snapshot_and_event_counts(self):
+        from src.web.chat.service import DialogueService
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dialogue = DialogueService(Path(tmpdir) / "runs")
+            run_id = "run-branch-list"
+            ids = ["parent", "branch-1", "branch-2"]
+            for index, session_id in enumerate(ids):
+                payload = {
+                    "session_id": session_id,
+                    "title": session_id,
+                    "updated_at": f"2026-01-0{index + 1}",
+                    "branch_origin": {} if index == 0 else {"session_id": ids[0]},
+                }
+                dialogue._write_json(dialogue._session_file(run_id, session_id), payload)
+            expected = {session_id: dialogue.get_session(run_id, session_id)["branch_graph"] for session_id in ids}
+
+            with (
+                patch.object(dialogue, "_iter_session_payloads", wraps=dialogue._iter_session_payloads) as snapshot,
+                patch.object(dialogue, "_completed_turn_records", wraps=dialogue._completed_turn_records) as turns,
+            ):
+                actual = dialogue.list_sessions(run_id)
+
+            self.assertEqual(1, snapshot.call_count)
+            self.assertEqual(list(reversed(ids)), [item["session_id"] for item in actual])
+            self.assertLessEqual(turns.call_count, len(ids) * 2 - 1)
+            self.assertEqual(expected, {item["session_id"]: item["branch_graph"] for item in actual})
+
     def test_prepare_turn_can_skip_internal_session_serialization(self):
         try:
             from src.web.chat.service import DialogueService

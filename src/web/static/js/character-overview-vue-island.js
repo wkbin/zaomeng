@@ -66,21 +66,31 @@
       const run = computed(() => snapshot.value.currentRun || null);
       const visible = computed(() => Boolean(snapshot.value.workflow?.showCharacterOverview));
       const character = computed(() => String(payload.value?.character || "").trim());
+      const profileKey = computed(() => JSON.stringify([run.value?.run_id || "", character.value]));
       const payloadKey = computed(() => JSON.stringify({
-        character: payload.value?.character || "",
+        profile: profileKey.value,
         fields: payload.value?.fields || {},
         editable: payload.value?.editable_profile_path || "",
         generated: payload.value?.generated_profile_path || "",
       }));
 
-      function applyPayload(nextPayload) {
+      let appliedProfile = "";
+      function applyPayload(nextPayload, committedField = "", submittedValue) {
+        const sameProfile = appliedProfile === profileKey.value;
         const fields = nextPayload?.fields || {};
-        const nextFields = {};
+        const drafts = {};
+        const dirty = {};
         KEY_FIELDS.forEach(([field]) => {
-          nextFields[field] = String(fields[field] || "");
+          const saved = String(fields[field] || "");
+          const draft = ui.localFields[field];
+          const justCommitted = field === committedField && draft === submittedValue;
+          const preserve = sameProfile && ui.dirtyFields[field] && !justCommitted && draft.trim() !== saved.trim();
+          drafts[field] = preserve ? draft : saved;
+          if (preserve) dirty[field] = true;
         });
-        ui.localFields = nextFields;
-        ui.dirtyFields = {};
+        ui.localFields = drafts;
+        ui.dirtyFields = dirty;
+        appliedProfile = profileKey.value;
       }
 
       watch(payloadKey, () => {
@@ -193,14 +203,16 @@
       }
 
       async function autofillField(field) {
+        const profile = profileKey.value;
+        const draft = ui.localFields[field];
         const label = typeof stateApi.fieldLabel === "function" ? stateApi.fieldLabel(field) : field;
         ui.autofillField = field;
         ui.status = `正在补全「${label}」...`;
         try {
           const result = await actionApi.autofillField(field);
           ui.status = result?.message || "人物信息补全无法生成。";
-          if (result?.filled && result?.saved) {
-            applyPayload(result.saved);
+          if (profile === profileKey.value && result?.filled && result?.saved) {
+            applyPayload(result.saved, field, draft);
           }
         } catch (error) {
           ui.status = error.message || "人物信息补全无法生成。";
@@ -210,14 +222,16 @@
       }
 
       async function saveField(field) {
+        const profile = profileKey.value;
+        const draft = ui.localFields[field];
         const label = typeof stateApi.fieldLabel === "function" ? stateApi.fieldLabel(field) : field;
         ui.savingField = field;
         ui.status = `正在保存「${label}」...`;
         try {
-          const result = await actionApi.saveField(field, ui.localFields[field]);
+          const result = await actionApi.saveField(field, draft);
           ui.status = result?.message || `「${label}」已经写回这一卷。`;
-          if (result?.saved) {
-            applyPayload(result.saved);
+          if (profile === profileKey.value && result?.saved) {
+            applyPayload(result.saved, field, draft);
           }
         } catch (error) {
           ui.status = error.message || "这次保存没有成功。";

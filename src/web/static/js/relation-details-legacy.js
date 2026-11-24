@@ -13,10 +13,13 @@ function renderRelationDetails(payload) {
     card.className = "relation-detail-card";
     const conflict = conflictMap.get(item.pair_key);
     const conflictLabel = conflict?.tags?.length ? ` · 冲突：${conflict.tags.join(", ")}` : "";
+    // 关系名与类型来自小说正文/模型输出，必须转义后再拼 innerHTML。
+    const pairLabel = joinCharacters(item.characters || []) || item.pair_key || "未命名关系";
+    const typeLabel = item.relationship_type || "牵连";
     card.innerHTML = `
       <div class="relation-detail-head">
-        <strong>${joinCharacters(item.characters || []) || item.pair_key || "未命名关系"}</strong>
-        <span class="relation-detail-type">${item.relationship_type || "牵连"}${conflictLabel}</span>
+        <strong>${escapeHtml(pairLabel)}</strong>
+        <span class="relation-detail-type">${escapeHtml(typeLabel)}${escapeHtml(conflictLabel)}</span>
       </div>
       <div class="relation-detail-edit-grid">
         <label>信 <input type="number" data-field="trust" min="0" max="10" value="${Number(item.trust || 0)}" /></label>

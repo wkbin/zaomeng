@@ -24,7 +24,9 @@ def normalize_relation_entry(raw: dict[str, Any] | None) -> dict[str, Any]:
     normalized = default_relation_entry()
     for field in ("trust", "affection", "hostility", "ambiguity"):
         try:
-            normalized[field] = int(source.get(field, normalized[field]) or normalized[field])
+            # 0 是合法分值（见 merged_relation_matrix 的 max(0, ...)），不能用 `or` 当默认值。
+            raw = source.get(field)
+            normalized[field] = int(raw) if raw is not None else normalized[field]
         except Exception:
             continue
     for field in ("conflict_point", "typical_interaction", "hidden_attitude", "relation_change", "appellation_to_target", "last_event"):
@@ -79,7 +81,8 @@ def merged_relation_matrix(
             except Exception:
                 step = 0
             fallback = default_relation_entry()[field]
-            baseline = int(merged.get(field, fallback) or fallback)
+            stored = merged.get(field)
+            baseline = int(stored) if stored is not None else fallback
             merged[field] = max(0, min(10, baseline + step))
         for field in ("last_event", "relation_change", "typical_interaction", "last_actor", "last_target", "updated_at"):
             value = str(delta_payload.get(field, "")).strip()

@@ -11,6 +11,7 @@ import top.wkbin.zaomeng.data.ReusableCardKind
 import top.wkbin.zaomeng.data.SessionRepository
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
 
 /** Owns Chat tool execution, stale-request guards, and recovery-aware mutations. */
 internal class ChatToolsDelegate(
@@ -216,6 +217,13 @@ internal class ChatToolsDelegate(
                 "已从所选场景创建新分支。",
                 navigateToSession = true,
             )
+        }
+    }
+
+    fun updateAuthorNote(note: AuthorNoteDto) {
+        runTool("author_note") {
+            val saved = sessions.updateAuthorNote(runId, sessionId, note)
+            updateState { it.copy(session = it.session?.copy(authorNote = saved), notice = "作者注释已保存。") }
         }
     }
 

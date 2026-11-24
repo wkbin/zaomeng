@@ -133,7 +133,7 @@ class ModelProfileEditorViewModel(
         val current = state.value
         if (current.loading || current.discoveringModels) return
         mutableState.update {
-            it.copy(discoveringModels = true, discoveredModels = emptyList(), modelDiscoveryError = "")
+            it.copy(discoveringModels = true, modelDiscoveryError = "")
         }
         modelDiscoveryJob = viewModelScope.launch {
             try {
@@ -155,10 +155,6 @@ class ModelProfileEditorViewModel(
                 }
             }
         }
-    }
-
-    fun dismissDiscoveredModels() {
-        mutableState.update { it.copy(discoveredModels = emptyList()) }
     }
 
     fun testConnection() {
@@ -319,7 +315,7 @@ class ModelProfileEditorViewModel(
         val requestTimeout = current.requestTimeoutSeconds.toIntOrNull()
         val error = when {
             current.profileName.trim().isBlank() -> "请填写档案名称。"
-            current.model.trim().isBlank() -> "请填写或选择模型名称。"
+            current.model.trim().isBlank() -> "请选择模型，或手动输入模型名称。"
             requestTimeout == null || requestTimeout !in 1..MAX_MODEL_REQUEST_TIMEOUT_SECONDS ->
                 "请求超时须在 1 到 $MAX_MODEL_REQUEST_TIMEOUT_SECONDS 秒之间。"
             maxTokens !in 0..16000 -> "最大输出 Token 需要在 0 到 16000 之间。"

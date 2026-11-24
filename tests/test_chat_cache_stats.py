@@ -169,6 +169,40 @@ class ChatCacheStatsTests(unittest.TestCase):
         self.assertEqual(totals["retry_count"], 1)
         self.assertEqual(totals["models"], {"gpt-a": 2, "gpt-b": 1})
 
+    def test_repeated_turn_id_does_not_double_count_session_totals(self) -> None:
+        session = {"generation_cache_stats": empty_generation_cache_stats()}
+        observation = {
+            "provider": "openai",
+            "model": "gpt-test",
+            "observed": True,
+            "input_tokens": 100,
+            "cache_read_tokens": 40,
+            "cache_write_tokens": 0,
+            "cache_miss_tokens": 60,
+            "prompt_tokens": 80,
+            "completion_tokens": 20,
+            "total_tokens": 100,
+            "elapsed_seconds": 1.5,
+            "cost_usd": 0.01,
+            "attempt_count": 1,
+        }
+        record_generation_cache_observation(
+            session, observation, turn_id="turn-1", updated_at="2026-07-20T10:00:00Z"
+        )
+        record_generation_cache_observation(
+            session, observation, turn_id="turn-1", updated_at="2026-07-20T10:00:01Z"
+        )
+
+        stats = session["generation_cache_stats"]
+        self.assertEqual(len(stats["turns"]), 1)
+        self.assertEqual(stats["session"]["total_turns"], 1)
+        self.assertEqual(stats["session"]["observed_turns"], 1)
+        self.assertEqual(stats["session"]["prompt_tokens"], 80)
+        self.assertEqual(stats["session"]["input_tokens"], 100)
+        self.assertEqual(stats["session"]["cache_read_tokens"], 40)
+        self.assertEqual(stats["session"]["attempt_count"], 1)
+        self.assertEqual(stats["session"]["models"], {"gpt-test": 1})
+
     def test_dialogue_prompt_keeps_persona_in_stable_cache_prefix(self) -> None:
         payload = {
             "mode": "observe",

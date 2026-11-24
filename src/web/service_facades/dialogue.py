@@ -247,9 +247,6 @@ class DialogueServiceMixin:
             else:
                 responses = list(generated or [])
                 generation_cache = None
-            self._evolve_relations_from_turn(
-                run_id, pending_payload, responses, refine_with_llm=False
-            )
             corrected = self.dialogue.ingest_turn_responses(
                 run_id,
                 session_id=branch_id,
@@ -260,6 +257,10 @@ class DialogueServiceMixin:
                     if isinstance(generation_cache, dict)
                     else None
                 ),
+            )
+            # 与前序回合一致：提交成功后再写关系副作用，避免 ingest 失败残留脏 delta。
+            self._evolve_relations_from_turn(
+                run_id, pending_payload, responses, refine_with_llm=False
             )
             return self._refresh_dialogue_scene_progress(
                 run_id, corrected, use_llm=False
@@ -429,6 +430,13 @@ class DialogueServiceMixin:
 
     def delete_dialogue_session(self, run_id: str, session_id: str) -> None:
         self._ensure_run_exists(run_id)
+        # 先取消在途回复再删目录：生成线程在提交阶段会重新 mkdir 会话目录并把 JSON 写回，
+        # 取消后它在 ensure_not_cancelled()/错误分支直接退出，不再落任何文件。
+        self.reply_operations.cancel_active_session_operations(
+            run_id,
+            session_id,
+            message="会话已被删除，回复生成已取消。",
+        )
         self.dialogue.delete_session(run_id, session_id)
 
     def prepare_dialogue_turn(
@@ -441,7 +449,9 @@ class DialogueServiceMixin:
         suppress_transcript_message: bool = False,
         include_inner_thoughts: bool = False,
     ) -> dict[str, Any]:
-        include_inner_thoughts = bool(
+        # 显式请求不能被增强器配置静默覆盖：覆盖会让内心独白丢失，也会让
+        # operation_id 的幂等指纹与路由层记录的入参不一致。
+        include_inner_thoughts = bool(include_inner_thoughts) or bool(
             self.resolve_generation_enhancer_options(run_id, session_id).get(
                 "include_inner_thoughts", False
             )
@@ -485,7 +495,9 @@ class DialogueServiceMixin:
                     raise ValueError(str(payload.get("message", "Reply generation failed.")))
             raise ValueError("Reply operation ended without a result.")
 
-        include_inner_thoughts = bool(
+        # 显式请求不能被增强器配置静默覆盖：覆盖会让内心独白丢失，也会让
+        # operation_id 的幂等指纹与路由层记录的入参不一致。
+        include_inner_thoughts = bool(include_inner_thoughts) or bool(
             self.resolve_generation_enhancer_options(run_id, session_id).get(
                 "include_inner_thoughts", False
             )
@@ -542,7 +554,9 @@ class DialogueServiceMixin:
         operation_id: str,
         emit_deltas: bool = True,
     ):
-        include_inner_thoughts = bool(
+        # 显式请求不能被增强器配置静默覆盖：覆盖会让内心独白丢失，也会让
+        # operation_id 的幂等指纹与路由层记录的入参不一致。
+        include_inner_thoughts = bool(include_inner_thoughts) or bool(
             self.resolve_generation_enhancer_options(run_id, session_id).get(
                 "include_inner_thoughts", False
             )
@@ -850,6 +864,9 @@ class DialogueServiceMixin:
                         completed,
                         use_llm=False,
                     )
+                    # 会话可能在这一轮提交期间被删除：此时不要再写 reply_operations
+                    # （write_json 会 mkdir parents，留下只有 reply_operations 的残骸目录）。
+                    ensure_not_cancelled()
                     self.reply_operations.mark_completed(
                         run_id,
                         session_id,

@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,19 +19,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Forum
-import androidx.compose.material.icons.outlined.CollectionsBookmark
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,7 +34,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -52,14 +45,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -75,11 +65,7 @@ fun BookshelfScreen(
     viewModel: BookshelfViewModel,
     onImport: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenCards: () -> Unit,
-    onOpenSessions: () -> Unit,
-    onOpenCrossover: () -> Unit,
     onOpenRun: (String) -> Unit,
-    showTopBarActions: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -100,32 +86,19 @@ fun BookshelfScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "造梦",
+                        text = "书架",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
                 },
-                actions = {
-                    if (showTopBarActions) {
-                        IconButton(onClick = onOpenCards) {
-                            Icon(Icons.Outlined.CollectionsBookmark, contentDescription = "创作资料库")
-                        }
-                        IconButton(onClick = onOpenSessions) {
-                            Icon(Icons.Outlined.Forum, contentDescription = "查看会话")
-                        }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Outlined.Settings, contentDescription = "模型设置")
-                        }
-                    }
-                },
             )
         },
         floatingActionButton = {
-            if (state.backendState is BackendState.Ready) {
+            if (state.backendState is BackendState.Ready && (state.loadingRuns || state.runs.isNotEmpty())) {
                 ExtendedFloatingActionButton(
                     onClick = onImport,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("导入") },
+                    text = { Text("导入书卷") },
                 )
             }
         },
@@ -148,7 +121,6 @@ fun BookshelfScreen(
                     onDismissError = viewModel::dismissError,
                     onOpenSettings = onOpenSettings,
                     onImport = onImport,
-                    onOpenCrossover = onOpenCrossover,
                     onOpenRun = onOpenRun,
                     modifier = Modifier.padding(innerPadding),
                 )
@@ -187,13 +159,12 @@ private fun ReadyBookshelf(
     onDismissError: () -> Unit,
     onOpenSettings: () -> Unit,
     onImport: () -> Unit,
-    onOpenCrossover: () -> Unit,
     onOpenRun: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val visibleRuns = state.runs
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 380.dp),
+        columns = GridCells.Adaptive(minSize = 320.dp),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = AppDimens.screenPadding,
@@ -207,28 +178,6 @@ private fun ReadyBookshelf(
         val activeRuns = state.runs.filter { it.status == "running" }
         if (state.modelConfigured == false) {
             item(span = { GridItemSpan(maxLineSpan) }) { ModelRequiredCard(onOpenSettings) }
-        }
-        if (state.modelConfigured == true) {
-            item(span = { GridItemSpan(maxLineSpan) }) { ActiveModelCard(state.activeModelLabel, onOpenSettings) }
-        }
-        if (state.runs.count { it.betaFeature == null && it.availableCharacters.isNotEmpty() } >= 2) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenCrossover),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                ) {
-                    Box(Modifier.fillMaxWidth()) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, end = 42.dp, bottom = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text("跨书卷共演", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text("从不同书卷复制人物快照，建立不会改动原书卷的独立共演空间。测试功能的角色表现和剧情连续性可能不稳定。", style = MaterialTheme.typography.bodySmall)
-                        }
-                        BetaCornerBadge(Modifier.align(Alignment.TopEnd))
-                    }
-                }
-            }
         }
         if (activeRuns.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -347,77 +296,22 @@ private fun RecoveredDistillationCard(
 }
 
 @Composable
-private fun BetaCornerBadge(modifier: Modifier = Modifier) {
-    val badgeColor = MaterialTheme.colorScheme.tertiary
-    val textColor = MaterialTheme.colorScheme.onTertiary
-    Box(modifier.size(44.dp)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawPath(
-                Path().apply {
-                    moveTo(size.width, 0f)
-                    lineTo(size.width, size.height)
-                    lineTo(0f, 0f)
-                    close()
-                },
-                color = badgeColor,
-            )
-        }
-        Text(
-            text = "Beta",
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 3.dp),
-            color = textColor,
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun ActiveModelCard(modelLabel: String, onOpenSettings: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+private fun ModelRequiredCard(onOpenSettings: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = AppDimens.cardPadding, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.iconTextGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.Settings, contentDescription = null)
-            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("当前模型", style = MaterialTheme.typography.labelMedium)
+                Text("尚未配置模型", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    modelLabel.ifBlank { "已配置" },
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    "配置后可提取人物并开始聊天。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onOpenSettings) { Text("切换") }
-        }
-    }
-}
-
-@Composable
-private fun ModelRequiredCard(onOpenSettings: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Outlined.Settings,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "还没有配置模型",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-            Text(
-                "蒸馏人物、AI 校对和聊天需要先连接一个模型。导入与浏览本地书卷仍可使用。",
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Button(onClick = onOpenSettings) { Text("现在配置模型") }
+            TextButton(onClick = onOpenSettings) { Text("配置模型") }
         }
     }
 }
@@ -537,7 +431,11 @@ private fun RunCard(run: RunManifestDto, onClick: () -> Unit) {
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
-                    text = if (totalCharacters > 0) "$completedCharacters / $totalCharacters 位人物" else "等待人物资料",
+                    text = when {
+                        run.status == "running" && totalCharacters > 0 -> "$completedCharacters / $totalCharacters 位人物"
+                        run.availableCharacters.isNotEmpty() -> "${run.availableCharacters.size} 位人物"
+                        else -> "等待人物资料"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -588,7 +486,7 @@ private fun EmptyBookshelf(onImport: () -> Unit) {
                 "导入小说、造梦书卷包或 SillyTavern 角色卡。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(onClick = onImport) { Text("导入") }
+            Button(onClick = onImport) { Text("导入书卷") }
         }
     }
 }

@@ -4,8 +4,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 import okio.Path
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.data.api.ImportedSwipePageDto
 import top.wkbin.zaomeng.data.api.CardGreetingsDto
+import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
 import top.wkbin.zaomeng.data.api.ChatSearchResultDto
 import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
@@ -46,6 +48,7 @@ interface SessionRepository {
     ): DialogueSessionDto
 
     suspend fun getCardGreetings(runId: String): CardGreetingsDto
+    suspend fun updateCardGreeting(runId: String, request: UpdateCardGreetingRequest): CardGreetingsDto
     suspend fun importSillyTavernChat(runId: String, filename: String, bytes: ByteArray): DialogueSessionDto
     suspend fun exportSillyTavernChat(session: DialogueSessionDto, cacheDirectory: Path): ExportedRunPackage
     suspend fun listImportedSwipes(runId: String, sessionId: String, messageIndex: String, offset: Int): ImportedSwipePageDto
@@ -75,6 +78,7 @@ interface SessionRepository {
     ): DialogueOperationStatusResponse
 
     suspend fun updateSessionTitle(runId: String, sessionId: String, title: String): DialogueSessionDto
+    suspend fun updateAuthorNote(runId: String, sessionId: String, note: AuthorNoteDto): AuthorNoteDto
 
     suspend fun recoverSession(
         runId: String,

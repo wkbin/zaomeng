@@ -37,8 +37,8 @@ class KtorRunManagementClient(
         http.client.get(url(endpoint, "/api/web/runs/$runId/world-books"))
     }.body()
 
-    suspend fun testWorldBooks(runId: String, text: String): WorldBookTestDto = request { endpoint ->
-        http.client.post(url(endpoint, "/api/web/runs/$runId/world-books/test")) { setBody(TestWorldBooksRequest(text)) }
+    suspend fun testWorldBooks(runId: String, input: TestWorldBooksRequest): WorldBookTestDto = request { endpoint ->
+        http.client.post(url(endpoint, "/api/web/runs/$runId/world-books/test")) { setBody(input) }
     }.body()
 
     suspend fun setWorldBookEntry(
@@ -52,6 +52,38 @@ class KtorRunManagementClient(
 
     suspend fun removeStandaloneWorldBook(runId: String, revision: String): ManagedWorldBooksDto = request { endpoint ->
         http.client.delete(url(endpoint, "/api/web/runs/$runId/world-books/standalone")) { parameter("revision", revision) }
+    }.body()
+
+    suspend fun deleteWorldBookEntry(runId: String, source: String, index: Int, revision: String): ManagedWorldBooksDto =
+        request { endpoint ->
+            http.client.delete(url(endpoint, "/api/web/runs/$runId/world-books/$source/entries/$index")) {
+                parameter("revision", revision)
+            }
+        }.body()
+
+    suspend fun createWorldBookEntry(
+        runId: String,
+        source: String,
+        payload: CreateWorldBookEntryRequest,
+    ): ManagedWorldBooksDto = request { endpoint ->
+        http.client.post(url(endpoint, "/api/web/runs/$runId/world-books/$source/entries")) { setBody(payload) }
+    }.body()
+
+    suspend fun editWorldBookEntry(
+        runId: String,
+        source: String,
+        index: Int,
+        payload: EditWorldBookEntryRequest,
+    ): ManagedWorldBooksDto = request { endpoint ->
+        http.client.patch(url(endpoint, "/api/web/runs/$runId/world-books/$source/entries/$index/content")) { setBody(payload) }
+    }.body()
+
+    suspend fun setWorldBookRecursion(
+        runId: String,
+        source: String,
+        payload: SetWorldBookRecursionRequest,
+    ): ManagedWorldBooksDto = request { endpoint ->
+        http.client.patch(url(endpoint, "/api/web/runs/$runId/world-books/$source/recursion")) { setBody(payload) }
     }.body()
 
     suspend fun exportSillyTavernCard(runId: String, character: String): HttpResponse = request { endpoint ->
@@ -77,7 +109,8 @@ class KtorRunManagementClient(
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {
         val response = block(endpointProvider.requireKtorEndpoint())
         if (response.status.value !in 200..299) {
-            throw IllegalStateException("Ktor request failed: ${response.status.value} ${response.bodyAsText()}")
+            val body = response.bodyAsText()
+            throw KtorSessionRequestException(response.status.value, body)
         }
         return response
     }

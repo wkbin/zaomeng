@@ -253,6 +253,17 @@
 
   .experience-shell.mobile-shell.mobile-session-drawer-open .app-shell.sidebar-collapsed .library-rail {
     display: grid;
+    /* base.css 的 .app-shell.sidebar-collapsed .library-rail 带了 opacity:0 / translateX(-16px)，
+       这里必须显式复位，否则抽屉只会出现遮罩、看不到侧栏。 */
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  /* 对话布局把 .app-shell 压成 0 尺寸并 opacity:0，祖先透明会连带抽屉一起不可见。 */
+  .experience-shell.mobile-shell.dialogue-layout.mobile-session-drawer-open .app-shell {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .studio-grid,

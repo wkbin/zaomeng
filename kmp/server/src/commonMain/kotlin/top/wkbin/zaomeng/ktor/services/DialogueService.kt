@@ -3,9 +3,13 @@ package top.wkbin.zaomeng.ktor.services
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -65,6 +69,7 @@ class DialogueService(
             "current_turn_id",
             "updated_at",
             "last_entry_preview",
+            WorldBookTiming.FIELD,
         )
 
         // 对齐 Python helpers.py:DIALOGUE_RESPONSE_MIN/MAX_MAX_TOKENS：
@@ -121,7 +126,10 @@ class DialogueService(
                 "detailed" -> "本轮进行细腻描写，适当展开动作、感受与环境细节。"
                 else -> return messages
             }
-            return messages + LlmClient.ChatMessage(role = "system", content = instruction)
+            val pacingMessage = LlmClient.ChatMessage(role = "system", content = instruction)
+            return if (messages.lastOrNull()?.role == "system" && messages.any { it.role == "user" }) {
+                messages.dropLast(1) + pacingMessage + messages.last()
+            } else messages + pacingMessage
         }
 
         /** 角色读心增强器（inner-thoughts）是否在会话内启用（读 session 的 plugin_enhancer_states）。 */
@@ -136,6 +144,7 @@ class DialogueService(
     private val json = Json { ignoreUnknownKeys = true }
     private val backgroundScope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
     private val backgroundJobs = HashMap<String, Job>()
+    private val pendingDerivedKicks = HashSet<String>()
     private val cancelledDerived = HashSet<String>()
     private val backgroundJobsLock = SimpleLock()
     private val derivedStore = DerivedOperationStore(storageService)
@@ -143,9 +152,11 @@ class DialogueService(
     private val sessionMutationLocks = HashMap<String, SimpleLock>()
     private val sessionMutationLocksLock = SimpleLock()
 
+    private fun sessionKey(runId: String, sessionId: String): String = "${runId.trim()}:${sessionId.trim()}"
+
     private fun sessionMutationLock(runId: String, sessionId: String): SimpleLock =
         sessionMutationLocksLock.withLock {
-            sessionMutationLocks.getOrPut("$runId:$sessionId") { SimpleLock() }
+            sessionMutationLocks.getOrPut(sessionKey(runId, sessionId)) { SimpleLock() }
         }
 
     @Serializable
@@ -326,6 +337,7 @@ class DialogueService(
             messageKind = messageKind,
             speakerOverride = speakerOverride,
             includeInnerThoughts = includeInnerThoughts || DialogueService.isInnerThoughtsEnhancerActive(sessionManifestJson),
+            countsCurrentInput = !suppressTranscriptMessage,
         )
         val payload = enrichHistory(
             runId = runId,
@@ -423,6 +435,7 @@ class DialogueService(
             existingSession = sessionManifestJson,
             evidence = extractOriginalEvidence(payload),
             worldBookMatches = extractWorldBookMatches(payload),
+            worldBookTimingDelta = payload[WorldBookTiming.DELTA] as? JsonObject,
             operation = operation,
         )
 
@@ -545,6 +558,7 @@ class DialogueService(
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
         worldBookMatches: List<WorldBookMatchDto> = emptyList(),
         existingSession: JsonObject? = null,
+        worldBookTimingDelta: JsonObject? = null,
     ): JsonObject = commitTurnDetailed(
         runId = runId,
         sessionId = sessionId,
@@ -558,6 +572,7 @@ class DialogueService(
         evidence = evidence,
         worldBookMatches = worldBookMatches,
         existingSession = existingSession,
+        worldBookTimingDelta = worldBookTimingDelta,
     ).manifest
 
     /** 流式与非流式共用的两阶段提交。 */
@@ -576,6 +591,7 @@ class DialogueService(
         existingSession: JsonObject? = null,
         operation: ActiveReplyOperation? = null,
         resumeResult: ReplyOperationResult? = null,
+        worldBookTimingDelta: JsonObject? = null,
     ): DialogueCommitResult {
         val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
         val effectiveMessage = resumeResult?.message ?: message
@@ -586,6 +602,9 @@ class DialogueService(
         val effectiveSuppress = resumeResult?.suppressTranscriptMessage ?: suppressTranscriptMessage
         val effectiveEvidence = resumeResult?.evidence?.let(::decodeEvidence) ?: evidence
         val effectiveWorldBookMatches = resumeResult?.worldBookMatches?.let(::decodeWorldBookMatches) ?: worldBookMatches
+        val effectiveTiming = if (resumeResult == null) worldBookTimingDelta else {
+            resumeResult.appendedTranscript.firstNotNullOfOrNull { it[WorldBookTiming.DELTA] as? JsonObject }
+        }
         val archivedReplay = turnRecordExists(runId, sessionId, safeTurnId) &&
             archivedTranscriptContainsTurn(runId, sessionId, safeTurnId)
 
@@ -614,6 +633,7 @@ class DialogueService(
                     responses = effectiveResponses,
                     evidence = effectiveEvidence,
                     worldBookMatches = effectiveWorldBookMatches,
+                    worldBookTimingDelta = effectiveTiming,
                     mode = sessionManifest["mode"]?.jsonPrimitive?.contentOrNull ?: "observe",
                     manifest = sessionManifest,
                     deriveState = false,
@@ -689,11 +709,11 @@ class DialogueService(
         result: ReplyOperationResult,
         kind: DerivedOperationKind = DerivedOperationKind.POST_TURN,
         activate: Boolean = false,
-    ): DerivedOperation = backgroundJobsLock.withLock {
-        if ("$runId:$sessionId" in cancelledDerived) {
+    ): DerivedOperation {
+        if (backgroundJobsLock.withLock { sessionKey(runId, sessionId) in cancelledDerived }) {
             throw DerivedOperationInactiveException("Session was deleted")
         }
-        derivedStore.ensure(runId, sessionId, kind, result, activate)
+        return derivedStore.ensure(runId, sessionId, kind, result, activate)
     }
 
     override fun prepareDerivedResult(
@@ -718,7 +738,7 @@ class DialogueService(
     fun recoverDerivedOperations() {
         storageService.listRunIds().forEach { runId ->
             storageService.listDialogueSessionIds(runId).forEach { sessionId ->
-                if (backgroundJobsLock.withLock { "$runId:$sessionId" in cancelledDerived }) return@forEach
+                if (backgroundJobsLock.withLock { sessionKey(runId, sessionId) in cancelledDerived }) return@forEach
                 derivedStore.reconcilePrepared(runId, sessionId)
                 replyOperationStore.listCompleted(runId, sessionId).forEach { receipt ->
                     receipt.result?.let { result -> ensureDerivedIntent(runId, sessionId, result, activate = true) }
@@ -731,40 +751,53 @@ class DialogueService(
         }
     }
 
-    /** 删除会话前取消并等待派生 worker，阻止迟到效果或回执重建目录。 */
-    fun cancelDerivedSession(runId: String, sessionId: String) {
-        backgroundJobsLock.withLock { cancelledDerived += "$runId:$sessionId" }
-        projections?.cancel(runId, sessionId)
-        derivedStore.cancelSession(runId, sessionId)
-        val key = "$runId:$sessionId"
-        val job = backgroundJobsLock.withLock { backgroundJobs.remove(key) }
-        job?.let {
-            it.cancel()
-            runBlocking { it.join() }
+    /** Stop session workers before removing documents, even if the DELETE caller disconnects. */
+    suspend fun deleteSessionData(runId: String, sessionId: String): Boolean {
+        val run = PathSafety.validateStorageId(runId, "run_id")
+        val session = PathSafety.validateStorageId(sessionId, "session_id")
+        return withContext(NonCancellable + platformIoDispatcher) {
+            val directory = storageService.getDialogueSessionsDirectory(run) / session
+            if (!storageService.exists(directory)) return@withContext false
+            val key = sessionKey(run, session)
+            val job = backgroundJobsLock.withLock {
+                cancelledDerived += key
+                pendingDerivedKicks.remove(key)
+                backgroundJobs[key]
+            }
+            job?.cancelAndJoin()
+            projections?.cancel(run, session)
+            sessionMutationLock(run, session).withLock {
+                if (!storageService.exists(directory)) return@withLock false
+                if (storageService.exists(storageService.getDialogueSessionManifestFile(run, session))) {
+                    derivedStore.cancelSession(run, session)
+                }
+                storageService.deleteDialogueSessionDocuments(run, session)
+            }
         }
     }
 
     fun resetDerivedSession(runId: String, sessionId: String) {
-        backgroundJobsLock.withLock { cancelledDerived -= "$runId:$sessionId" }
+        backgroundJobsLock.withLock { cancelledDerived -= sessionKey(runId, sessionId) }
         projections?.reset(runId, sessionId)
     }
 
     private fun kickDerivedWorker(runId: String, sessionId: String) {
-        val key = "$runId:$sessionId"
-        if (backgroundJobsLock.withLock { key in cancelledDerived }) return
+        val key = sessionKey(runId, sessionId)
         backgroundJobsLock.withLock {
-            if (backgroundJobs[key]?.isActive == true) return@withLock
+            if (key in cancelledDerived) return@withLock
+            if (key in backgroundJobs) {
+                pendingDerivedKicks += key
+                return@withLock
+            }
             backgroundJobs[key] = backgroundScope.launch {
-                val workerJob = coroutineContext[Job]
                 try {
                     drainDerivedOperations(runId, sessionId)
                 } finally {
-                    backgroundJobsLock.withLock {
-                        if (backgroundJobs[key] === workerJob) backgroundJobs.remove(key)
+                    val shouldRestart = backgroundJobsLock.withLock {
+                        backgroundJobs.remove(key)
+                        pendingDerivedKicks.remove(key) && key !in cancelledDerived
                     }
-                    if (derivedStore.listActive(runId, sessionId).any { it.status != DerivedOperationStatus.RUNNING }) {
-                        kickDerivedWorker(runId, sessionId)
-                    }
+                    if (shouldRestart) kickDerivedWorker(runId, sessionId)
                 }
             }
         }
@@ -772,6 +805,7 @@ class DialogueService(
 
     private suspend fun drainDerivedOperations(runId: String, sessionId: String) {
         while (true) {
+            currentCoroutineContext().ensureActive()
             val operation = derivedStore.claimNext(runId, sessionId, randomUuid())
             if (operation == null) {
                 val nextAttemptAt = derivedStore.listActive(runId, sessionId)
@@ -1037,8 +1071,7 @@ class DialogueService(
         evidence: List<OriginalKnowledgeEntryDto> = emptyList(),
     ) {
         val safeTurnId = PathSafety.validateStorageId(turnId, "turn_id")
-        val turnDir = storageService.getDialogueSessionsDirectory(runId) / "$sessionId/turns/$safeTurnId"
-        storageService.mkdirs(turnDir)
+        val sessionDir = requireNotNull(storageService.getDialogueSessionManifestFile(runId, sessionId).parent)
 
         val turnRecord = TurnRecord(
             turnId = safeTurnId,
@@ -1050,8 +1083,8 @@ class DialogueService(
             evidence = evidence,
         )
 
-        val turnFile = turnDir / "turn.json"
-        storageService.writeTextAtomically(turnFile, Json.encodeToString(TurnRecord.serializer(), turnRecord))
+        val turnFile = sessionDir / "turns/$safeTurnId/turn.json"
+        storageService.writeExistingSessionText(runId, sessionId, turnFile, Json.encodeToString(TurnRecord.serializer(), turnRecord))
     }
 
     internal fun extractWorldBookMatches(payload: Map<String, Any?>): List<WorldBookMatchDto> =
@@ -1139,6 +1172,7 @@ class DialogueService(
         responses: List<DialogueResponse>,
         evidence: List<OriginalKnowledgeEntryDto>,
         worldBookMatches: List<WorldBookMatchDto>,
+        worldBookTimingDelta: JsonObject?,
         mode: String = "observe",
         manifest: JsonObject,
         deriveState: Boolean = true,
@@ -1173,6 +1207,7 @@ class DialogueService(
                 if (index == 0 && worldBookMatches.isNotEmpty()) {
                     put("world_book_matches", Json.encodeToJsonElement(ListSerializer(WorldBookMatchDto.serializer()), worldBookMatches))
                 }
+                if (index == 0 && worldBookTimingDelta != null) put(WorldBookTiming.DELTA, worldBookTimingDelta)
             }) }
         }
         val baseCount = sessionTranscriptCount(manifest)
@@ -1212,6 +1247,9 @@ class DialogueService(
             put("current_turn_id", turnId)
             put("updated_at", timestamp)
             put("last_entry_preview", responses.lastOrNull()?.message.orEmpty())
+            if (worldBookTimingDelta != null && responses.isNotEmpty()) {
+                put(WorldBookTiming.FIELD, WorldBookTiming.apply(manifest, worldBookTimingDelta))
+            }
             // archive 只能由 mutateSessionHistory 在 revision 校验后的同一锁内写入。
             put("transcript", combinedTranscript)
             put("transcript_count", combinedTranscript.size)

@@ -244,7 +244,10 @@ internal class LongTermMemoryService(
         lockFor(runId, sessionId).withLock {
             val entries = read(runId, sessionId)["entries"]?.jsonArray.orEmpty()
                 .mapNotNull { runCatching { it.jsonObject }.getOrNull() }
-            val duplicateGroups = entries.groupBy { duplicateKey(it["text"]?.jsonPrimitive?.contentOrNull.orEmpty()) }
+            // 与 qualityReport 保持一致：空/缺失 text 不参与重复合并。
+            // 否则多条无 text 的条目会折叠到 "" 组，下面取最长 text 时 `["text"]!!` 直接 NPE。
+            val mergeable = entries.filter { it["text"]?.jsonPrimitive?.contentOrNull?.isNotBlank() == true }
+            val duplicateGroups = mergeable.groupBy { duplicateKey(it["text"]!!.jsonPrimitive.content) }
                 .values.filter { it.size > 1 }
             if (duplicateGroups.isNotEmpty()) {
                 val removedIds = duplicateGroups.flatMap { group -> group.drop(1) }
@@ -281,7 +284,10 @@ internal class LongTermMemoryService(
         val controlled = runCatching { storage.loadSessionManifest(runId, sessionId) }.getOrNull()
             ?.get("memory_ledger")?.jsonArray.orEmpty()
             .mapNotNull { runCatching { it.jsonObject }.getOrNull() }.map(::toControlledMemory)
-        val groups = automatic.filter { it.status == "active" }.groupBy { duplicateKey(it.text) }
+        // 与 qualityReport 保持一致：空 text 不参与重复分组，否则多条缺失 text 的脏条目
+        // 会在 merge/update 后凭空出现一个空键 duplicateGroup。
+        val groups = automatic.filter { it.status == "active" && it.text.isNotBlank() }
+            .groupBy { duplicateKey(it.text) }
             .values.filter { it.size > 1 }.map { it.map(DialogueMemoryDto::memoryId) }
         val latestHitTurnId = automatic.filter { it.lastHitAt.isNotBlank() }
             .maxByOrNull(DialogueMemoryDto::lastHitAt)?.lastHitTurnId.orEmpty()

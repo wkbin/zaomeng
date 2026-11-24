@@ -1,6 +1,11 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonObject
@@ -15,14 +20,125 @@ import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.db.DocumentStore
 import top.wkbin.zaomeng.db.FileSystemDocumentStore
 import top.wkbin.zaomeng.ktor.models.DialogueResponse
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** 回归：创建会话后 manifest 必须写全字段（title/mode 等默认值不能省略）。 */
 class SessionManifestTest {
+    @Test
+    fun `session deletion waits for a receipt write and rejects later writes`() = runBlocking {
+        val dir = createTempDirectory("zaomeng-session-delete")
+        val receiptWrite = CompletableDeferred<Unit>()
+        val releaseWrite = CountDownLatch(1)
+        try {
+            val files = FileSystemDocumentStore()
+            val documents = object : DocumentStore by files {
+                override fun writeBytes(path: Path, bytes: ByteArray, updatedAtMillis: Long) {
+                    if (path.name == "receipt.json") {
+                        receiptWrite.complete(Unit)
+                        check(releaseWrite.await(10, TimeUnit.SECONDS)) { "Timed out waiting to release the receipt write" }
+                    }
+                    files.writeBytes(path, bytes, updatedAtMillis)
+                }
+            }
+            val storage = StorageService(dir.toString().toPath(), documents)
+            val runId = "run-1"
+            val sessionId = "session-1"
+            val manifest = storage.getDialogueSessionManifestFile(runId, sessionId)
+            storage.writeTextAtomically(manifest, """{"session_id":"$sessionId","transcript":[]}""")
+            val operations = DialogueReplyOperationCoordinator(storage)
+            val dialogue = DialogueService(storage)
+            val request = ReplyOperationRequest(runId, sessionId, "turn-1", "继续。", "dialogue")
+            val pending = async(Dispatchers.IO) { operations.begin(request) }
+            try {
+                withTimeout(5_000) { receiptWrite.await() }
+                val deletionStarted = CompletableDeferred<Unit>()
+                val deletion = async(Dispatchers.IO) {
+                    deletionStarted.complete(Unit)
+                    dialogue.deleteSessionData(runId, sessionId)
+                }
+                withTimeout(5_000) { deletionStarted.await() }
+                assertNull(withTimeoutOrNull(100) { deletion.await() })
+                releaseWrite.countDown()
+                val acquired = pending.await() as ReplyOperationBegin.Active
+                try {
+                    assertTrue(deletion.await())
+                    assertNull(operations.recoverFailure(acquired.lease, IllegalStateException("Late reply")))
+                } finally {
+                    operations.release(acquired.lease)
+                }
+                assertFalse(storage.exists(requireNotNull(manifest.parent)))
+                assertFailsWith<NoSuchElementException> { operations.begin(request) }
+                assertFailsWith<NoSuchElementException> {
+                    storage.writeExistingSessionText(runId, sessionId, requireNotNull(manifest.parent) / "turns/late.json", "{}")
+                }
+                assertFalse(storage.exists(requireNotNull(manifest.parent)))
+            } finally {
+                releaseWrite.countDown()
+            }
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `session deletion waits for in flight derived memory`() = runBlocking {
+        val dir = createTempDirectory("zaomeng-session-derived-delete")
+        val memoryWrite = CompletableDeferred<Unit>()
+        val releaseWrite = CountDownLatch(1)
+        try {
+            val files = FileSystemDocumentStore()
+            val documents = object : DocumentStore by files {
+                override fun isFile(path: Path): Boolean {
+                    if (path.name == "long_term_memory.json") {
+                        memoryWrite.complete(Unit)
+                        check(releaseWrite.await(10, TimeUnit.SECONDS)) { "Timed out waiting to release the memory worker" }
+                    }
+                    return files.isFile(path)
+                }
+            }
+            val storage = StorageService(dir.toString().toPath(), documents)
+            val runId = "run-1"
+            val sessionId = "session-1"
+            val manifest = storage.getDialogueSessionManifestFile(runId, sessionId)
+            storage.writeTextAtomically(
+                manifest,
+                """{"run_id":"$runId","session_id":"$sessionId","mode":"observe","participants":["林夕"],"transcript":[]}""",
+            )
+            val dialogue = DialogueService(storage)
+            dialogue.commitTurn(
+                runId = runId,
+                sessionId = sessionId,
+                turnId = "turn-1",
+                message = "我们在旧车站见。",
+                messageKind = "dialogue",
+                inputSpeaker = "我",
+                responses = listOf(DialogueResponse("林夕", "我会带钥匙。")),
+            )
+            withTimeout(5_000) { memoryWrite.await() }
+            val deletion = async { dialogue.deleteSessionData(runId, sessionId) }
+            try {
+                assertNull(withTimeoutOrNull(100) { deletion.await() })
+                releaseWrite.countDown()
+                assertTrue(withTimeout(5_000) { deletion.await() })
+                assertFalse(storage.exists(requireNotNull(manifest.parent)))
+            } finally {
+                releaseWrite.countDown()
+            }
+        } finally {
+            releaseWrite.countDown()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `chapter search reads archived text within its budget and skips later chunks`() {
         val dir = createTempDirectory("zaomeng-chapter-search")
@@ -144,9 +260,113 @@ class SessionManifestTest {
 
             assertEquals(121, branch["transcript_count"]?.jsonPrimitive?.intOrNull)
             assertEquals(121, branch["transcript"]?.jsonArray?.size)
+            val origin = branch.getValue("branch_origin").jsonObject
+            assertEquals(sessionId, origin.getValue("session_id").jsonPrimitive.content)
+            assertEquals("event_timeline", origin.getValue("kind").jsonPrimitive.content)
+            assertEquals("turn-121", origin.getValue("turn_id").jsonPrimitive.content)
             assertEquals(80, storage.loadSessionManifest(runId, branchId)["transcript"]?.jsonArray?.size)
             assertEquals(121, storage.getDialogueSession(runId, branchId)["transcript"]?.jsonArray?.size)
             assertEquals(125, storage.loadSessionManifest(runId, sessionId)["transcript_count"]?.jsonPrimitive?.intOrNull)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `branch from scene falls back to the first message of each turn`() {
+        val dir = createTempDirectory("zaomeng-scene-branch")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val runId = "run-1"
+            val sessionId = "session-1"
+            storage.writeRunManifest(runId, buildJsonObject { put("run_id", runId) })
+            val manifest = buildJsonObject {
+                put("session_id", sessionId)
+                put("run_id", runId)
+                put("revision", 1)
+                put("transcript_start", 0)
+                put("transcript", buildJsonArray {
+                    listOf("turn-1" to "user", "turn-1" to "character", "turn-2" to "user", "turn-2" to "character")
+                        .forEachIndexed { index, (turnId, role) ->
+                            add(buildJsonObject {
+                                put("turn_id", turnId)
+                                put("role", role)
+                                put("speaker", if (role == "user") "旅人" else "角色")
+                                put("message", "消息$index")
+                            })
+                        }
+                })
+            }
+            storage.writeTextAtomically(
+                storage.getDialogueSessionManifestFile(runId, sessionId),
+                manifest.toString(),
+            )
+
+            val service = DialogueAdvancedService(storage, llm = null, prompts = null)
+            val branch = service.branchFromScene(runId, sessionId, sceneIndex = 1)
+
+            val kept = branch.getValue("transcript").jsonArray
+            assertEquals(2, kept.size)
+            assertEquals(
+                listOf("turn-1", "turn-1"),
+                kept.map { it.jsonObject.getValue("turn_id").jsonPrimitive.content },
+            )
+            val origin = branch.getValue("branch_origin").jsonObject
+            assertEquals(sessionId, origin.getValue("session_id").jsonPrimitive.content)
+            assertEquals("scene_timeline", origin.getValue("kind").jsonPrimitive.content)
+            assertEquals(1, origin.getValue("scene_index").jsonPrimitive.intOrNull)
+            assertEquals(
+                "turn-1",
+                origin.getValue("turn_id").jsonPrimitive.content,
+                "客户端按 scene_index 恢复分支时还会用到 turn_id",
+            )
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `branch turn count counts turns instead of messages`() {
+        val dir = createTempDirectory("zaomeng-branch-turn-count")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val runId = "run-1"
+            val sessionId = "session-1"
+            storage.writeRunManifest(runId, buildJsonObject { put("run_id", runId) })
+            val manifest = buildJsonObject {
+                put("session_id", sessionId)
+                put("run_id", runId)
+                put("revision", 2)
+                put("transcript_start", 0)
+                put("transcript", buildJsonArray {
+                    listOf("turn-1", "turn-2").forEach { turnId ->
+                        add(buildJsonObject {
+                            put("turn_id", turnId)
+                            put("role", "user")
+                            put("speaker", "旅人")
+                            put("message", "$turnId 的输入")
+                        })
+                        repeat(2) { index ->
+                            add(buildJsonObject {
+                                put("turn_id", turnId)
+                                put("role", "character")
+                                put("speaker", "角色$index")
+                                put("message", "$turnId 的回复$index")
+                            })
+                        }
+                    }
+                })
+            }
+            storage.writeTextAtomically(
+                storage.getDialogueSessionManifestFile(runId, sessionId),
+                manifest.toString(),
+            )
+
+            val service = DialogueAdvancedService(storage, llm = null, prompts = null)
+            val branch = service.branchFromTurn(runId, sessionId, "turn-2")
+
+            assertEquals(6, branch.getValue("transcript").jsonArray.size)
+            assertEquals(2, branch["turn_count"]?.jsonPrimitive?.intOrNull)
         } finally {
             dir.toFile().deleteRecursively()
         }
@@ -297,6 +517,7 @@ class SessionManifestTest {
         try {
             val storage = StorageService(dir.toString().toPath())
             val store = ReplyOperationStore(storage)
+            storage.writeTextAtomically(storage.getDialogueSessionManifestFile("run-1", "session-1"), "{}")
             val claimed = store.claim("run-1", "session-1", "op-1", "op-1", "hash", 0, "owner-1") as OperationClaim.Owner
             assertTrue(store.claim("run-1", "session-1", "op-1", "op-1", "hash", 0, "owner-2") is OperationClaim.Wait)
             assertTrue(store.claim("run-1", "session-1", "op-1", "op-1", "other", 0, "owner-2") is OperationClaim.Conflict)
@@ -325,6 +546,7 @@ class SessionManifestTest {
         try {
             val storage = StorageService(dir.toString().toPath())
             val store = ReplyOperationStore(storage)
+            storage.writeTextAtomically(storage.getDialogueSessionManifestFile("run-1", "session-1"), "{}")
             store.claim("run-1", "session-1", "op-1", "op-1", "hash", 0, "owner-1")
 
             val interrupted = store.recoverOrphan("run-1", "session-1", "op-1")
@@ -527,6 +749,45 @@ class SessionManifestTest {
             assertEquals(2, rebuilt.currentRevision)
             assertEquals(2, sessionHistoryRevision(storage.loadSessionManifest(runId, sessionId)))
             assertTrue(rebuilt.session?.storyRecap != null)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `foreign or broken projection sidecar is treated as missing`() {
+        val dir = createTempDirectory("zaomeng-projection-foreign")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val runId = "run-1"
+            val sessionId = "session-1"
+            storage.writeRunManifest(runId, buildJsonObject { put("run_id", runId) })
+            storage.writeTextAtomically(
+                storage.getDialogueSessionManifestFile(runId, sessionId),
+                buildJsonObject {
+                    put("session_id", sessionId)
+                    put("revision", 1)
+                    put("transcript", buildJsonArray {
+                        add(buildJsonObject {
+                            put("turn_id", "turn-1")
+                            put("speaker", "我")
+                            put("role", "user")
+                            put("message", "我们从这里开始。")
+                        })
+                    })
+                }.toString(),
+            )
+            // 整卷目录被复制或导入到新书卷后，旧 sidecar 仍带着原来的 run_id/session_id。
+            storage.writeTextAtomically(
+                storage.getDialogueSessionsDirectory(runId) / "$sessionId/session_projection.json",
+                """{"projection_version":1,"run_id":"old-run","session_id":"old-session","source_revision":1,""" +
+                    """"source_start_seq":0,"source_end_seq":1,"volumes":[],"session_summary":{},""" +
+                    """"generated_at":"2026-01-01T00:00:00Z"}""",
+            )
+            val service = SessionProjectionService(storage)
+
+            assertNull(service.freshPromptSummaries(runId, sessionId))
+            assertNotEquals("fresh", service.get(runId, sessionId).status)
         } finally {
             dir.toFile().deleteRecursively()
         }

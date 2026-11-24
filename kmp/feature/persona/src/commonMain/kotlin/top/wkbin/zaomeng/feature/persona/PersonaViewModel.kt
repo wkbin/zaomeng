@@ -55,6 +55,7 @@ data class PersonaUiState(
     val reviewNote: String = "",
     val quality: PersonaQualityReportDto? = null,
     val qualityError: String = "",
+    val isSillyTavernCard: Boolean = false,
     val repairProposal: PersonaRepairProposalDto? = null,
     val repairError: String = "",
     val appliedRepairFields: Set<String> = emptySet(),
@@ -114,7 +115,7 @@ class PersonaViewModel(
             }
             try {
                 val review = repository.getPersona(normalizedRunId, normalizedCharacter)
-                val completeFields = completePersonaFields(review.fields)
+                val completeFields = review.cardFields ?: completePersonaFields(review.fields)
                 _uiState.update { current ->
                     if (!current.matches(normalizedRunId, normalizedCharacter)) return@update current
                     current.copy(
@@ -122,6 +123,7 @@ class PersonaViewModel(
                         // display data and can be normalized differently by imported packages.
                         character = normalizedCharacter,
                         fields = completeFields,
+                        isSillyTavernCard = review.cardFields != null,
                         editableProfilePath = review.editableProfilePath,
                         generatedProfilePath = review.generatedProfilePath,
                         isLoading = false,
@@ -129,8 +131,10 @@ class PersonaViewModel(
                         loadError = "",
                     )
                 }
-                refreshQuality(normalizedRunId, normalizedCharacter, announceFailure = false)
-                refreshRepairProposal(normalizedRunId, normalizedCharacter)
+                if (review.cardFields == null) {
+                    refreshQuality(normalizedRunId, normalizedCharacter, announceFailure = false)
+                    refreshRepairProposal(normalizedRunId, normalizedCharacter)
+                }
             } catch (error: Throwable) {
                 _uiState.update { current ->
                     if (!current.matches(normalizedRunId, normalizedCharacter)) return@update current
@@ -145,8 +149,9 @@ class PersonaViewModel(
     }
 
     fun updateField(field: String, value: String) {
-        if (field !in PERSONA_FIELD_KEYS) return
         _uiState.update { current ->
+            val allowed = if (current.isSillyTavernCard) SILLYTAVERN_CARD_FIELDS.any { it.key == field } else field in PERSONA_FIELD_KEYS
+            if (!allowed) return@update current
             val nextFields = current.fields.toMutableMap().apply { put(field, value) }
             current.copy(
                 fields = nextFields,
@@ -187,7 +192,7 @@ class PersonaViewModel(
 
         val runId = snapshot.runId
         val character = snapshot.character
-        val completeFields = completePersonaFields(snapshot.fields)
+        val completeFields = if (snapshot.isSillyTavernCard) snapshot.fields else completePersonaFields(snapshot.fields)
         val reviewNote = snapshot.reviewNote.trim()
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true) }
@@ -202,17 +207,17 @@ class PersonaViewModel(
                     if (!current.matches(runId, character)) return@update current
                     current.copy(
                         character = character,
-                        fields = completePersonaFields(saved.fields),
+                        fields = saved.cardFields ?: completePersonaFields(saved.fields),
                         editableProfilePath = saved.editableProfilePath,
                         generatedProfilePath = saved.generatedProfilePath,
                         reviewNote = "",
                         fieldFeedback = emptyMap(),
                         isSaving = false,
                         hasUnsavedChanges = false,
-                        notice = notice("人物资料已保存，正在刷新质量报告。"),
+                        notice = notice(if (snapshot.isSillyTavernCard) "角色卡已保存。" else "人物资料已保存，正在刷新质量报告。"),
                     )
                 }
-                refreshQuality(runId, character, announceFailure = true)
+                if (!snapshot.isSillyTavernCard) refreshQuality(runId, character, announceFailure = true)
             } catch (error: Throwable) {
                 _uiState.update { current ->
                     if (!current.matches(runId, character)) return@update current
@@ -458,7 +463,21 @@ private fun completePersonaFields(source: Map<String, String>): Map<String, Stri
         source.forEach { (key, value) -> if (key !in this) put(key, value) }
     }
 
+internal val SILLYTAVERN_CARD_FIELDS = listOf(
+    PersonaFieldSpec("description", "角色描述"),
+    PersonaFieldSpec("personality", "性格摘要"),
+    PersonaFieldSpec("scenario", "场景"),
+    PersonaFieldSpec("mes_example", "对话示例"),
+)
+
 val PERSONA_FIELD_GROUPS: List<PersonaFieldGroup> = listOf(
+    PersonaFieldGroup(
+        key = "sillytavern",
+        title = "SillyTavern 角色卡",
+        description = "编辑导出到 SillyTavern 的角色设定和开场。",
+        fields = SILLYTAVERN_CARD_FIELDS.map { it.copy(key = "card_${it.key}") } +
+            PersonaFieldSpec("card_first_mes", "开场白"),
+    ),
     PersonaFieldGroup(
         key = "identity",
         title = "身份与外在",

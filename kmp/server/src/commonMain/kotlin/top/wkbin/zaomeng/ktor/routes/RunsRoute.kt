@@ -8,6 +8,7 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.ktor.services.SillyTavernImport
 import top.wkbin.zaomeng.ktor.services.StorageService
 
 /**
@@ -23,7 +24,7 @@ fun Route.runsRoute(storageService: StorageService) {
                 val manifests = storageService.listRunManifests()
                 call.respond(HttpStatusCode.OK, buildJsonObject {
                     put("items", buildJsonArray {
-                        manifests.forEach { add(it) }
+                        manifests.forEach { add(SillyTavernImport.restorePackagedCardOrigin(storageService, it)) }
                     })
                 })
             } catch (e: Exception) {
@@ -44,7 +45,8 @@ fun Route.runsRoute(storageService: StorageService) {
                     call.respondError(HttpStatusCode.NotFound, "Run not found")
                 } else {
                     // 响应注入实时 avatar_version（对齐 Python core.py _serialize_manifest）
-                    call.respond(HttpStatusCode.OK, storageService.withLiveAvatarVersions(manifest, runId))
+                    val run = SillyTavernImport.restorePackagedCardOrigin(storageService, manifest)
+                    call.respond(HttpStatusCode.OK, storageService.withLiveAvatarVersions(run, runId))
                 }
             } catch (e: Exception) {
                 call.respondError(HttpStatusCode.InternalServerError, (e.message ?: "Failed to read run manifest"))

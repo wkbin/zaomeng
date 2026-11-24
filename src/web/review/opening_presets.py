@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from src.web.path_safety import resolve_storage_child
+
 
 OPENING_PRESET_FIELDS = (
     "title",
@@ -158,7 +160,7 @@ def _load_opening_preset_fields(card_dir: Path) -> dict[str, Any]:
 
 
 def load_opening_preset_payload(presets_root: Path, card_id: str) -> dict[str, Any]:
-    card_dir = presets_root / str(card_id or "").strip()
+    card_dir = resolve_storage_child(presets_root, card_id, field_name="card_id")
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     meta = _load_card_meta(card_dir)
@@ -195,7 +197,7 @@ def save_opening_preset_payload(
     normalized = normalize_opening_preset_fields(fields)
     validate_opening_preset_fields(normalized)
     resolved_card_id = str(card_id or "").strip() or f"opening-{uuid4().hex[:10]}"
-    card_dir = presets_root / resolved_card_id
+    card_dir = resolve_storage_child(presets_root, resolved_card_id, field_name="card_id")
     if str(card_id or "").strip() and not card_dir.exists():
         raise FileNotFoundError(card_id)
     card_dir.mkdir(parents=True, exist_ok=True)
@@ -229,7 +231,7 @@ def save_opening_preset_payload(
 
 
 def delete_opening_preset_payload(presets_root: Path, card_id: str) -> dict[str, str]:
-    card_dir = presets_root / str(card_id or "").strip()
+    card_dir = resolve_storage_child(presets_root, card_id, field_name="card_id")
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     shutil.rmtree(card_dir)

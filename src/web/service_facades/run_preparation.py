@@ -198,6 +198,7 @@ class RunPreparationMixin:
         characters: list[str],
         novel_name: str,
         novel_content_base64: str,
+        resume_unfinished: bool = False,
     ) -> dict[str, Any]:
         manifest_path = self._manifest_path(run_id)
         manifest = self._load_manifest(manifest_path)
@@ -207,6 +208,18 @@ class RunPreparationMixin:
         locked_characters = self._normalize_characters(characters) or list(manifest.get("locked_characters", []))
         if not locked_characters:
             raise ValueError("At least one character is required.")
+
+        completed: set[str] = set()
+        if resume_unfinished:
+            if str(manifest.get("status", "")).strip() == "running":
+                raise ValueError("This run is already running.")
+            completed = set(self._normalize_characters(
+                list((manifest.get("progress", {}) or {}).get("completed_characters", []) or [])
+            ))
+        resume_completed_characters = [name for name in locked_characters if name in completed]
+        pending_characters = [name for name in locked_characters if name not in completed]
+        if resume_unfinished and not pending_characters:
+            raise ValueError("All locked characters have already been distilled.")
 
         character_plan = classify_requested_characters(
             manifest,
@@ -229,8 +242,6 @@ class RunPreparationMixin:
         using_new_source = bool(source_update["using_new_source"])
         novel_path = source_update["novel_path"]
         raw_bytes = source_update["raw_bytes"]
-        resume_completed_characters: list[str] = []
-        pending_characters = list(locked_characters)
         if using_new_source:
             redistill_summary = f"继续蒸馏：新增 {len(new_requested)} 人，增量 {len(existing_requested)} 人"
         elif pending_characters:

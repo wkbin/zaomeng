@@ -91,10 +91,7 @@ class PluginOperationsService(
     }
 
     /** 安装已检查的插件包（两阶段第二步）。对应 Python install_inspected_plugin_package。 */
-    fun install(token: String, confirmPermissions: Boolean, allowUpdate: Boolean): JsonObject =
-        pluginService.withPluginLogLock { installPackage(token, confirmPermissions, allowUpdate) }
-
-    private fun installPackage(token: String, confirmPermissions: Boolean, allowUpdate: Boolean): JsonObject {
+    fun install(token: String, confirmPermissions: Boolean, allowUpdate: Boolean): JsonObject {
         val normalizedToken = token.trim()
         if (!PathSafety.STORAGE_ID_PATTERN.matches(normalizedToken)) throw IllegalArgumentException("无效的安装令牌。")
         val staging = storage.getStorageRoot() / "plugin-staging" / normalizedToken

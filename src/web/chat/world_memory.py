@@ -33,6 +33,12 @@ _EVENT_CATEGORY = {
 }
 
 
+# 同一进程内可能有多个 WorldMemoryStore 指向同一个 runs_root（Workflow 与 DialogueService
+# 各持一个实例）。锁必须按"文件路径"共享，否则两个实例各自的 read-modify-write 会互相覆盖。
+_SHARED_LOCKS_GUARD = threading.Lock()
+_SHARED_LOCKS: dict[str, threading.RLock] = {}
+
+
 class WorldMemoryStore:
     VERSION = 1
     MAX_FACTS = 500
@@ -40,21 +46,35 @@ class WorldMemoryStore:
 
     def __init__(self, runs_root: str | Path) -> None:
         self.runs_root = Path(runs_root)
-        self._locks_guard = threading.Lock()
-        self._locks: dict[str, threading.RLock] = {}
 
     def _lock(self, run_id: str) -> threading.RLock:
-        safe_run_id = validate_storage_id(run_id, field_name="run_id")
-        with self._locks_guard:
-            lock = self._locks.get(safe_run_id)
+        key = str(self._path(run_id))
+        with _SHARED_LOCKS_GUARD:
+            lock = _SHARED_LOCKS.get(key)
             if lock is None:
                 lock = threading.RLock()
-                self._locks[safe_run_id] = lock
+                _SHARED_LOCKS[key] = lock
             return lock
 
     def _path(self, run_id: str) -> Path:
         run_dir = resolve_storage_child(self.runs_root, run_id, field_name="run_id")
         return run_dir / "world_memory.json"
+
+    @classmethod
+    def _trim_facts(cls, facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """按上限裁剪，但不淘汰锁定/手工写入的事实（它们是用户的核心设定）。"""
+        if len(facts) <= cls.MAX_FACTS:
+            return facts
+
+        def protected(item: dict[str, Any]) -> bool:
+            return bool(item.get("locked")) or str(item.get("source", "")).strip() not in {"", "dialogue"}
+
+        keep_protected = [item for item in facts if protected(item)][-cls.MAX_FACTS :]
+        others = [item for item in facts if not protected(item)]
+        room = max(0, cls.MAX_FACTS - len(keep_protected))
+        trimmed = keep_protected + (others[-room:] if room else [])
+        trimmed.sort(key=lambda item: str(item.get("created_at", "")).strip())
+        return trimmed
 
     @classmethod
     def _empty(cls) -> dict[str, Any]:
@@ -135,7 +155,7 @@ class WorldMemoryStore:
                 facts.append(item)
             else:
                 facts[facts.index(existing)] = item
-            payload["facts"] = facts[-self.MAX_FACTS :]
+            payload["facts"] = self._trim_facts(facts)
             payload["updated_at"] = now
             write_json(self._path(run_id), payload)
             return deepcopy(item)
@@ -289,7 +309,7 @@ class WorldMemoryStore:
                     "updated_at": now,
                 }
             )
-            payload["facts"] = facts[-self.MAX_FACTS :]
+            payload["facts"] = self._trim_facts(facts)
             payload["timeline"] = sorted(
                 timeline, key=lambda item: str(item.get("updated_at", "")).strip()
             )[-self.MAX_TIMELINE_ITEMS :]

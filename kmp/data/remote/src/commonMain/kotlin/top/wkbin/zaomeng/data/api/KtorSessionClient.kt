@@ -6,6 +6,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -77,7 +78,13 @@ class KtorSessionClient(
         })
 
     suspend fun getCardGreetings(runId: String): CardGreetingsDto = request { endpoint ->
-        http.client.get(url(endpoint, "/api/web/runs/$runId/dialogue/card-greetings"))
+        http.client.get(url(endpoint, "/api/web/runs/${runId.encodeURLPathPart()}/dialogue/card-greetings"))
+    }.body()
+
+    suspend fun updateCardGreeting(runId: String, payload: UpdateCardGreetingRequest): CardGreetingsDto = request { endpoint ->
+        http.client.put(url(endpoint, "/api/web/runs/${runId.encodeURLPathPart()}/dialogue/card-greetings")) {
+            setBody(payload)
+        }
     }.body()
 
     suspend fun importSillyTavernChat(runId: String, payload: ImportSillyTavernChatRequest): DialogueSessionDto =
@@ -161,6 +168,10 @@ class KtorSessionClient(
                 setBody(UpdateDialogueSessionTitleRequest(title))
             }
         })
+
+    suspend fun updateAuthorNote(runId: String, sessionId: String, note: AuthorNoteDto): AuthorNoteDto = request { endpoint ->
+        http.client.put(url(endpoint, "/api/web/runs/$runId/dialogue/sessions/$sessionId/author-note")) { setBody(note) }
+    }.body()
 
     private suspend fun request(block: suspend (BackendEndpoint) -> HttpResponse): HttpResponse {
         val response = block(endpointProvider.requireKtorEndpoint())

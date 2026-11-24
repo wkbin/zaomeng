@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.feature.importbook
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import top.wkbin.zaomeng.data.ApiRequestException
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.data.AppRuntimeRepository
 import top.wkbin.zaomeng.data.ModelSettingsRepository
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -183,7 +185,7 @@ class ImportBookViewModel(
 
     fun selectWorldBookTarget(runId: String) {
         if (state.value.targetRunId == runId) return
-        mutableState.update { it.copy(targetRunId = runId, sillyTavernPreview = null) }
+        mutableState.update { it.copy(targetRunId = runId, sillyTavernPreview = null, error = "") }
         refreshSillyTavernPreview(test = state.value.testText.isNotBlank())
     }
 
@@ -209,6 +211,7 @@ class ImportBookViewModel(
                     snapshot.targetRunId.ifBlank { null },
                     snapshot.testText.takeIf { test && it.isNotBlank() },
                 )
+                ensureActive()
                 mutableState.update {
                     it.copy(
                         sillyTavernPreview = if (it.testText == snapshot.testText) result else result.copy(testedEntries = null),
@@ -296,6 +299,7 @@ class ImportBookViewModel(
 
     fun submit() {
         val current = state.value
+        if (current.submitting || current.readingFile) return
         val bytes = selectedBytes
         if (bytes == null || current.fileName.isBlank()) {
             mutableState.update { it.copy(error = "请先选择一个文件。") }
@@ -339,13 +343,18 @@ class ImportBookViewModel(
             }
         }
 
+        mutableState.update { it.copy(submitting = true, error = "") }
         viewModelScope.launch {
-            mutableState.update { it.copy(submitting = true, error = "") }
             val canRecover = kind == ImportDocumentKind.RunPackage || kind == ImportDocumentKind.NovelText
             val knownRunIds = if (canRecover) captureKnownRunIds() else null
             try {
                 val run = if (packageFile) {
-                    runs.importPackage(current.fileName, bytes, targetRunId = targetRunId)
+                    runs.importPackage(
+                        current.fileName,
+                        bytes,
+                        targetRunId = targetRunId,
+                        expectedWorldBookRevision = current.sillyTavernPreview?.previousBookRevision,
+                    )
                 } else {
                     runs.saveImportDefaults(current.characters, autoDistill = current.autoDistill)
                     runs.createNovel(
@@ -361,6 +370,17 @@ class ImportBookViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
+                if (targetRunId != null && error is ApiRequestException && error.statusCode == 409) {
+                    mutableState.update {
+                        it.copy(
+                            submitting = false,
+                            sillyTavernPreview = null,
+                            error = "目标书卷的独立世界书已变化，请查看刷新后的预览再确认。",
+                        )
+                    }
+                    refreshSillyTavernPreview(test = current.testText.isNotBlank())
+                    return@launch
+                }
                 val recovered = if (canRecover) findRecoveredRun(knownRunIds) { run ->
                     packageFile || (
                         run.novelSources.any { it.sourceName == current.fileName } &&

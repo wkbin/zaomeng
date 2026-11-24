@@ -103,26 +103,56 @@ class DistillExecutor(
     private val scope = CoroutineScope(SupervisorJob() + platformIoDispatcher)
     private val running = HashMap<String, Job>()
     private val runningLock = SimpleLock()
+    private val deleting = HashSet<String>()
+    private val lifecycleLocks = Array(64) { SimpleLock() }
+
+    /** Serialize manifest preparation, job registration and deletion admission for the same run. */
+    internal fun <T> withRunLifecycle(runId: String, block: () -> T): T {
+        val id = PathSafety.validateStorageId(runId, "run_id")
+        return lifecycleLock(id).withLock {
+            require(runningLock.withLock { id !in deleting }) { "当前书卷正在删除。" }
+            block()
+        }
+    }
+
+    internal suspend fun <T> deleteAfterStopping(runId: String, delete: suspend () -> T): T {
+        val id = PathSafety.validateStorageId(runId, "run_id")
+        lifecycleLock(id).withLock {
+            require(runningLock.withLock { deleting.add(id) }) { "当前书卷正在删除。" }
+        }
+        try {
+            stopAndWait(id)
+            return delete()
+        } finally {
+            runningLock.withLock { deleting.remove(id) }
+        }
+    }
+
+    private fun lifecycleLock(runId: String): SimpleLock =
+        lifecycleLocks[(runId.hashCode() and Int.MAX_VALUE) % lifecycleLocks.size]
 
     /** 启动蒸馏任务（幂等：同一 run 已有任务则不重复启动）。 */
     fun start(runId: String, characters: List<String>) {
+        val id = PathSafety.validateStorageId(runId, "run_id")
         val normalized = characters.map(String::trim).filter(String::isNotEmpty).distinct()
         if (normalized.isEmpty()) return
         val started = runningLock.withLock {
-            if (running.containsKey(runId)) {
+            if (id in deleting || running.containsKey(id)) {
                 false
             } else {
                 // Job 的创建和注册必须在同一把锁内完成。旧实现先注册 Job() 占位，
                 // 快速失败时 finally 可能先删掉占位，随后又把已完成 Job 放回 map，
                 // 导致该 run 永久被认为仍在运行。
-                running[runId] = scope.launch {
+                running[id] = scope.launch {
                     try {
-                        execute(runId, normalized)
+                        execute(id, normalized)
+                    } catch (error: CancellationException) {
+                        throw error
                     } catch (e: Exception) {
-                        PlatformLog.e(TAG, "Distillation failed for run=$runId: ${e.message}", e)
-                        fail(runId, e.message ?: "蒸馏失败")
+                        PlatformLog.e(TAG, "Distillation failed for run=$id: ${e.message}", e)
+                        fail(id, e.message ?: "蒸馏失败")
                     } finally {
-                        runningLock.withLock { running.remove(runId) }
+                        runningLock.withLock { running.remove(id) }
                     }
                 }
                 true
@@ -167,14 +197,14 @@ class DistillExecutor(
     }
 
     /** 是否正在蒸馏。 */
-    fun isRunning(runId: String): Boolean = runningLock.withLock { running.containsKey(runId) }
+    fun isRunning(runId: String): Boolean = runningLock.withLock { runId.trim() in running }
 
     /**
      * 请求停止并等待任务退出（删除 run 前必须先调用，否则后台任务会把目录与 manifest 写回来）。
      * 超时后强制取消协程；返回是否在超时前自然结束。
      */
     suspend fun stopAndWait(runId: String, timeoutMillis: Long = 10_000): Boolean {
-        val job = runningLock.withLock { running[runId] } ?: return true
+        val job = runningLock.withLock { running[runId.trim()] } ?: return true
         runCatching {
             storage.updateRunManifest(runId) { manifest ->
                 buildJsonObject {

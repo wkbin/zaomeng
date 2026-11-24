@@ -29,6 +29,7 @@
 
 - 入口：
   - CLI: `zaomeng update`
+  - 更新调用已安装的 `scripts/install.sh`。从独立可信渠道获取归档的 SHA-256 后，可用 `ZAOMENG_ARCHIVE_SHA256=<摘要> zaomeng update <版本>` 在解包前验证归档。首次安装可将同一变量传给安装脚本。
   - Web UI: 首次启动弱提示更新
 - 负责：
   - 对比本地版本与远端版本

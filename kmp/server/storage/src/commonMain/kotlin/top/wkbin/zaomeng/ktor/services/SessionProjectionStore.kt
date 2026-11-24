@@ -41,11 +41,15 @@ class SessionProjectionStore(private val storage: StorageService) {
 
     fun read(runId: String, sessionId: String): SessionProjection? {
         val content = storage.readTextOrNull(path(runId, sessionId)) ?: return null
-        val projection = json.decodeFromString(SessionProjection.serializer(), content)
-        check(projection.runId == runId && projection.sessionId == sessionId) {
-            "Session projection identity mismatch"
-        }
-        return projection
+        // sidecar 可删除可重建：内容损坏、版本过旧，或整卷目录被复制/导入到新书卷时，
+        // 旧的 run_id/session_id 不应让对话生成直接失败，一律按「不存在」处理并触发重建。
+        return runCatching {
+            json.decodeFromString(SessionProjection.serializer(), content).takeIf { projection ->
+                projection.projectionVersion == SESSION_PROJECTION_VERSION &&
+                    projection.runId == runId &&
+                    projection.sessionId == sessionId
+            }
+        }.getOrNull()
     }
 
     fun publish(expectedRevision: Long, projection: SessionProjection): SessionProjection =

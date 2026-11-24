@@ -162,6 +162,7 @@ internal fun Transcript(
     streamingReplies: List<StreamingReplyPart>,
     pendingUserMessage: PendingUserMessage?,
     displayPreferences: ChatDisplayPreferences,
+    readingLayout: Boolean,
     actionsEnabled: Boolean,
     includeInnerThoughts: Boolean,
     onRegenerate: () -> Unit,
@@ -253,7 +254,9 @@ internal fun Transcript(
             modelReasoning.length * 13 +
             (pendingUserMessage?.let { 31 * it.status.hashCode() + it.statusText.hashCode() } ?: 0)
     val firstKey = transcript.firstOrNull()?.transcriptKey().orEmpty()
-    LaunchedEffect(visibleCount, contentRevision, sending, firstKey) {
+    val onlyOpening = readingLayout && session.cardGreetingIndex != null && session.transcriptCount <= 1 &&
+        transcript.size == 1 && visibleCount == 1 && !sending
+    LaunchedEffect(visibleCount, contentRevision, sending, firstKey, onlyOpening) {
         // 向上加载历史会整体前插：首条 key 变化且数量增加视为 prepend，不纳入“新消息”计数
         val prepended = firstKey.isNotBlank() && firstKey != previousFirstKey &&
             transcript.size != previousVisibleCount
@@ -264,7 +267,7 @@ internal fun Transcript(
         }
         previousVisibleCount = visibleCount
         previousFirstKey = firstKey
-        if (followNewMessages) {
+        if (followNewMessages && !onlyOpening) {
             listState.scrollToBottom(lastContentIndex, animated = false)
             unseenMessages = 0
         } else if (added > 0) {
@@ -275,13 +278,18 @@ internal fun Transcript(
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.align(Alignment.TopCenter)
+                .widthIn(max = if (readingLayout) 720.dp else 1000.dp).fillMaxSize(),
             contentPadding = PaddingValues(
                 horizontal = 16.dp,
                 vertical = if (displayPreferences.compactMode) 6.dp else 10.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(
-                if (displayPreferences.compactMode) 3.dp else 8.dp,
+                when {
+                    displayPreferences.compactMode -> 3.dp
+                    readingLayout -> 16.dp
+                    else -> 8.dp
+                },
             ),
         ) {
             if (hasMoreHistory || loadingEarlier) {
@@ -334,6 +342,7 @@ internal fun Transcript(
                         displayPreferences = displayPreferences,
                         actionsEnabled = actionsEnabled,
                         includeInnerThoughts = includeInnerThoughts,
+                        readingLayout = readingLayout,
                         canRegenerate = index == latestAssistantIndex && !sending,
                         isSpeaking = isSpeaking,
                         speakingId = speakingId,
@@ -369,8 +378,15 @@ internal fun Transcript(
                                 item.worldBookMatches.forEach { match ->
                                     Column {
                                         val source = if (match.source == "character_book") "卡内世界书" else "独立世界书"
-                                        val trigger = match.keywords.joinToString("、").ifBlank { "常驻" }
+                                        val trigger = when {
+                                            match.forcedActivation -> "正文指令强制触发"
+                                            match.stickyActive -> "粘滞"
+                                            else -> match.keywords.joinToString("、").ifBlank { "常驻" }
+                                        }
                                         Text("${match.title} · $source · $trigger", style = MaterialTheme.typography.labelLarge)
+                                        if (match.recursionDepth > 0) {
+                                            Text("递归触发 · 第 ${match.recursionDepth} 层", style = MaterialTheme.typography.bodySmall)
+                                        }
                                         Text(match.excerpt, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
@@ -426,6 +442,7 @@ internal fun Transcript(
                     displayPreferences = displayPreferences,
                     actionsEnabled = false,
                     includeInnerThoughts = includeInnerThoughts,
+                    readingLayout = readingLayout,
                     streaming = true,
                     onCopy = {},
                     onRegenerate = {},

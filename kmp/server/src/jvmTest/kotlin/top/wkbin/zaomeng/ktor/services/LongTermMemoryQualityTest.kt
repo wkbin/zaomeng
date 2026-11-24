@@ -62,4 +62,46 @@ class LongTermMemoryQualityTest {
             dir.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `mergeDuplicates ignores entries without text instead of crashing`() {
+        val dir = createTempDirectory("zaomeng-memory-merge-empty")
+        try {
+            val storage = StorageService(dir.toString().toPath())
+            val runId = "run-memory-empty"
+            val sessionId = "session-memory-empty"
+            val memoryFile = storage.getDialogueSessionManifestFile(runId, sessionId).parent!! / "long_term_memory.json"
+            storage.mkdirs(memoryFile.parent!!)
+            storage.writeTextAtomically(
+                memoryFile,
+                buildJsonObject {
+                    put("run_id", runId)
+                    put("session_id", sessionId)
+                    put("entries", buildJsonArray {
+                        add(buildJsonObject {
+                            put("memory_id", "broken-1")
+                            put("status", "active")
+                        })
+                        add(buildJsonObject {
+                            put("memory_id", "broken-2")
+                            put("status", "active")
+                        })
+                        add(buildJsonObject {
+                            put("memory_id", "real-1")
+                            put("text", "有效记忆")
+                            put("status", "active")
+                        })
+                    })
+                }.toString(),
+            )
+
+            val service = LongTermMemoryService(storage)
+            val report = service.mergeDuplicates(runId, sessionId)
+
+            assertTrue(report.duplicateGroups.isEmpty())
+            assertEquals(1, report.entries.count { it.memoryId == "real-1" })
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
 }

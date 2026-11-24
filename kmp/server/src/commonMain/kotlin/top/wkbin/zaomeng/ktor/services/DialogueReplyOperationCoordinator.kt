@@ -80,7 +80,7 @@ class DialogueReplyOperationCoordinator(private val storage: StorageService) {
     private val registryLock = SimpleLock()
 
     suspend fun begin(request: ReplyOperationRequest): ReplyOperationBegin {
-        val key = "${request.runId}:${request.sessionId}"
+        val key = "${request.runId.trim()}:${request.sessionId.trim()}"
         val mutex = registryLock.withLock { mutexes.getOrPut(key) { Mutex() } }
         mutex.lock()
         try {
@@ -148,7 +148,10 @@ class DialogueReplyOperationCoordinator(private val storage: StorageService) {
     }
 
     /** 失败时先对账；manifest 已提交则补 completed，不能再次生成。 */
-    fun recoverFailure(lease: ActiveReplyOperation, error: Throwable): DialogueReplyOutcome? {
+    fun recoverFailure(lease: ActiveReplyOperation, error: Throwable): DialogueReplyOutcome? =
+        ifSessionExists(lease) { recoverExistingFailure(lease, error) }
+
+    private fun recoverExistingFailure(lease: ActiveReplyOperation, error: Throwable): DialogueReplyOutcome? {
         val result = lease.receipt.result
         if (lease.receipt.status == ReplyOperationStatus.COMMITTING && result != null) {
             val recentCommitted = (storage.loadSessionManifest(lease.receipt.runId, lease.receipt.sessionId)["transcript"] as? JsonArray)
@@ -182,10 +185,23 @@ class DialogueReplyOperationCoordinator(private val storage: StorageService) {
     /** preflight 尚未交给 flow 时放弃 owner；COMMITTING 的持久结果必须保留供下次 resume。 */
     fun abandonBeforeHandoff(lease: ActiveReplyOperation, error: Throwable) {
         if (lease.receipt.status == ReplyOperationStatus.COMMITTING) {
-            store.recoverOrphan(lease.receipt.runId, lease.receipt.sessionId, lease.receipt.operationId)
-                ?.let { lease.receipt = it }
+            ifSessionExists(lease) {
+                store.recoverOrphan(lease.receipt.runId, lease.receipt.sessionId, lease.receipt.operationId)
+                    ?.let { lease.receipt = it }
+            }
         } else {
             recoverFailure(lease, error)
+        }
+    }
+
+    private fun <T> ifSessionExists(lease: ActiveReplyOperation, block: () -> T): T? {
+        val manifest = storage.getDialogueSessionManifestFile(lease.receipt.runId, lease.receipt.sessionId)
+        if (!storage.isFile(manifest)) return null
+        return try {
+            block()
+        } catch (error: NoSuchElementException) {
+            if (storage.isFile(manifest)) throw error
+            null
         }
     }
 

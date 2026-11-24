@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.importbook
 
+import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,7 +79,11 @@ internal fun SillyTavernPreview(
                     if (fields.isNotEmpty()) Text("将带入 ${fields.joinToString("、")}")
                     if (preview.greeting.isNotBlank()) {
                         Text("首句", style = MaterialTheme.typography.labelLarge)
-                        Text(preview.greeting)
+                        RoleplayMessageContent(
+                            text = preview.greeting,
+                            style = MaterialTheme.typography.bodyMedium,
+                            baseColor = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                     if (preview.alternateGreetingCount > 0) {
                         Text("备用开场 ${preview.alternateGreetingCount} 个，新建单人会话时可选。")
@@ -108,11 +114,13 @@ internal fun SillyTavernPreview(
                         enabled = state.testText.isNotBlank() && !state.previewBusy && !state.submitting,
                     ) { Text("试触发世界书") }
                     preview.testedEntries?.let { entries ->
-                        Text("当前文件中 ${preview.injectedCount} 条会进入上下文。实际对话还会扫描近期消息并优先保留锁定的世界事实。")
+                        Text("本次试触发选中 ${preview.injectedCount} 条。每次试触发会重新抽样，实际对话还会扫描近期消息并优先保留锁定的世界事实。")
                         entries.forEach { entry ->
                             Text("${entry.title} · ${entry.reasonLabel()}", style = MaterialTheme.typography.labelLarge)
+                            if (entry.status == "injected" && entry.recursionDepth > 0) Text("递归触发 · 第 ${entry.recursionDepth} 层")
                             if (entry.keywords.isNotEmpty()) Text("命中 ${entry.keywords.joinToString("、")}")
                             if (entry.status == "injected") Text(entry.excerpt)
+                            if (entry.status == "injected") entry.outletName?.let { Text("命名出口 · $it") }
                         }
                         if (entries.size < preview.entryCount) Text("显示 ${entries.size} / ${preview.entryCount} 条。")
                     }
@@ -123,11 +131,24 @@ internal fun SillyTavernPreview(
 }
 
 private fun WorldBookMatchDto.reasonLabel(): String = when (status) {
-    "injected" -> if (keywords.isEmpty()) "常驻，已选中" else "已选中"
+    "injected" -> when {
+        forcedActivation -> "强制触发，已选中"
+        keywords.isEmpty() -> "常驻，已选中"
+        else -> "已选中"
+    }
     "budget" -> "超出注入上限"
+    "total_budget" -> "达到世界书总注入上限"
+    "content_budget" -> "剩余正文预算不足"
     "disabled" -> "已禁用"
+    "decorator_suppressed" -> "正文指令禁止触发"
     "empty" -> "内容为空"
+    "missing_outlet" -> "缺少有效的出口名称"
     "secondary" -> "次关键词条件未满足"
+    "recursion_only" -> "等待递归触发"
+    "activation_delay" -> "未达到激活所需的消息数"
+    "group_suppressed" -> "同组竞争未选中"
+    "generation_type" -> "生成类型不符"
+    "probability" -> triggerProbability?.let { "未通过 ${it.toString().removeSuffix(".0")}% 触发概率" } ?: "未通过触发概率"
     "duplicate" -> "内容重复"
     else -> "主关键词未命中"
 }

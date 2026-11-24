@@ -96,17 +96,19 @@ class DialogueHistoryRetrievalService(
         var pages = 0
         var fullyScanned = false
         while (pages < MAX_READ_PAGES) {
-            val page = storage.transcriptReader.readPage(
-                runId,
-                sessionId,
-                offset,
-                READ_PAGE_SIZE,
-                TranscriptOrder.DESC,
-                expectedRevision,
-            )
+            val page = readPage(runId, sessionId, offset, expectedRevision)
             matches += page.items.filter { it.value["turn_id"]?.jsonPrimitive?.contentOrNull == safeTurnId }
             pages++
-            if (matches.isNotEmpty()) break
+            if (matches.isNotEmpty()) {
+                // DESC 分页下同一 turn 可能跨页：向前多读一页，避免只返回后半段。
+                val nextOffset = page.nextOffset
+                if (page.hasMore && nextOffset != null && pages < MAX_READ_PAGES) {
+                    matches += readPage(runId, sessionId, nextOffset, expectedRevision).items.filter {
+                        it.value["turn_id"]?.jsonPrimitive?.contentOrNull == safeTurnId
+                    }
+                }
+                break
+            }
             if (!page.hasMore || page.nextOffset == null) {
                 fullyScanned = true
                 break
@@ -115,10 +117,24 @@ class DialogueHistoryRetrievalService(
         }
         return HistoryLookup(
             revision = expectedRevision,
-            items = matches.sortedBy(TranscriptEntry::seq),
+            items = matches.distinctBy(TranscriptEntry::seq).sortedBy(TranscriptEntry::seq),
             complete = fullyScanned,
         )
     }
+
+    private fun readPage(
+        runId: String,
+        sessionId: String,
+        offset: Int,
+        expectedRevision: Long,
+    ): SessionTranscriptPage = storage.transcriptReader.readPage(
+        runId,
+        sessionId,
+        offset,
+        READ_PAGE_SIZE,
+        TranscriptOrder.DESC,
+        expectedRevision,
+    )
 
     suspend fun enrichHistory(
         runId: String,

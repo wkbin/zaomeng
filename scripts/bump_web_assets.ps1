@@ -12,3 +12,4 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 } else {
     py -3 $scriptPath --version $Version
 }
+exit $LASTEXITCODE

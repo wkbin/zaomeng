@@ -34,6 +34,7 @@ class LoadRunReviewUseCase(
             .map { character -> async { optional { gateway.getPersonaQuality(run.runId, character) } } }
             .awaitAll()
             .filterNotNull()
+            .filter(PersonaQualityReportDto::applicable)
         buildRunReviewOverview(
             relations = relations.await(),
             worldMemory = worldMemory.await(),

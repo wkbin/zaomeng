@@ -16,6 +16,7 @@ import top.wkbin.zaomeng.data.api.ExportedRunPackage
 import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
 import top.wkbin.zaomeng.data.api.KtorRelationsClient
 import top.wkbin.zaomeng.data.api.KtorRunManagementClient
+import top.wkbin.zaomeng.data.api.KtorSessionRequestException
 import top.wkbin.zaomeng.data.api.KtorRunOpsClient
 import top.wkbin.zaomeng.data.api.KtorRunsClient
 import top.wkbin.zaomeng.data.api.KtorWorldMemoryClient
@@ -30,7 +31,11 @@ import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
 import top.wkbin.zaomeng.data.api.SillyTavernPreviewRequest
 import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
 import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.SetWorldBookRecursionRequest
 import top.wkbin.zaomeng.data.api.WorldBookTestDto
+import top.wkbin.zaomeng.data.api.TestWorldBooksRequest
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.SuggestRedistillSegmentsRequest
 import top.wkbin.zaomeng.data.api.UpdateRelationDetailRequest
@@ -98,6 +103,7 @@ class RunRepositoryImpl(
         bytes: ByteArray,
         libraryPackage: LibraryPackageImportDto?,
         targetRunId: String?,
+        expectedWorldBookRevision: String?,
     ): RunManifestDto {
         val payload = withContext(Dispatchers.Default) {
             ImportRunPackageRequest(
@@ -105,6 +111,7 @@ class RunRepositoryImpl(
                 contentBase64 = clientBase64Encode(bytes),
                 libraryPackage = libraryPackage,
                 targetRunId = targetRunId,
+                expectedWorldBookRevision = expectedWorldBookRevision,
             )
         }
         return repositoryRequest {
@@ -130,8 +137,8 @@ class RunRepositoryImpl(
     override suspend fun listWorldBooks(runId: String): ManagedWorldBooksDto =
         repositoryRequest { ktorRunManagement.listWorldBooks(runId) }
 
-    override suspend fun testWorldBooks(runId: String, text: String): WorldBookTestDto =
-        repositoryRequest { ktorRunManagement.testWorldBooks(runId, text) }
+    override suspend fun testWorldBooks(runId: String, input: TestWorldBooksRequest): WorldBookTestDto =
+        repositoryRequest { ktorRunManagement.testWorldBooks(runId, input) }
 
     override suspend fun setWorldBookEntry(
         runId: String,
@@ -142,6 +149,36 @@ class RunRepositoryImpl(
 
     override suspend fun removeStandaloneWorldBook(runId: String, revision: String): ManagedWorldBooksDto =
         repositoryRequest { ktorRunManagement.removeStandaloneWorldBook(runId, revision) }
+
+    override suspend fun createWorldBookEntry(
+        runId: String,
+        source: String,
+        request: CreateWorldBookEntryRequest,
+    ): ManagedWorldBooksDto = changeWorldBookEntry { ktorRunManagement.createWorldBookEntry(runId, source, request) }
+
+    override suspend fun editWorldBookEntry(
+        runId: String,
+        source: String,
+        index: Int,
+        request: EditWorldBookEntryRequest,
+    ): ManagedWorldBooksDto = changeWorldBookEntry { ktorRunManagement.editWorldBookEntry(runId, source, index, request) }
+
+    override suspend fun deleteWorldBookEntry(runId: String, source: String, index: Int, revision: String): ManagedWorldBooksDto =
+        changeWorldBookEntry { ktorRunManagement.deleteWorldBookEntry(runId, source, index, revision) }
+
+    private suspend fun changeWorldBookEntry(change: suspend () -> ManagedWorldBooksDto): ManagedWorldBooksDto = repositoryRequest {
+        try {
+            change()
+        } catch (error: KtorSessionRequestException) {
+            throw ApiRequestException(errorDetail(error.message, error.statusCode), error, error.statusCode)
+        }
+    }
+
+    override suspend fun setWorldBookRecursion(
+        runId: String,
+        source: String,
+        request: SetWorldBookRecursionRequest,
+    ): ManagedWorldBooksDto = repositoryRequest { ktorRunManagement.setWorldBookRecursion(runId, source, request) }
 
     override suspend fun exportSillyTavernCard(runId: String, character: String, cacheDirectory: Path): ExportedRunPackage =
         repositoryRequest {

@@ -340,7 +340,7 @@ class RunOperationsService(
         novelContentBase64: String,
         maxSentences: Int,
         maxChars: Int,
-    ): JsonObject {
+    ): JsonObject = distillExecutor.withRunLifecycle(runId) {
         // 对齐 Python restart_run_distill：未配置模型时直接 400
         if (!distillExecutor.isConfigured()) {
             throw IllegalArgumentException("请先在设置中完成模型配置。")
@@ -350,6 +350,8 @@ class RunOperationsService(
         if (distillExecutor.isRunning(runId)) {
             throw IllegalArgumentException("当前书卷正在蒸馏中，请先停止后再重新蒸馏。")
         }
+        require(maxSentences in 20..300) { "maxSentences must be between 20 and 300" }
+        require(maxChars in 2_000..200_000) { "maxChars must be between 2000 and 200000" }
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
         val normalizedCharacters = characters.map(String::trim).filter(String::isNotEmpty).distinct()
         if (normalizedCharacters.isEmpty()) throw IllegalArgumentException("至少保留一位要蒸馏的人物。")
@@ -393,17 +395,18 @@ class RunOperationsService(
         }
 
         val updated = storage.updateRunManifest(runId) { latest ->
-            // 基于 latest 合并 novel_sources：同一 source_path 只保留一份。
+            // The executor uses the last source. Reselect an existing file without duplicating its bytes or record.
             val sources = latest["novel_sources"]?.jsonArray?.toMutableList() ?: mutableListOf()
             novelSource?.let { source ->
                 val sourcePath = source.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull
-                if (sources.none { it.jsonObject["source_path"]?.jsonPrimitive?.contentOrNull == sourcePath }) {
-                    sources.add(source)
-                }
+                sources.removeAll { (it as? JsonObject)?.get("source_path")?.jsonPrimitive?.contentOrNull == sourcePath }
+                sources.add(source)
             }
             buildJsonObject {
                 latest.forEach { (key, value) -> put(key, value) }
                 put("novel_sources", buildJsonArray { sources.forEach(::add) })
+                put("max_sentences", maxSentences)
+                put("max_chars", maxChars)
                 put("locked_characters", buildJsonArray { normalizedCharacters.forEach { add(JsonPrimitive(it)) } })
                 put("status", "running")
                 put("updated_at", now)
@@ -429,15 +432,15 @@ class RunOperationsService(
         }
         // 真正启动蒸馏执行（迁移自 Python：切状态后由 DistillExecutor 逐角色调 LLM 并更新进度）
         distillExecutor.start(runId, normalizedCharacters)
-        return updated
+        updated
     }
 
-    fun resumeDistill(runId: String): JsonObject {
+    fun resumeDistill(runId: String): JsonObject = distillExecutor.withRunLifecycle(runId) {
         if (!distillExecutor.isConfigured()) {
             throw IllegalArgumentException("请先在设置中完成模型配置。")
         }
         val manifest = storage.readRunManifest(runId) ?: throw NoSuchElementException("Run not found: $runId")
-        if (manifest["status"]?.jsonPrimitive?.contentOrNull == "running") {
+        if (distillExecutor.isRunning(runId) || manifest["status"]?.jsonPrimitive?.contentOrNull == "running") {
             throw IllegalArgumentException("这本书已经在蒸馏中。")
         }
         val locked = manifest["locked_characters"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
@@ -462,7 +465,7 @@ class RunOperationsService(
         // Pass the complete plan back to the executor. It reads completed_characters and skips
         // materialized profiles, so resuming never loses the first part of a large batch.
         distillExecutor.start(runId, locked)
-        return updated
+        updated
     }
 
     // ------------------------------------------------------------------

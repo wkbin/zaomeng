@@ -34,7 +34,6 @@ class PluginService(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
     // 日志 jsonl 需要单行完整 JSON，不能用 prettyPrint（否则逐行解析失败）
     private val compactJson = Json { ignoreUnknownKeys = true }
-    private val logLock = SimpleLock()
     private val root get() = storage.getStorageRoot() / "plugins"
     private val stateFile get() = root / "enabled.json"
     private val builtinRoot get() = root / ".builtin"
@@ -302,7 +301,7 @@ class PluginService(
     }
 
     /** 读取插件日志（jsonl，最多返回最近 200 条）。 */
-    fun logs(pluginId: String): JsonObject = logLock.withLock {
+    fun logs(pluginId: String): JsonObject = withDataLifecycleLock(pluginId) {
         val directory = pluginDirectory(pluginId)
         val logDirectory = directory / PLUGIN_LOG_DIRECTORY
         val entries = mutableListOf<JsonObject>()
@@ -339,7 +338,7 @@ class PluginService(
             put("message", message)
         }
         val line = compactJson.encodeToString(JsonObject.serializer(), entry) + "\n"
-        logLock.withLock {
+        withDataLifecycleLock(pluginId) {
             val logDirectory = pluginDirectory(pluginId) / PLUGIN_LOG_DIRECTORY
             val current = logDirectory / "current.jsonl"
             val currentSize = storage.fileSize(current)
@@ -357,14 +356,12 @@ class PluginService(
         .filter { LOG_SEGMENT_NAME.matches(it.name) }
         .sortedBy { it.name }
 
-    internal fun <T> withPluginLogLock(block: () -> T): T = logLock.withLock(block)
-
-    fun uninstall(pluginId: String): JsonObject = withPluginLogLock {
+    fun uninstall(pluginId: String): JsonObject {
         val normalized = pluginId.trim()
         if (isBuiltin(normalized)) {
             throw IllegalArgumentException("官方内置插件不可卸载。")
         }
-        withDataLifecycleLock(normalized) {
+        return withDataLifecycleLock(normalized) {
             val directory = pluginDirectory(normalized)
             val trash = storage.getStorageRoot() / "plugin-trash"
             storage.mkdirs(trash)

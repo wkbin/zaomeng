@@ -5,7 +5,9 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -63,6 +65,34 @@ class StorageService(
         val manifestFile = getDialogueSessionManifestFile(runId, sessionId)
         return lockFor(manifestFile).withLock { block() }
     }
+
+    internal fun <T> updateExistingSessionText(
+        runId: String,
+        sessionId: String,
+        target: Path,
+        transform: (String?) -> Pair<String, T>,
+    ): T = withSessionManifestLock(runId, sessionId) {
+        val manifest = getDialogueSessionManifestFile(runId, sessionId)
+        if (!store.isFile(manifest)) throw NoSuchElementException("Session manifest not found: $sessionId")
+        val directory = requireNotNull(manifest.parent)
+        val relative = target.normalized().relativeTo(directory.normalized()).segments
+        require(relative.isNotEmpty() && ".." !in relative) { "Session document must be inside the session directory" }
+        val (text, result) = transform(readTextOrNull(target))
+        writeBytesLocked(target, text.encodeToByteArray())
+        result
+    }
+
+    fun writeExistingSessionText(runId: String, sessionId: String, target: Path, text: String) {
+        updateExistingSessionText(runId, sessionId, target) { text to Unit }
+    }
+
+    fun deleteDialogueSessionDocuments(runId: String, sessionId: String): Boolean =
+        withSessionManifestLock(runId, sessionId) {
+            val directory = requireNotNull(getDialogueSessionManifestFile(runId, sessionId).parent)
+            if (!store.exists(directory)) return@withSessionManifestLock false
+            deleteRecursivelyLocked(directory)
+            true
+        }
 
     private val json = Json {
         prettyPrint = true
@@ -177,9 +207,13 @@ class StorageService(
     private fun deleteRecursivelyLocked(path: Path) {
         store.deleteRecursively(path)
         domain?.onDelete(path)
-        val prefix = path.toString().trimEnd('/') + "/"
+        val key = path.toString().replace('\\', '/')
+        val prefix = key.trimEnd('/') + "/"
         sessionManifestCacheLock.withLock {
-            sessionManifestCache.keys.removeAll { it == path.toString() || it.startsWith(prefix) }
+            sessionManifestCache.keys.removeAll {
+                val candidate = it.replace('\\', '/')
+                candidate == key || candidate.startsWith(prefix)
+            }
         }
     }
 
@@ -319,8 +353,8 @@ class StorageService(
     }
 
     fun getDialogueSessionManifestFile(runId: String, sessionId: String): Path {
-        PathSafety.validateStorageId(sessionId, "session_id")
-        return getDialogueSessionsDirectory(runId) / "$sessionId/session_manifest.json"
+        val id = PathSafety.validateStorageId(sessionId, "session_id")
+        return getDialogueSessionsDirectory(runId) / "$id/session_manifest.json"
     }
 
     private fun getTranscriptArchiveDirectory(runId: String, sessionId: String): Path {
@@ -332,7 +366,31 @@ class StorageService(
         val recent: JsonArray,
         val startIndex: Int,
         val totalCount: Int,
-    )
+        val archivedUserCount: Int?,
+    ) {
+        fun writeFields(builder: JsonObjectBuilder) = with(builder) {
+            put("transcript", recent)
+            put("transcript_start", startIndex)
+            put("transcript_count", totalCount)
+            put(ARCHIVED_USER_COUNT, archivedUserCount?.let(::JsonPrimitive) ?: JsonNull)
+        }
+    }
+
+    fun archivedUserMessageCount(manifest: JsonObject): Int? {
+        val start = sessionTranscriptStart(manifest)
+        if (start == 0) return 0
+        return (manifest[ARCHIVED_USER_COUNT] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..start }
+    }
+
+    fun withArchivedUserMessageCount(runId: String, sessionId: String, manifest: JsonObject): JsonObject {
+        if (archivedUserMessageCount(manifest) != null) return manifest
+        val count = sessionTranscriptEntries(runId, sessionId, JsonObject(manifest - "transcript"))
+            .count(::isUserTranscriptEntry)
+        return JsonObject(manifest + (ARCHIVED_USER_COUNT to JsonPrimitive(count)))
+    }
+
+    private fun isUserTranscriptEntry(entry: JsonElement): Boolean =
+        ((entry as? JsonObject)?.get("role") as? JsonPrimitive)?.contentOrNull == "user"
 
     /**
      * Keep the generation manifest bounded. Older entries are moved in batches so
@@ -345,6 +403,7 @@ class StorageService(
         combined: JsonArray,
     ): CompactedTranscript {
         var startIndex = manifest["transcript_start"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        var archivedUserCount = archivedUserMessageCount(manifest)
         val archiveDir = getTranscriptArchiveDirectory(runId, sessionId)
 
         // A full materialized session may have been saved by an edit/correction path.
@@ -362,6 +421,7 @@ class StorageService(
                 val archived = JsonArray(recent.subList(offset, end))
                 val chunkFile = archiveDir / "${(startIndex + offset).toString().padStart(10, '0')}.json"
                 writeTextAtomically(chunkFile, json.encodeToString(JsonArray.serializer(), archived))
+                archivedUserCount = archivedUserCount?.plus(archived.count(::isUserTranscriptEntry))
             }
             startIndex += archiveCount
             recent = JsonArray(recent.drop(archiveCount))
@@ -370,6 +430,7 @@ class StorageService(
             recent = recent,
             startIndex = startIndex,
             totalCount = startIndex + recent.size,
+            archivedUserCount = archivedUserCount,
         )
     }
 
@@ -423,6 +484,12 @@ class StorageService(
             .mapNotNull { it.name }
             .filter { PathSafety.STORAGE_ID_PATTERN.matches(it) }
             .sorted()
+    }
+
+    fun listDialogueSessionRunIds(): List<String> {
+        val ids = domain?.listSessionRunIds()
+            ?: store.listFiles(runsRoot).filter(store::isDirectory).map { it.name }
+        return ids.filter { PathSafety.STORAGE_ID_PATTERN.matches(it) }
     }
 
     /**
@@ -516,9 +583,7 @@ class StorageService(
             val updated = buildJsonObject {
                 mutation.manifest.forEach { (key, value) -> put(key, value) }
                 put("revision", nextRevision)
-                put("transcript", compacted.recent)
-                put("transcript_start", compacted.startIndex)
-                put("transcript_count", compacted.totalCount)
+                compacted.writeFields(this)
             }
             writeBytesLocked(
                 manifestFile,
@@ -534,6 +599,7 @@ class StorageService(
     }
 
     private companion object {
+        const val ARCHIVED_USER_COUNT = "transcript_archived_user_count"
         /** 同进程所有 StorageService 实例共享路径锁；不承诺跨进程互斥。 */
         private val WRITE_LOCKS = Array(64) { SimpleLock() }
         private const val MAX_CACHED_SESSION_MANIFESTS = 32
@@ -662,16 +728,11 @@ class StorageService(
     /**
      * 只读会话清单，不物化归档 transcript（会话列表页专用）。
      */
-    fun listDialogueSessionManifests(runId: String): List<JsonObject> {
-        domain?.let {
-            return it.listSessionManifests(runId).map { manifest ->
-                withCharacterAvatars(manifest, runId)
-            }
-        }
-        return listDialogueSessionIds(runId).mapNotNull { sessionId ->
+    fun listDialogueSessionManifests(runId: String, includeCharacterAvatars: Boolean = true): List<JsonObject> {
+        val manifests = domain?.listSessionManifests(runId) ?: listDialogueSessionIds(runId).mapNotNull { sessionId ->
             runCatching { loadSessionManifest(runId, sessionId) }.getOrNull()
-                ?.let { withCharacterAvatars(it, runId) }
         }
+        return if (includeCharacterAvatars) manifests.map { withCharacterAvatars(it, runId) } else manifests
     }
 
     fun getDialogueSession(runId: String, sessionId: String): JsonObject {
@@ -680,7 +741,7 @@ class StorageService(
         val full = JsonArray(snapshot.items.map { it.value })
         val materialized = buildJsonObject {
             snapshot.manifest.forEach { (key, value) ->
-                if (key !in setOf("transcript", "transcript_start", "transcript_count")) put(key, value)
+                if (key !in setOf("transcript", "transcript_start", "transcript_count", ARCHIVED_USER_COUNT)) put(key, value)
             }
             put("transcript", full)
             put("transcript_start", 0)

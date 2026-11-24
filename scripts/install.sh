@@ -52,7 +52,8 @@ check_python_version() {
   version="$(get_python_version "$py")"
   major="${version%%.*}"
   minor="${version##*.}"
-  if [ "$major" -ge "$MIN_PYTHON_MAJOR" ] && [ "$minor" -ge "$MIN_PYTHON_MINOR" ]; then
+  if [ "$major" -gt "$MIN_PYTHON_MAJOR" ] ||
+    { [ "$major" -eq "$MIN_PYTHON_MAJOR" ] && [ "$minor" -ge "$MIN_PYTHON_MINOR" ]; }; then
     return 0
   fi
   return 1
@@ -156,37 +157,37 @@ install_system_packages() {
 
   if command -v apt-get >/dev/null 2>&1; then
     echo "Installing packages via apt-get / 正在通过 apt-get 安装依赖: $*" >&2
-    run_pkg_manager "apt-get update -y && apt-get install -y $*"
+    run_pkg_manager apt-get update -y && run_pkg_manager apt-get install -y "$@"
     return
   fi
   if command -v apt >/dev/null 2>&1; then
     echo "Installing packages via apt / 正在通过 apt 安装依赖: $*" >&2
-    run_pkg_manager "apt update -y && apt install -y $*"
+    run_pkg_manager apt update -y && run_pkg_manager apt install -y "$@"
     return
   fi
   if command -v dnf >/dev/null 2>&1; then
     echo "Installing packages via dnf / 正在通过 dnf 安装依赖: $*" >&2
-    run_pkg_manager "dnf install -y $*"
+    run_pkg_manager dnf install -y "$@"
     return
   fi
   if command -v yum >/dev/null 2>&1; then
     echo "Installing packages via yum / 正在通过 yum 安装依赖: $*" >&2
-    run_pkg_manager "yum install -y $*"
+    run_pkg_manager yum install -y "$@"
     return
   fi
   if command -v pacman >/dev/null 2>&1; then
     echo "Installing packages via pacman / 正在通过 pacman 安装依赖: $*" >&2
-    run_pkg_manager "pacman -Sy --noconfirm $*"
+    run_pkg_manager pacman -Sy --noconfirm "$@"
     return
   fi
   if command -v zypper >/dev/null 2>&1; then
     echo "Installing packages via zypper / 正在通过 zypper 安装依赖: $*" >&2
-    run_pkg_manager "zypper --non-interactive install $*"
+    run_pkg_manager zypper --non-interactive install "$@"
     return
   fi
   if command -v apk >/dev/null 2>&1; then
     echo "Installing packages via apk / 正在通过 apk 安装依赖: $*" >&2
-    run_pkg_manager "apk add --no-cache $*"
+    run_pkg_manager apk add --no-cache "$@"
     return
   fi
 
@@ -219,16 +220,15 @@ auto_install_base_tools() {
 }
 
 run_pkg_manager() {
-  local install_cmd="$1"
   if [ "$(id -u)" -eq 0 ]; then
-    sh -c "$install_cmd"
+    "$@"
     return
   fi
   if command -v sudo >/dev/null 2>&1; then
-    sudo sh -c "$install_cmd"
+    sudo "$@"
     return
   fi
-  echo "Need elevated privileges to install dependencies / 安装依赖需要更高权限: $install_cmd" >&2
+  echo "Need elevated privileges to install dependencies / 安装依赖需要更高权限: $*" >&2
   return 1
 }
 
@@ -369,7 +369,14 @@ detect_rc_file() {
 
 append_path_line() {
   local rc_file="$1"
-  local path_line='export PATH="$HOME/.local/bin:$PATH"'
+  local path_line
+  if [ "$BIN_DIR" = "$HOME/.local/bin" ]; then
+    path_line='export PATH="$HOME/.local/bin:$PATH"'
+  else
+    local escaped
+    escaped="$(printf "%s" "$BIN_DIR" | sed "s/'/'\\\\''/g")"
+    path_line="export PATH='$escaped':\$PATH"
+  fi
   mkdir -p "$(dirname "$rc_file")"
   touch "$rc_file"
   if ! grep -Fq "$path_line" "$rc_file"; then
@@ -387,6 +394,29 @@ fetch_archive() {
       "$url" -o "$output"
   else
     wget --tries=3 --waitretry=2 -O "$output" "$url"
+  fi
+}
+
+verify_archive() {
+  local archive="$1"
+  local expected="${ZAOMENG_ARCHIVE_SHA256:-}"
+  local result
+  [ -n "$expected" ] || return 0
+  if [[ ! "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ZAOMENG_ARCHIVE_SHA256 must contain 64 hex digits. / SHA-256 必须为 64 位十六进制。" >&2
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    result="$(sha256sum < "$archive")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    result="$(shasum -a 256 < "$archive")" || return 1
+  else
+    echo "sha256sum or shasum is required to verify the archive. / 缺少 SHA-256 校验工具。" >&2
+    return 1
+  fi
+  if [ "${result%% *}" != "$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')" ]; then
+    echo "Archive SHA-256 mismatch. / 安装包 SHA-256 校验失败。" >&2
+    return 1
   fi
 }
 
@@ -436,6 +466,7 @@ main() {
     exit 1
   fi
 
+  verify_archive "$archive_path"
   tar -xzf "$archive_path" -C "$extract_root"
   extracted_dir="$(find "$extract_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
   if [ -z "$extracted_dir" ]; then
@@ -475,17 +506,16 @@ main() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_ROOT="${INSTALL_ROOT}"
-STORAGE_ROOT="${STORAGE_ROOT}"
+INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
+STORAGE_ROOT=$(printf '%q' "$STORAGE_ROOT")
 BUILTIN_NOVELS_ROOT="\${INSTALL_ROOT}/builtin_novels"
 PYTHON_BIN="\${INSTALL_ROOT}/.venv/bin/python"
-INSTALL_PYTHON="${python_cmd}"
-REPO_SLUG="${REPO_SLUG}"
-REPO_REF="${REPO_REF}"
-BIN_DIR="${BIN_DIR}"
-RC_FILE="${rc_file}"
-RUNTIME_REQUIREMENTS_FILE="${RUNTIME_REQUIREMENTS_FILE}"
-INSTALLER_URL="https://raw.githubusercontent.com/${REPO_SLUG}/${REPO_REF}/scripts/install.sh"
+INSTALL_PYTHON=$(printf '%q' "$python_cmd")
+REPO_SLUG=$(printf '%q' "$REPO_SLUG")
+REPO_REF=$(printf '%q' "$REPO_REF")
+BIN_DIR=$(printf '%q' "$BIN_DIR")
+RC_FILE=$(printf '%q' "$rc_file")
+RUNTIME_REQUIREMENTS_FILE=$(printf '%q' "$RUNTIME_REQUIREMENTS_FILE")
 VERSION_FILE_RELATIVE="src/web/static/version.txt"
 
 if [ ! -x "\${PYTHON_BIN}" ]; then
@@ -530,7 +560,7 @@ fetch_remote_version() {
 
 run_update() {
   local target_ref="\${1:-\${REPO_REF}}"
-  local installer_url="https://raw.githubusercontent.com/\${REPO_SLUG}/\${target_ref}/scripts/install.sh"
+  local installer="\${INSTALL_ROOT}/scripts/install.sh"
   local local_version=""
   local remote_version=""
 
@@ -552,39 +582,31 @@ run_update() {
     echo "Version check unavailable, proceeding with update. / 暂时无法比对版本，继续执行更新。"
   fi
 
-  if command -v curl >/dev/null 2>&1; then
-    curl --fail --silent --show-error --location "\${installer_url}" | \
-      env \
-        ZAOMENG_REPO_SLUG="\${REPO_SLUG}" \
-        ZAOMENG_REF="\${target_ref}" \
-        ZAOMENG_INSTALL_DIR="\${INSTALL_ROOT}" \
-        ZAOMENG_STORAGE_DIR="\${STORAGE_ROOT}" \
-        ZAOMENG_BIN_DIR="\${BIN_DIR}" \
-        ZAOMENG_PYTHON="\${INSTALL_PYTHON}" \
-        ZAOMENG_REQUIREMENTS_FILE="\${RUNTIME_REQUIREMENTS_FILE}" \
-        bash
-    return
+  if [ ! -f "\${installer}" ]; then
+    echo "Installed updater is missing. / 本地安装脚本缺失。" >&2
+    return 1
   fi
-  if command -v wget >/dev/null 2>&1; then
-    wget -qO- "\${installer_url}" | \
-      env \
-        ZAOMENG_REPO_SLUG="\${REPO_SLUG}" \
-        ZAOMENG_REF="\${target_ref}" \
-        ZAOMENG_INSTALL_DIR="\${INSTALL_ROOT}" \
-        ZAOMENG_STORAGE_DIR="\${STORAGE_ROOT}" \
-        ZAOMENG_BIN_DIR="\${BIN_DIR}" \
-        ZAOMENG_PYTHON="\${INSTALL_PYTHON}" \
-        ZAOMENG_REQUIREMENTS_FILE="\${RUNTIME_REQUIREMENTS_FILE}" \
-        bash
-    return
-  fi
-  echo "curl or wget is required for update. / 更新需要 curl 或 wget。" >&2
-  exit 1
+  env \
+    ZAOMENG_REPO_SLUG="\${REPO_SLUG}" \
+    ZAOMENG_REF="\${target_ref}" \
+    ZAOMENG_INSTALL_DIR="\${INSTALL_ROOT}" \
+    ZAOMENG_STORAGE_DIR="\${STORAGE_ROOT}" \
+    ZAOMENG_BIN_DIR="\${BIN_DIR}" \
+    ZAOMENG_PYTHON="\${INSTALL_PYTHON}" \
+    ZAOMENG_REQUIREMENTS_FILE="\${RUNTIME_REQUIREMENTS_FILE}" \
+    bash "\${installer}"
 }
 
 remove_path_line() {
   local rc_target="\${1:-}"
-  local path_line='export PATH="$HOME/.local/bin:$PATH"'
+  local path_line
+  if [ "\$BIN_DIR" = "\$HOME/.local/bin" ]; then
+    path_line='export PATH="\$HOME/.local/bin:\$PATH"'
+  else
+    local escaped
+    escaped="\$(printf "%s" "\$BIN_DIR" | sed "s/'/'\\\\\\\\''/g")"
+    path_line="export PATH='\$escaped':\\\$PATH"
+  fi
   [ -n "\${rc_target}" ] || return 0
   [ -f "\${rc_target}" ] || return 0
   local temp_file
@@ -596,23 +618,98 @@ remove_path_line() {
 }
 
 run_uninstall() {
-  echo "Uninstalling zaomeng / 正在卸载 zaomeng"
+  local assume_yes=0
+  local purge_data=0
+  while [ \$# -gt 0 ]; do
+    case "\$1" in
+      -y|--yes)
+        assume_yes=1
+        ;;
+      --purge-data)
+        purge_data=1
+        ;;
+      -h|--help)
+        cat <<'USAGE'
+Usage: zaomeng uninstall [--yes] [--purge-data]
+
+  --yes         Skip the confirmation prompt / 跳过确认
+  --purge-data  Also delete the data root, including novels, sessions and personas
+                同时删除数据目录（书卷、会话、人物档案）
+USAGE
+        return 0
+        ;;
+      *)
+        echo "Unknown option / 未知参数: \$1" >&2
+        exit 2
+        ;;
+    esac
+    shift
+  done
+
+  local install_root="\${INSTALL_ROOT}"
+  local storage_root="\${STORAGE_ROOT}"
+  local launcher="\${BIN_DIR}/zaomeng"
+
+  # 防御：空路径、根目录、家目录本身一旦传给 rm -rf 就是灾难，直接拒绝。
+  local resolved_home
+  resolved_home="\$(cd "\$HOME" 2>/dev/null && pwd -P || printf '%s' "\$HOME")"
+  local target resolved
+  for target in "\$install_root" "\$storage_root"; do
+    resolved="\$(cd "\$target" 2>/dev/null && pwd -P || printf '%s' "\$target")"
+    if [ -z "\$resolved" ] || [ "\$resolved" = "/" ] || [ "\$resolved" = "\$resolved_home" ]; then
+      echo "Refusing to uninstall: unsafe path / 拒绝卸载：目录不安全: \$target" >&2
+      exit 1
+    fi
+  done
+
+  echo "The following will be removed / 将执行以下删除:"
+  echo "  install root / 安装目录: \$install_root"
+  echo "  launcher / 启动命令:     \$launcher"
+  if [ "\$purge_data" -eq 1 ]; then
+    echo "  data root / 数据目录:    \$storage_root  (--purge-data)"
+  else
+    echo "  data root / 数据目录:    \$storage_root  (kept / 保留，需 --purge-data 才删除)"
+  fi
+
+  if [ "\$assume_yes" -ne 1 ]; then
+    if [ -t 0 ]; then
+      printf 'Continue? [y/N] '
+      read -r answer
+      case "\$answer" in
+        y|Y|yes|YES) ;;
+        *)
+          echo "Aborted / 已取消。"
+          exit 1
+          ;;
+      esac
+    else
+      echo "Refusing to uninstall non-interactively; pass --yes / 非交互卸载需要 --yes。" >&2
+      exit 1
+    fi
+  fi
+
   remove_path_line "\${RC_FILE}"
-  rm -rf "\${INSTALL_ROOT}"
-  rm -rf "\${STORAGE_ROOT}"
-  rm -f "\${BIN_DIR}/zaomeng"
+  rm -rf "\$install_root"
+  rm -f "\$launcher"
+  if [ "\$purge_data" -eq 1 ]; then
+    rm -rf "\$storage_root"
+  fi
   cat <<MSG
 zaomeng has been removed.
 zaomeng 已卸载完成。
 
-Removed install root / 已删除安装目录: \${INSTALL_ROOT}
-Removed data root / 已删除数据目录: \${STORAGE_ROOT}
-Removed launcher / 已删除启动命令: \${BIN_DIR}/zaomeng
+Removed install root / 已删除安装目录: \$install_root
+Removed launcher / 已删除启动命令: \$launcher
 Updated shell rc / 已更新 shell 配置: \${RC_FILE}
-
-If your current shell still has the old PATH cached, open a new shell.
-如果你当前 shell 里还保留旧 PATH，重新打开一个 shell 即可。
 MSG
+  if [ "\$purge_data" -eq 1 ]; then
+    echo "Removed data root / 已删除数据目录: \$storage_root"
+  else
+    echo "Data root kept / 数据目录保留: \$storage_root"
+  fi
+  echo
+  echo "If your current shell still has the old PATH cached, open a new shell."
+  echo "如果你当前 shell 里还保留旧 PATH，重新打开一个 shell 即可。"
 }
 
 if [ \$# -eq 0 ]; then
@@ -622,7 +719,7 @@ fi
 case "\$1" in
   uninstall)
     shift
-    run_uninstall
+    run_uninstall "\$@"
     ;;
   update)
     shift
@@ -653,7 +750,9 @@ PY
     cat <<'HELP'
 zaomeng commands / 可用命令:
   zaomeng                Start the Web UI on 127.0.0.1:8000 / 启动 Web UI
-  zaomeng uninstall      Remove the installed runtime and launcher / 卸载已安装的运行环境和启动命令
+  zaomeng uninstall [--yes] [--purge-data]
+                         Remove the runtime and launcher; data is kept unless --purge-data
+                         卸载运行环境与启动命令；默认保留数据，--purge-data 时一并删除
   zaomeng update [ref]   Reinstall from the current source or target ref / 从当前来源或指定 ref 重新安装更新
   zaomeng web [args]     Forward args to scripts/run_webui.py / 转发参数给 run_webui.py
   zaomeng bump-web-assets [version]

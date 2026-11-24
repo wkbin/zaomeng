@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
@@ -14,6 +16,7 @@ import top.wkbin.zaomeng.ktor.models.*
 import top.wkbin.zaomeng.platform.PlatformLog
 import top.wkbin.zaomeng.platform.base64Decode
 import top.wkbin.zaomeng.platform.nowIsoString
+import top.wkbin.zaomeng.platform.platformIoDispatcher
 import top.wkbin.zaomeng.platform.randomUuid
 
 /**
@@ -120,12 +123,14 @@ class RunManagementService(
             })
         }
 
-        // 写入运行清单
-        storageService.writeRunManifest(runId, manifest)
-
-        // 对齐 Python create_run(auto_run=True) 的 _start_background_run：自动启动蒸馏执行
-        if (autoRun && !deferRun) {
-            distillExecutor?.start(runId, characters)
+        val executor = distillExecutor
+        if (executor == null) {
+            storageService.writeRunManifest(runId, manifest)
+        } else {
+            executor.withRunLifecycle(runId) {
+                storageService.writeRunManifest(runId, manifest)
+                if (autoRun && !deferRun) executor.start(runId, characters)
+            }
         }
 
         PlatformLog.d(TAG, "Created run: $runId with ${characters.size} characters")
@@ -147,15 +152,15 @@ class RunManagementService(
             ?: throw IllegalArgumentException("Run not found: $runId")
 
         // 响应注入实时 avatar_version（对齐 Python core.py _serialize_manifest）
-        return storageService.withLiveAvatarVersions(manifest, runId)
+        val run = SillyTavernImport.restorePackagedCardOrigin(storageService, manifest)
+        return storageService.withLiveAvatarVersions(run, runId)
     }
 
     /**
      * 列出所有运行
      */
     fun listRuns(): List<JsonObject> {
-        val manifests = storageService.listRunManifests()
-        return manifests
+        return storageService.listRunManifests().map { SillyTavernImport.restorePackagedCardOrigin(storageService, it) }
     }
 
     /**
@@ -163,7 +168,10 @@ class RunManagementService(
      *
      * 对应 Python: run_service.stop_run()
      */
-    fun stopRun(runId: String): JsonObject {
+    fun stopRun(runId: String): JsonObject =
+        distillExecutor?.withRunLifecycle(runId) { markStopped(runId) } ?: markStopped(runId)
+
+    private fun markStopped(runId: String): JsonObject {
         if (storageService.readRunManifest(runId) == null) {
             throw IllegalArgumentException("Run not found: $runId")
         }
@@ -198,20 +206,21 @@ class RunManagementService(
      * 删除运行
      */
     suspend fun deleteRun(runId: String): JsonObject {
+        val id = PathSafety.validateStorageId(runId, "run_id")
+        return withContext(NonCancellable + platformIoDispatcher) {
+            distillExecutor?.deleteAfterStopping(id) { deleteRunData(id) } ?: deleteRunData(id)
+        }
+    }
+
+    private suspend fun deleteRunData(runId: String): JsonObject {
         val runDir = storageService.getRunDirectory(runId)
 
         if (!storageService.exists(runDir)) {
             throw IllegalArgumentException("Run not found: $runId")
         }
 
-        // 先停掉在跑的蒸馏并等它退出，否则后台任务会在删除后把目录和 manifest 写回来。
-        if (distillExecutor?.isRunning(runId) == true) {
-            PlatformLog.d(TAG, "Stopping active distillation before deleting run: $runId")
-            distillExecutor.stopAndWait(runId)
-        }
-
         storageService.listDialogueSessionIds(runId).forEach { sessionId ->
-            dialogueService?.cancelDerivedSession(runId, sessionId)
+            dialogueService?.deleteSessionData(runId, sessionId)
         }
 
         // 递归删除运行目录

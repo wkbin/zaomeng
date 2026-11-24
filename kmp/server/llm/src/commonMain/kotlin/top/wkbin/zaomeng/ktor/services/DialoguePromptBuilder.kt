@@ -10,6 +10,16 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
+import top.wkbin.zaomeng.data.api.WORLD_BOOK_CONTENT_CHAR_LIMIT
+import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
+import top.wkbin.zaomeng.data.api.WorldBookMatchDto
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+import top.wkbin.zaomeng.data.api.AuthorNotePosition
+import top.wkbin.zaomeng.data.api.expandSillyTavernNames
+import top.wkbin.zaomeng.data.api.expandSillyTavernOutlets
+import top.wkbin.zaomeng.data.api.sillyTavernOutletCardFields
+import top.wkbin.zaomeng.data.api.sillyTavernExampleBlocks
 
 /**
  * 对话 LLM 消息构建（迁移自 Python src/web/chat/helpers.py）。
@@ -247,7 +257,10 @@ class DialoguePromptBuilder(
         return compact
     }
 
-    private fun compactMemoryContext(memoryContext: Map<String, Any?>): Map<String, Any?> {
+    private fun compactMemoryContext(
+        memoryContext: Map<String, Any?>,
+        omitPositionedLore: Boolean = false,
+    ): Map<String, Any?> {
         val sessionSummary = (memoryContext["session_summary"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val archivedSummary = (memoryContext["archived_summary"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
         val retrievedMemories = memoryContext["retrieved_memories"] as? List<*> ?: emptyList<Any?>()
@@ -284,12 +297,27 @@ class DialoguePromptBuilder(
                     fact["locked"]?.toString() == "true"
                 if (locked) 0 else 1
             }
-        for (item in sortedFacts.take(DialoguePromptRules.WORLD_FACT_LIMIT)) {
+        var ordinaryFactCount = 0
+        var exemptFactCount = 0
+        var remainingLoreChars = WORLD_BOOK_CONTENT_CHAR_LIMIT
+        for (item in sortedFacts) {
+            if (item["ignore_budget"] == true) {
+                if (exemptFactCount++ >= DialoguePromptRules.WORLD_FACT_LIMIT) continue
+            } else if (ordinaryFactCount++ >= DialoguePromptRules.WORLD_FACT_LIMIT) {
+                continue
+            }
+            if (omitPositionedLore && item["world_book_position"] is WorldBookInjectionPosition) continue
             val map = item.mapKeys { it.key.toString() }
+            val summary = if (map["category"] == "sillytavern_lore") {
+                val lore = (map["summary"] as? String).orEmpty()
+                if (lore.length > remainingLoreChars) continue
+                remainingLoreChars -= lore.length
+                lore
+            } else trimText(map["summary"], 240)
             val fact = mapOf(
                 "fact_id" to (map["fact_id"]?.toString()?.trim().orEmpty()),
                 "category" to (map["category"]?.toString()?.trim().orEmpty()),
-                "summary" to trimText(map["summary"], 240),
+                "summary" to summary,
                 "characters" to ((map["characters"] as? List<*>) ?: emptyList<Any?>())
                     .mapNotNull { it?.toString()?.trim() }.filter { it.isNotEmpty() }.take(12).map { trimText(it, 80) },
                 "location" to trimText(map["location"], 100),
@@ -402,8 +430,33 @@ class DialoguePromptBuilder(
         val includeInnerThoughts = payload["include_inner_thoughts"] == true ||
             payload["include_inner_thoughts"]?.toString() == "true"
         val messageKind = inputBlock["message_kind"]?.toString()?.trim().orEmpty().ifBlank { "dialogue" }
+        val rawCard = payload["sillytavern_card"] as? Map<*, *>
+        val cardName = rawCard?.get("name")?.toString().orEmpty()
+        val positionedLore = (payload["world_book_matches"] as? List<*>).orEmpty()
+            .filterIsInstance<WorldBookMatchDto>()
+            .filter { it.status == "injected" && it.position != null }
+            .take(DialoguePromptRules.WORLD_FACT_LIMIT)
+        val depthLore = positionedLore.filter { it.position == WorldBookInjectionPosition.AtDepth }
+        val cardUser = ((inputBlock["self_insert"] as? Map<*, *>)?.get("display_name") as? String)
+            ?.takeIf { it.isNotBlank() } ?: inputBlock["speaker"]?.toString().orEmpty().ifBlank { "你" }
+        val outlets = positionedLore.filter { it.position == WorldBookInjectionPosition.Outlet && it.outletName != null }
+            .sortedByDescending { it.insertionOrder }
+            .groupBy { it.outletName.orEmpty() }
+            .mapValues { (_, entries) ->
+                entries.joinToString("\n") { expandSillyTavernNames(it.excerpt, cardName, cardUser) }
+            }
+        val card = rawCard?.mapValues { (key, value) ->
+            if (key is String && key in sillyTavernOutletCardFields && value is String) {
+                expandSillyTavernOutlets(value, outlets).trim()
+            } else value
+        }
         val participants = (inputBlock["participants"] as? List<*>)?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
         val activeParticipants = (inputBlock["active_participants"] as? List<*>)?.mapNotNull { it?.toString()?.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        val note = (payload["author_note"] as? AuthorNoteDto ?: AuthorNoteDto())
+        val authorNote = buildAuthorNote(
+            note, positionedLore, cardName.ifBlank { participants.singleOrNull() ?: "{{char}}" }, cardUser,
+        )
+        val inChatNote = authorNote?.takeIf { note.position == AuthorNotePosition.InChat }
         val rawPersonas = payload["persona_contexts"] as? List<*> ?: emptyList<Any?>()
         val personaMap = linkedMapOf<String, Map<String, Any?>>()
         for (item in rawPersonas) {
@@ -419,7 +472,8 @@ class DialoguePromptBuilder(
         for (name in activeParticipants + participants) {
             if (name in personaMap && name !in activePersonaNames) activePersonaNames.add(name)
         }
-        val stablePersonaContexts = stablePersonaNames.take(6).map { compactStaticPersonaContext(personaMap[it]) }
+        val stablePersonaContexts = stablePersonaNames.filterNot { it == cardName }.take(6)
+            .map { compactStaticPersonaContext(personaMap[it]) }
         val activePersonaStates = activePersonaNames.take(6).map { compactActivePersonaState(personaMap[it]) }
 
         val relationExcerpt = trimText(
@@ -428,7 +482,8 @@ class DialoguePromptBuilder(
         )
         val history = ((payload["history"] as? List<*>) ?: emptyList<Any?>()).takeLast(6)
         val memoryContext = compactMemoryContext(
-            (payload["memory_context"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap()
+            (payload["memory_context"] as? Map<*, *>)?.mapKeys { it.key.toString() } ?: emptyMap(),
+            omitPositionedLore = positionedLore.isNotEmpty(),
         ).toMutableMap()
         memoryContext.remove("relation_delta")
         memoryContext.remove("character_snapshots")
@@ -489,7 +544,14 @@ class DialoguePromptBuilder(
 
         val stableSystemParts = mutableListOf<String>()
         stableSystemParts.add(payload["host_prompt_brief"]?.toString()?.trim().orEmpty())
-        stableSystemParts.add(instructions["generation_goal"]?.toString()?.trim().orEmpty())
+        if (note.position == AuthorNotePosition.BeforePrompt && authorNote != null) {
+            stableSystemParts.add(authorNote.text)
+        }
+        val generationGoal = instructions["generation_goal"]?.toString()?.trim().orEmpty()
+        val cardSystem = card?.get("system_prompt")?.toString().orEmpty()
+        stableSystemParts.add(if (cardSystem.isBlank()) generationGoal else {
+            cardSystem.replace("{{original}}", generationGoal, ignoreCase = true)
+        })
         stableSystemParts.add(instructions["mode_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["speaker_rule"]?.toString()?.trim().orEmpty())
         stableSystemParts.add(instructions["forbidden_speaker_rule"]?.toString()?.trim().orEmpty())
@@ -511,7 +573,37 @@ class DialoguePromptBuilder(
             "scene_card" to sceneCard,
             "persona_contexts" to stablePersonaContexts,
         )
+        fun addWorldBookSection(position: WorldBookInjectionPosition, label: String) {
+            val text = positionedLore.filter { it.position == position }
+                .sortedByDescending { it.insertionOrder }.asReversed()
+                .joinToString("\n") { it.excerpt }
+            if (text.isNotBlank()) stableSystemParts.add("【世界书 · $label】\n$text")
+        }
+        addWorldBookSection(WorldBookInjectionPosition.BeforeCharacter, "角色定义前")
         stableSystemParts.add("STATIC_CHARACTER_CONTEXT\n" + compactJson(stableContext))
+        if (card != null) {
+            val sections = linkedMapOf(
+                "玩家人设" to card["user_persona"],
+                "角色描述" to card["description"],
+                "性格摘要" to card["personality"],
+                "场景" to card["scenario"],
+            )
+            for ((label, raw) in sections) {
+                val text = raw?.toString().orEmpty()
+                if (text.isNotBlank()) stableSystemParts.add("【$label】\n$text")
+            }
+        }
+        addWorldBookSection(WorldBookInjectionPosition.AfterCharacter, "角色定义后")
+        if (note.position == AuthorNotePosition.AfterPrompt && authorNote != null) {
+            stableSystemParts.add(authorNote.text)
+        }
+        val examples = formatDialogueExamples(
+            card?.get("mes_example")?.toString().orEmpty(),
+            positionedLore,
+            cardName.ifBlank { participants.singleOrNull() ?: "{{char}}" },
+            cardUser,
+        )
+        if (examples.isNotBlank()) stableSystemParts.add("【对话示例】\n$examples")
 
         val turnSystemParts = mutableListOf<String>()
         turnSystemParts.add(instructions["progression_rule"]?.toString()?.trim().orEmpty())
@@ -538,7 +630,9 @@ class DialoguePromptBuilder(
             turnSystemParts.add(promptLoader.getTurnSystemRule("controlled_memories_rule"))
         }
         val worldFacts = memoryContext["world_facts"] as? List<*> ?: emptyList<Any?>()
-        if (worldFacts.isNotEmpty()) {
+        if (worldFacts.isNotEmpty() || positionedLore.any {
+            it.position != WorldBookInjectionPosition.BeforeExamples && it.position != WorldBookInjectionPosition.AfterExamples
+        }) {
             turnSystemParts.add(promptLoader.getTurnSystemRule("world_facts_rule"))
         }
         if (correctionContext.isNotEmpty()) {
@@ -588,12 +682,118 @@ class DialoguePromptBuilder(
             "expected_output" to expectedOutput,
             "retry_on_empty" to retryOnEmpty,
         )
+        if (card != null || depthLore.isNotEmpty() || inChatNote != null) {
+            val dialogueHistory = mutableListOf<LlmClient.ChatMessage>()
+            val sceneHistory = mutableListOf<Map<*, *>>()
+            for (entry in history.filterIsInstance<Map<*, *>>()) {
+                val text = trimText(entry["message"], 4000)
+                if (text.isBlank()) continue
+                val role = when (entry["role"]) {
+                    "user" -> "user"
+                    "assistant", "character" -> "assistant"
+                    else -> null
+                }
+                if (role == null) {
+                    sceneHistory.add(mapOf("role" to entry["role"], "speaker" to entry["speaker"], "message" to text))
+                } else {
+                    val speaker = entry["speaker"]?.toString().orEmpty()
+                    val content = if (card == null && speaker.isNotBlank()) "$speaker：$text" else text
+                    dialogueHistory.add(LlmClient.ChatMessage(role = role, content = content))
+                    val thought = trimText(entry["inner_thought"], 400)
+                    if (card == null && thought.isNotBlank()) {
+                        sceneHistory.add(mapOf("speaker" to speaker, "inner_thought" to thought))
+                    }
+                }
+            }
+            dialogueHistory.add(LlmClient.ChatMessage(role = "user", content = inputBlock["message"]?.toString().orEmpty()))
+            val turnContext = userPayload - "message" + ("history" to sceneHistory)
+            val postHistory = card?.get("post_history_instructions")?.toString().orEmpty()
+                .replace("{{original}}", "", ignoreCase = true).trim()
+            return buildList {
+                add(LlmClient.ChatMessage(role = "system", content = stableSystemPrompt))
+                add(LlmClient.ChatMessage(role = "system", content = "$turnSystemPrompt\nTURN_CONTEXT\n" + compactJson(turnContext)))
+                addAll(insertDepthLore(dialogueHistory, depthLore, inChatNote))
+                if (postHistory.isNotEmpty()) {
+                    val contract = listOf(
+                        hostAction["output_rule"]?.toString().orEmpty(),
+                        promptLoader.getTurnSystemRule("json_only_rule"),
+                        promptLoader.getTurnSystemRule("no_code_fence_rule"),
+                    ).filter(String::isNotBlank).joinToString("\n")
+                    add(LlmClient.ChatMessage(role = "system", content = "$postHistory\n$contract"))
+                }
+            }
+        }
         val userPrompt = compactJson(userPayload)
         return listOf(
             LlmClient.ChatMessage(role = "system", content = stableSystemPrompt),
             LlmClient.ChatMessage(role = "system", content = turnSystemPrompt),
             LlmClient.ChatMessage(role = "user", content = userPrompt),
         )
+    }
+
+    private fun formatDialogueExamples(
+        cardExamples: String,
+        lore: List<WorldBookMatchDto>,
+        character: String,
+        user: String,
+    ): String {
+        val inserted = lore.filter {
+            it.position == WorldBookInjectionPosition.BeforeExamples || it.position == WorldBookInjectionPosition.AfterExamples
+        }.sortedByDescending { it.insertionOrder }
+        if (inserted.isEmpty()) return cardExamples
+
+        fun examples(entries: List<WorldBookMatchDto>, position: WorldBookInjectionPosition): List<String> =
+            entries.filter { it.position == position }.flatMap {
+                sillyTavernExampleBlocks(expandSillyTavernNames(it.excerpt, character, user))
+            }
+        val before = examples(inserted, WorldBookInjectionPosition.BeforeExamples)
+        val after = examples(inserted.asReversed(), WorldBookInjectionPosition.AfterExamples)
+        return (before + sillyTavernExampleBlocks(cardExamples) + after)
+            .joinToString("\n\n") { "<START>\n$it" }
+    }
+
+    private data class AuthorNoteInjection(val depth: Int, val role: WorldBookInjectionRole, val text: String)
+
+    private fun buildAuthorNote(
+        note: AuthorNoteDto,
+        lore: List<WorldBookMatchDto>,
+        character: String,
+        user: String,
+    ): AuthorNoteInjection? {
+        if (!note.enabled) return null
+        val ordered = lore.filter { it.position?.isAuthorNote == true }.sortedByDescending { it.insertionOrder }.asReversed()
+        val parts = ordered.filter { it.position == WorldBookInjectionPosition.BeforeAuthorNote }.map { it.excerpt } +
+            note.text.trim().take(AuthorNoteDto.MAX_TEXT_LENGTH) +
+            ordered.filter { it.position == WorldBookInjectionPosition.AfterAuthorNote }.map { it.excerpt }
+        val text = expandSillyTavernNames(parts.filter(String::isNotBlank).joinToString("\n"), character, user)
+        return text.takeIf(String::isNotBlank)?.let { AuthorNoteInjection(note.depth.coerceIn(0, 10_000), note.role, it) }
+    }
+
+    private fun insertDepthLore(
+        dialogue: List<LlmClient.ChatMessage>,
+        lore: List<WorldBookMatchDto>,
+        authorNote: AuthorNoteInjection?,
+    ): List<LlmClient.ChatMessage> {
+        if (lore.isEmpty() && authorNote == null) return dialogue
+        // SillyTavern places depth prompts into newest-first history, then sends it in reverse.
+        val roleOrder = listOf(WorldBookInjectionRole.Assistant, WorldBookInjectionRole.User, WorldBookInjectionRole.System)
+        val byDepth = lore.groupBy { it.injectionDepth ?: 4 }
+        val pending = (byDepth.keys + listOfNotNull(authorNote?.depth)).sortedDescending()
+            .groupBy { (dialogue.size - it).coerceIn(0, dialogue.size) }
+        return buildList {
+            for (index in 0..dialogue.size) {
+                for (depth in pending[index].orEmpty()) {
+                    val byRole = byDepth[depth].orEmpty().sortedByDescending { it.insertionOrder }.asReversed()
+                        .groupBy { it.injectionRole ?: WorldBookInjectionRole.System }
+                    for (role in roleOrder) {
+                        val note = authorNote?.takeIf { it.depth == depth && it.role == role }
+                        val text = (listOfNotNull(note?.text) + byRole[role].orEmpty().map { it.excerpt }).joinToString("\n")
+                        if (text.isNotBlank()) add(LlmClient.ChatMessage(role = role.chatRole, content = text))
+                    }
+                }
+                dialogue.getOrNull(index)?.let(::add)
+            }
+        }
     }
 
     // ------------------------------------------------------------------

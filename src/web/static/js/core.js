@@ -1324,6 +1324,9 @@ function showAppConfirm(options = {}) {
   if (!modal) {
     return Promise.resolve(window.confirm(message || fallback));
   }
+  if (appConfirmResolver) {
+    closeAppConfirmModal(false);
+  }
   const titleNode = el("app-confirm-modal-title");
   const messageNode = el("app-confirm-modal-message");
   const confirmButton = el("app-confirm-modal-confirm");

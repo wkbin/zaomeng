@@ -3,6 +3,7 @@ package top.wkbin.zaomeng.feature.originalknowledge
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,9 @@ class OriginalKnowledgeViewModel(
     private val mutableState = MutableStateFlow(OriginalKnowledgeUiState())
     val state: StateFlow<OriginalKnowledgeUiState> = mutableState.asStateFlow()
 
+    private var searchJob: Job? = null
+    private var searchRequestId = 0L
+
     init {
         require(runId.isNotBlank()) { "runId 不能为空。" }
         loadInitial()
@@ -45,8 +49,10 @@ class OriginalKnowledgeViewModel(
     }
 
     fun search() {
+        searchJob?.cancel()
+        val requestId = ++searchRequestId
         val snapshot = state.value
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             mutableState.update { it.copy(loading = true, error = "", message = "") }
             try {
                 val items = originalKnowledge.searchOriginalKnowledge(
@@ -55,11 +61,17 @@ class OriginalKnowledgeViewModel(
                     participants = snapshot.characters,
                     pinnedOnly = snapshot.pinnedOnly,
                 )
-                mutableState.update { it.copy(items = items, loading = false) }
+                mutableState.update { current ->
+                    if (requestId != searchRequestId) current
+                    else current.copy(items = items, loading = false)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                mutableState.update { it.copy(loading = false, error = error.message ?: "搜索原文证据失败。") }
+                mutableState.update { current ->
+                    if (requestId != searchRequestId) current
+                    else current.copy(loading = false, error = error.message ?: "搜索原文证据失败。")
+                }
             }
         }
     }

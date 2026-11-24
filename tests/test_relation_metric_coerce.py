@@ -21,6 +21,31 @@ class RelationMetricCoerceTests(unittest.TestCase):
         self.assertEqual(coerce_int("…", 5), 5)
         self.assertEqual(coerce_int("约7", 5), 7)
 
+    def test_relation_state_preserves_zero_scores(self):
+        from src.web.chat.relation_state import (
+            merged_relation_matrix,
+            normalize_relation_entry,
+        )
+
+        entry = normalize_relation_entry(
+            {"trust": 0, "affection": 0, "hostility": 10, "ambiguity": 0}
+        )
+        self.assertEqual(entry["trust"], 0)
+        self.assertEqual(entry["affection"], 0)
+        self.assertEqual(entry["hostility"], 10)
+        self.assertEqual(entry["ambiguity"], 0)
+
+        merged = merged_relation_matrix(
+            {"甲_乙": {"trust": 0, "affection": 0, "hostility": 10, "ambiguity": 0}},
+            {},
+            ["甲", "乙"],
+        )
+        pair = merged["甲_乙"]
+        self.assertEqual(pair["trust"], 0)
+        self.assertEqual(pair["affection"], 0)
+        self.assertEqual(pair["hostility"], 10)
+        self.assertEqual(pair["ambiguity"], 0)
+
     def test_relation_type_label_with_ellipsis_metrics(self):
         label = relation_type_label({"trust": "...", "affection": "", "hostility": "..."})
         self.assertEqual(label, "牵连")

@@ -1195,14 +1195,16 @@ function renderRun(run, options = {}) {
   setStatus("bookshelf-status", "");
   currentRunId = run.run_id || "";
   currentRun = run;
-  newRunFlowOpen = false;
-  chatModePickerOpen = false;
-  characterOverviewOpen = false;
-  currentCharacterOverview = null;
-  redistillPanelOpen = false;
-  sourceHistoryExpanded = false;
-  characterReadinessExpanded = false;
-  workSessionPreviewExpanded = false;
+  if (!options.preserveView) {
+    newRunFlowOpen = false;
+    chatModePickerOpen = false;
+    characterOverviewOpen = false;
+    currentCharacterOverview = null;
+    redistillPanelOpen = false;
+    sourceHistoryExpanded = false;
+    characterReadinessExpanded = false;
+    workSessionPreviewExpanded = false;
+  }
   runCreationPending = run.status === "running" && !isRunWorkflowComplete(run);
   renderRunSummary(run);
   renderRunEvents(run);
@@ -1262,12 +1264,17 @@ window.__ZAOMENG_RUN_DETAIL_ACTIONS__ = {
 
 function scheduleRunPolling() {
   stopRunPolling();
-  if (!currentRunId) return;
+  const runId = currentRunId;
+  if (!runId) return;
   runPollTimer = window.setTimeout(async () => {
+    const timer = runPollTimer;
+    const isCurrent = () => runPollTimer === timer && currentRunId === runId;
     try {
-      await refreshCurrentRunView(currentRunId);
+      const run = await apiJson(`/api/web/runs/${runId}`);
+      if (isCurrent()) renderRun(run, { preserveDialogue: true, preserveView: true });
     } catch (error) {
       console.warn("poll run failed", error);
+      if (isCurrent()) scheduleRunPolling();
     }
   }, 1800);
 }

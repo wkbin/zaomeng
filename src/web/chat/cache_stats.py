@@ -136,14 +136,61 @@ def record_generation_cache_observation(
         turn_id=str(turn_id or "").strip(),
         updated_at=str(updated_at or "").strip(),
     )
-    turns = [
+    previous_turns = [
         dict(entry)
         for entry in list(existing.get("turns", []) or [])
         if isinstance(entry, dict)
-        and str(entry.get("turn_id", "")).strip() != item["turn_id"]
+    ]
+    replaced = [
+        entry
+        for entry in previous_turns
+        if str(entry.get("turn_id", "")).strip() == item["turn_id"]
+    ]
+    turns = [
+        entry
+        for entry in previous_turns
+        if str(entry.get("turn_id", "")).strip() != item["turn_id"]
     ]
     turns.append(item)
     turns = turns[-MAX_RECORDED_TURNS:]
+
+    # 同一 turn_id 重复上报时，turns 列表按 id 去重覆盖，累计计数也必须先把旧值扣回，
+    # 否则 total_turns/tokens 会随重试次数翻倍，与 turns 条目数不一致。
+    for old in replaced:
+        summary["total_turns"] = _non_negative_int(summary.get("total_turns", 0)) - 1
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            summary[key] = _non_negative_int(summary.get(key, 0)) - _non_negative_int(old.get(key, 0))
+        summary["elapsed_seconds"] = round(
+            _non_negative_float(summary.get("elapsed_seconds", 0.0))
+            - _non_negative_float(old.get("elapsed_seconds", 0.0)),
+            4,
+        )
+        summary["cost_usd"] = round(
+            _non_negative_float(summary.get("cost_usd", 0.0))
+            - _non_negative_float(old.get("cost_usd", 0.0)),
+            8,
+        )
+        summary["attempt_count"] = (
+            _non_negative_int(summary.get("attempt_count", 0)) - _non_negative_int(old.get("attempt_count", 0))
+        )
+        summary["retry_count"] = (
+            _non_negative_int(summary.get("retry_count", 0)) - _non_negative_int(old.get("retry_count", 0))
+        )
+        old_models = dict(summary.get("models", {}) or {})
+        old_model = str(old.get("model", "")).strip() or "unknown"
+        old_models[old_model] = _non_negative_int(old_models.get(old_model, 0)) - _non_negative_int(old.get("attempt_count", 0))
+        if old_models[old_model] <= 0:
+            old_models.pop(old_model, None)
+        summary["models"] = old_models
+        if old.get("observed"):
+            summary["observed_turns"] = _non_negative_int(summary.get("observed_turns", 0)) - 1
+            for key in (
+                "input_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "cache_miss_tokens",
+            ):
+                summary[key] = _non_negative_int(summary.get(key, 0)) - _non_negative_int(old.get(key, 0))
 
     summary["total_turns"] = _non_negative_int(summary.get("total_turns", 0)) + 1
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):

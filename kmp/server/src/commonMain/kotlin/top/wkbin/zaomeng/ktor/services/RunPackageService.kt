@@ -49,9 +49,12 @@ class RunPackageService(private val storage: StorageService) {
         require(request.targetRunId == null || (isSillyTavern && extension == "json")) {
             "只有 JSON 世界书可以导入已有书卷。"
         }
+        require(request.expectedWorldBookRevision == null || request.targetRunId != null) {
+            "只有独立世界书需要校验挂载版本。"
+        }
         if (isSillyTavern) {
             val bytes = decodeSillyTavern(request.contentBase64)
-            return request.targetRunId?.let { sillyTavern.importWorldBook(it, bytes) }
+            return request.targetRunId?.let { sillyTavern.importWorldBook(it, bytes, request.expectedWorldBookRevision) }
                 ?: sillyTavern.importCard(bytes, png = extension == "png")
         }
         require(request.contentBase64.length <= ((MAX_PACKAGE_BYTES + 2) / 3) * 4) { "archive is too large" }
@@ -75,13 +78,14 @@ class RunPackageService(private val storage: StorageService) {
             storage.mkdirs(target / "dialogue")
             val manifestFile = target / "run_manifest.json"
             val original = json.parseToJsonElement(storage.readText(manifestFile)).jsonObject
-            val rewritten = rewriteManifest(
+            val imported = rewriteManifest(
                 manifest = original,
                 target = target,
                 runId = newRunId,
                 filename = request.filename,
                 libraryPackage = request.libraryPackage,
             )
+            val rewritten = SillyTavernImport.restorePackagedCardOrigin(storage, imported)
             storage.writeTextAtomically(manifestFile, json.encodeToString(JsonObject.serializer(), rewritten))
             rewriteSessionRunIds(target, newRunId)
             return rewritten
@@ -273,7 +277,8 @@ class RunPackageService(private val storage: StorageService) {
         targetRoot.trimEnd('/', '\\') + if (relative.isBlank()) "" else "/${relative.trimStart('/')}"
 
     private fun rewriteSessionRunIds(target: Path, runId: String) {
-        storage.listFiles(target / "dialogue/sessions").filter { storage.isDirectory(it) }.forEach { directory ->
+        val sessionsDirectory = target / "dialogue/sessions"
+        storage.listFiles(sessionsDirectory).filter { storage.isDirectory(it) }.forEach { directory ->
             val manifest = directory / "session_manifest.json"
             if (!storage.isFile(manifest)) return@forEach
             val value = runCatching { json.parseToJsonElement(storage.readText(manifest)).jsonObject }.getOrNull() ?: return@forEach
@@ -281,6 +286,29 @@ class RunPackageService(private val storage: StorageService) {
                 value.forEach { (key, item) -> put(key, if (key == "run_id") JsonPrimitive(runId) else item) }
             }
             storage.writeTextAtomically(manifest, json.encodeToString(JsonObject.serializer(), updated))
+            rewriteReceiptRunIds(directory, runId)
+        }
+    }
+
+    /**
+     * 回复操作与派生操作的回执内嵌 `run_id`，路径由新书卷决定。
+     * 导入后必须把回执里的旧书卷标识改成新书卷，否则续跑/派生会读写到原书卷目录。
+     */
+    private fun rewriteReceiptRunIds(sessionDirectory: Path, runId: String) {
+        listOf("operations", "derived-operations").forEach { storeName ->
+            val storeDirectory = sessionDirectory / storeName
+            if (!storage.isDirectory(storeDirectory)) return@forEach
+            storage.listFiles(storeDirectory).filter { storage.isDirectory(it) }.forEach operationLoop@ { operationDirectory ->
+                val receipt = operationDirectory / "receipt.json"
+                if (!storage.isFile(receipt)) return@operationLoop
+                val value = runCatching { json.parseToJsonElement(storage.readText(receipt)).jsonObject }
+                    .getOrNull() ?: return@operationLoop
+                if (value["run_id"]?.jsonPrimitive?.contentOrNull == runId) return@operationLoop
+                val updated = buildJsonObject {
+                    value.forEach { (key, item) -> put(key, if (key == "run_id") JsonPrimitive(runId) else item) }
+                }
+                storage.writeTextAtomically(receipt, json.encodeToString(JsonObject.serializer(), updated))
+            }
         }
     }
 

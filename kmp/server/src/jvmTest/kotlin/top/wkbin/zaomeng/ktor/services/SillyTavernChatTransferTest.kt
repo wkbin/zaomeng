@@ -3,7 +3,10 @@ package top.wkbin.zaomeng.ktor.services
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import okio.Path.Companion.toPath
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+import top.wkbin.zaomeng.data.api.AuthorNotePosition
 import top.wkbin.zaomeng.data.api.ImportSillyTavernChatRequest
+import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
 import top.wkbin.zaomeng.db.DomainStore
 import top.wkbin.zaomeng.db.RoomDocumentStore
 import top.wkbin.zaomeng.db.buildZaomengDatabase
@@ -13,6 +16,102 @@ import java.util.Base64
 import kotlin.test.*
 
 class SillyTavernChatTransferTest {
+    @Test
+    fun `author note metadata survives import edit export and reimport`() = withStorage { storage ->
+        val runId = "run-a"
+        val transfer = SillyTavernChatTransfer(storage)
+        val dialogue = DialogueService(storage)
+        val sessions = SessionManagementService(storage, dialogue)
+        val chat = """{"name":"林晚","is_user":false,"mes":"开场"}"""
+        val header = """{"chat_metadata":{"note_prompt":"  留意{{char}}。\n慢一点。  ","note_interval":3,"note_depth":2,"note_position":2,"note_role":1,"integrity":"discard"}}"""
+        val imported = transfer.importChat(runId, request("$header\n$chat"))
+        val sessionId = imported.text("session_id")
+        val note = AuthorNoteDto(
+            text = "  留意{{char}}。\n慢一点。  ",
+            interval = 3,
+            depth = 2,
+            role = WorldBookInjectionRole.User,
+            position = AuthorNotePosition.BeforePrompt,
+        )
+        assertEquals(note, imported.sessionAuthorNote())
+        assertEquals(note, storage.loadSessionManifest(runId, sessionId).sessionAuthorNote())
+        val changed = note.copy(position = AuthorNotePosition.AfterPrompt, role = WorldBookInjectionRole.Assistant)
+        assertEquals(changed, sessions.updateAuthorNote(runId, sessionId, changed))
+        val exported = transfer.exportLines(runId, sessionId).toList()
+        val metadata = exported.first().getValue("chat_metadata").jsonObject
+        assertEquals(Json.parseToJsonElement("""{"note_prompt":"  留意{{char}}。\n慢一点。  ","note_interval":3,"note_depth":2,"note_position":0,"note_role":2}"""), metadata)
+        assertEquals(changed, transfer.importChat(runId, request(exported.joinToString("\n"))).sessionAuthorNote())
+
+        sessions.updateAuthorNote(runId, sessionId, changed.copy(enabled = false, position = AuthorNotePosition.InChat))
+        val disabled = transfer.exportLines(runId, sessionId).toList()
+        assertEquals(0, disabled.first().getValue("chat_metadata").jsonObject.getValue("note_interval").jsonPrimitive.int)
+        assertEquals(changed.copy(enabled = false, interval = 1, position = AuthorNotePosition.InChat),
+            transfer.importChat(runId, request(disabled.joinToString("\n"))).sessionAuthorNote())
+    }
+
+    @Test
+    fun `unknown note metadata falls back and oversized note leaves no session`() = withStorage { storage ->
+        val transfer = SillyTavernChatTransfer(storage)
+        val chat = """{"name":"林晚","is_user":false,"mes":"开场"}"""
+        val header = """{"chat_metadata":{"note_prompt":"注释","note_depth":10001,"note_position":99,"note_role":{},"note_interval":"invalid"}}"""
+        val imported = transfer.importChat("run-a", request("$header\n$chat"))
+        assertEquals(AuthorNoteDto("注释"), imported.sessionAuthorNote())
+        val longText = "x".repeat(AuthorNoteDto.MAX_TEXT_LENGTH + 1)
+        val oversizedHeader = """{"chat_metadata":{"note_prompt":"$longText"}}"""
+        val before = storage.listDialogueSessionIds("run-a")
+        assertFailsWith<IllegalArgumentException> {
+            transfer.importChat("run-a", request("$oversizedHeader\n$chat"))
+        }
+        assertEquals(before, storage.listDialogueSessionIds("run-a"))
+    }
+
+    @Test
+    fun `author note cadence counts archived user messages in legacy chats and after rollover`() = runBlocking {
+        withStorage { storage ->
+            val runId = "run-a"
+            val content = buildList {
+                add("""{"name":"林晚","is_user":false,"mes":"开场"}""")
+                repeat(125) { index ->
+                    val isUser = index % 25 == 0
+                    val name = if (isUser) "旅人" else "林晚"
+                    add("""{"name":"$name","is_user":$isUser,"mes":"消息 $index"}""")
+                }
+            }.joinToString("\n")
+            val sessionId = SillyTavernChatTransfer(storage).importChat(runId, request(content)).text("session_id")
+            assertEquals(2, storage.archivedUserMessageCount(storage.loadSessionManifest(runId, sessionId)))
+            storage.updateSessionManifest(runId, sessionId) { JsonObject(it - "transcript_archived_user_count") }
+            val before = storage.loadSessionManifest(runId, sessionId)
+            assertNull(storage.archivedUserMessageCount(before))
+
+            SessionManagementService(storage, DialogueService(storage))
+                .updateAuthorNote(runId, sessionId, AuthorNoteDto("记得点灯。", interval = 6))
+            val saved = storage.loadSessionManifest(runId, sessionId)
+            assertEquals(2, storage.archivedUserMessageCount(saved))
+            assertEquals(before["revision"], saved["revision"])
+            val manifest = assertNotNull(storage.readRunManifest(runId))
+            val builder = DialoguePayloadBuilder(storage)
+            val due = builder.buildTurnPayload(manifest, saved, "next", "点灯。")
+            assertTrue((due.getValue("author_note") as AuthorNoteDto).enabled)
+
+            storage.mutateSessionHistory(runId, sessionId) { snapshot ->
+                val updated = buildJsonObject {
+                    snapshot.manifest.forEach { (key, value) -> put(key, value) }
+                    put("transcript", JsonArray(saved.getValue("transcript").jsonArray + List(50) {
+                        buildJsonObject {
+                            put("role", "character")
+                            put("message", "灯亮了。")
+                        }
+                    }))
+                }
+                SessionHistoryMutation(updated, Unit)
+            }
+            val rolled = storage.loadSessionManifest(runId, sessionId)
+            assertEquals(4, storage.archivedUserMessageCount(rolled))
+            val stillDue = builder.buildTurnPayload(manifest, rolled, "next", "点灯。")
+            assertTrue((stillDue.getValue("author_note") as AuthorNoteDto).enabled)
+        }
+    }
+
     @Test
     fun `long group chat keeps archive and swipes through branch and round trip`() = withStorage { storage ->
         val service = SillyTavernChatTransfer(storage)
@@ -129,7 +228,7 @@ class SillyTavernChatTransferTest {
         assertEquals(1, imported.getValue("transcript_count").jsonPrimitive.int)
     }
 
-    private fun withStorage(block: (StorageService) -> Unit) {
+    private inline fun withStorage(block: (StorageService) -> Unit) {
         val path = File.createTempFile("zaomeng-chat-transfer-", ".db").apply { deleteOnExit() }.absolutePath.toPath()
         val db = buildZaomengDatabase(getDatabaseBuilder(path))
         try {

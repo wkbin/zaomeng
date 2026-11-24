@@ -92,7 +92,7 @@ class DerivedOperationStore(private val storage: StorageService) {
             createdAt = now,
             updatedAt = now,
         )
-        val ensured = storage.updateOrCreateText(path) { original ->
+        val ensured = storage.updateExistingSessionText(runId, sessionId, path) { original ->
             val current = original?.let(::decode)
             if (current != null) {
                 if (current.sourceHash != sourceHash) {
@@ -103,17 +103,17 @@ class DerivedOperationStore(private val storage: StorageService) {
                     val replacement = create(
                         if (activate) DerivedOperationStatus.PENDING else DerivedOperationStatus.PREPARED,
                     )
-                    return@updateOrCreateText encode(replacement) to replacement
+                    return@updateExistingSessionText encode(replacement) to replacement
                 }
                 if (hasNewerCorrection) {
                     val superseded = current.copy(status = DerivedOperationStatus.SUPERSEDED, ownerId = "", updatedAt = now)
-                    return@updateOrCreateText encode(superseded) to superseded
+                    return@updateExistingSessionText encode(superseded) to superseded
                 }
                 if (activate && current.status == DerivedOperationStatus.PREPARED) {
                     val activated = current.copy(status = DerivedOperationStatus.PENDING, updatedAt = now)
-                    return@updateOrCreateText encode(activated) to activated
+                    return@updateExistingSessionText encode(activated) to activated
                 }
-                return@updateOrCreateText original to current
+                return@updateExistingSessionText original to current
             }
             val operation = create(
                 when {
@@ -299,7 +299,7 @@ class DerivedOperationStore(private val storage: StorageService) {
         transform: (DerivedOperation) -> DerivedOperation,
     ): DerivedOperation {
         val path = receiptPath(operation.runId, operation.sessionId, operation.operationId)
-        return storage.updateOrCreateText(path) { original ->
+        return storage.updateExistingSessionText(operation.runId, operation.sessionId, path) { original ->
             val current = original?.let(::decode)
                 ?: throw NoSuchElementException("Derived operation not found: ${operation.operationId}")
             val updated = transform(current).copy(updatedAt = nowEpochMillis())
@@ -324,13 +324,12 @@ class DerivedOperationStore(private val storage: StorageService) {
     }
 
     private fun receiptPath(runId: String, sessionId: String, operationId: String): Path {
-        PathSafety.validateStorageId(sessionId, "session_id")
-        PathSafety.validateStorageId(operationId, "derived_operation_id")
-        return derivedDirectory(runId, sessionId) / "$operationId/receipt.json"
+        val id = PathSafety.validateStorageId(operationId, "derived_operation_id")
+        return derivedDirectory(runId, sessionId) / "$id/receipt.json"
     }
 
     private fun derivedDirectory(runId: String, sessionId: String): Path =
-        storage.getDialogueSessionsDirectory(runId) / "$sessionId/derived-operations"
+        requireNotNull(storage.getDialogueSessionManifestFile(runId, sessionId).parent) / "derived-operations"
 
     private fun operationId(result: ReplyOperationResult): String =
         "${result.turnId}--${result.committedRevision}"

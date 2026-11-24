@@ -6,6 +6,7 @@ import okio.Path
 import okio.buffer
 import okio.use
 import top.wkbin.zaomeng.platform.PlatformLog
+import top.wkbin.zaomeng.platform.SimpleLock
 import top.wkbin.zaomeng.platform.monotonicNanos
 import top.wkbin.zaomeng.platform.nowEpochMillis
 import top.wkbin.zaomeng.platform.runBlockingPlatform
@@ -52,9 +53,14 @@ interface DocumentStore {
 class FileSystemDocumentStore(
     private val fs: FileSystem = FileSystem.SYSTEM,
 ) : DocumentStore {
-    override fun readBytes(path: Path): ByteArray? {
-        if (!fs.exists(path)) return null
-        return runCatching { fs.source(path).buffer().use { it.readByteArray() } }.getOrNull()
+    private val documentLocks = Array(64) { SimpleLock() }
+
+    private fun documentLock(path: Path): SimpleLock =
+        documentLocks[(path.normalized().hashCode() and Int.MAX_VALUE) % documentLocks.size]
+
+    override fun readBytes(path: Path): ByteArray? = documentLock(path).withLock {
+        if (!fs.exists(path)) return@withLock null
+        runCatching { fs.source(path).buffer().use { it.readByteArray() } }.getOrNull()
     }
 
     override fun writeBytes(path: Path, bytes: ByteArray, updatedAtMillis: Long) {
@@ -63,7 +69,8 @@ class FileSystemDocumentStore(
         val temp = parent / ".${path.name}.${monotonicNanos()}.tmp"
         try {
             fs.sink(temp).buffer().use { sink -> sink.write(bytes) }
-            fs.atomicMove(temp, path)
+            // On Windows the target cannot be replaced while our reader keeps it open.
+            documentLock(path).withLock { fs.atomicMove(temp, path) }
         } finally {
             runCatching { fs.delete(temp, mustExist = false) }
         }

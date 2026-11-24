@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.sessions
 
+import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,7 +24,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,7 +32,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -63,7 +63,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material.icons.filled.Download
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberFileExporter
 import kotlinx.coroutines.CancellationException
@@ -85,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
+import androidx.paging.compose.itemKey
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import top.wkbin.zaomeng.platform.PlatformBackHandler
@@ -143,11 +143,10 @@ fun SessionsScreen(
         keyboardController?.hide()
         Unit
     }
-    val visibleSessions = buildList {
-        repeat(lazySessions.itemCount) { index ->
-            lazySessions[index]?.let(::add)
-        }
-    }
+    val visibleSessions = lazySessions.itemSnapshotList.items
+    val emptySessions = lazySessions.itemCount == 0 &&
+        lazySessions.loadState.refresh is LoadState.NotLoading &&
+        lazySessions.loadState.append.endOfPaginationReached
     val visibleSessionKeys = visibleSessions.mapTo(mutableSetOf(), DialogueSessionDto::key)
     val allVisibleSelected = visibleSessionKeys.isNotEmpty() &&
         visibleSessionKeys.all(state.selectedSessionKeys::contains)
@@ -211,7 +210,7 @@ fun SessionsScreen(
                     } else {
                         Column {
                             Text(
-                                text = if (runId.isNullOrBlank()) "全部会话" else "书中会话",
+                                text = if (runId.isNullOrBlank()) "对话" else "本书对话",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -325,11 +324,11 @@ fun SessionsScreen(
             )
         },
         floatingActionButton = {
-            if (!state.selectionMode) {
+            if (!state.selectionMode && !(emptySessions && state.searchQuery.isBlank())) {
                 ExtendedFloatingActionButton(
                     onClick = viewModel::openCreateDialog,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("开始新会话") },
+                    text = { Text("新建对话") },
                 )
             }
         },
@@ -345,7 +344,7 @@ fun SessionsScreen(
                 lazySessions = lazySessions,
                 visibleSessions = visibleSessions,
                 onOpenChat = onOpenChat,
-                onImportChat = chatPicker.takeIf { canImportChat },
+                onCreateSession = viewModel::openCreateDialog,
                 onDelete = { pendingDeletion = it },
                 onExport = viewModel::exportSillyTavernChat,
                 onRename = {
@@ -527,7 +526,7 @@ private fun SessionsContent(
     lazySessions: LazyPagingItems<DialogueSessionDto>,
     visibleSessions: List<DialogueSessionDto>,
     onOpenChat: (String, String) -> Unit,
-    onImportChat: (() -> Unit)?,
+    onCreateSession: () -> Unit,
     onDelete: (DialogueSessionDto) -> Unit,
     onExport: (DialogueSessionDto) -> Unit,
     onRename: (DialogueSessionDto) -> Unit,
@@ -539,13 +538,6 @@ private fun SessionsContent(
     modifier: Modifier = Modifier,
 ) {
     val runsById = remember(state.runs) { state.runs.associateBy(RunManifestDto::runId) }
-    val sessionGroups = remember(visibleSessions, runsById) {
-        visibleSessions.groupBy { session ->
-            runsById[session.runId]?.title
-                ?.takeIf(String::isNotBlank)
-                ?: session.novelId.ifBlank { "未命名书卷" }
-        }
-    }
     val refreshState = lazySessions.loadState.refresh
     val appendState = lazySessions.loadState.append
     val initialLoading = refreshState is LoadState.Loading && lazySessions.itemCount == 0
@@ -612,29 +604,18 @@ private fun SessionsContent(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 if (state.scopedRunId != null) {
-                                    "开始新会话，或导入 SillyTavern JSONL 聊天记录。"
+                                    "选择参与人物，开启这本书的第一段对话。"
                                 } else {
-                                    "选择一本书卷，开始新的会话。"
+                                    "选择一本书卷和参与人物，开始对话。"
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (state.scopedRunId != null) {
-                                Spacer(Modifier.height(12.dp))
-                                OutlinedButton(
-                                    enabled = onImportChat != null,
-                                    onClick = { onImportChat?.invoke() },
-                                ) { Text("导入聊天") }
-                            }
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = onCreateSession) { Text("新建对话") }
                         }
                     }
                 }
-            }
-
-            visibleSessions.isEmpty() && refreshState is LoadState.NotLoading -> item(
-                span = { GridItemSpan(maxLineSpan) },
-            ) {
-                NoSessionMatches(onClearSearch = { onSearchQueryChange("") })
             }
 
             else -> {
@@ -647,20 +628,13 @@ private fun SessionsContent(
                         onSelectSort = onSelectSort,
                     )
                 }
-                sessionGroups.forEach { (bookTitle, sessions) ->
-                    item(key = "book-$bookTitle", span = { GridItemSpan(maxLineSpan) }) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(bookTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "${sessions.size} 段会话",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    items(sessions, key = DialogueSessionDto::key) { session ->
+                items(count = lazySessions.itemCount, key = lazySessions.itemKey(DialogueSessionDto::key)) { index ->
+                    val session = lazySessions[index]
+                    if (session != null) {
                         SessionCard(
                             session = session,
+                            bookTitle = runsById[session.runId]?.title?.takeIf(String::isNotBlank)
+                                ?: session.novelId,
                             avatarBytes = state.avatarBytes,
                             deleting = session.key in state.deletingSessionKeys,
                             selectionMode = state.selectionMode,
@@ -772,6 +746,7 @@ private fun NoSessionMatches(onClearSearch: () -> Unit) {
 @Composable
 private fun SessionCard(
     session: DialogueSessionDto,
+    bookTitle: String,
     avatarBytes: Map<String, ByteArray>,
     deleting: Boolean,
     selectionMode: Boolean,
@@ -819,37 +794,37 @@ private fun SessionCard(
                     )
                 }
                 if (!selectionMode) {
-                    IconButton(
-                        onClick = onExport,
-                        enabled = !deleting && exportEnabled,
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = "导出 SillyTavern 聊天 JSONL", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(
-                        onClick = onRename,
-                        enabled = !deleting,
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "修改会话标题",
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    IconButton(
-                        onClick = onDelete,
-                        enabled = !deleting,
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        if (deleting) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "删除会话",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.error,
+                    var menuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }, enabled = !deleting) {
+                            if (deleting) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.MoreVert, contentDescription = "对话选项")
+                            }
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("重命名") },
+                                onClick = {
+                                    menuOpen = false
+                                    onRename()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("导出聊天记录") },
+                                enabled = exportEnabled,
+                                onClick = {
+                                    menuOpen = false
+                                    onExport()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("删除对话", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    menuOpen = false
+                                    onDelete()
+                                },
                             )
                         }
                     }
@@ -881,7 +856,8 @@ private fun SessionCard(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "${session.mode.chineseMode()} · ${session.updatedAt.toLocalDateTimeDisplay()}",
+                    text = listOf(bookTitle, session.mode.chineseMode(), session.updatedAt.toLocalDateTimeDisplay())
+                        .filter(String::isNotBlank).joinToString(" · "),
                     modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1160,13 +1136,13 @@ private fun NewSessionDialog(
                                 }
                             }
                             val text = options.firstOrNull { it.index == (greetingIndex ?: 0) }?.text
-                            Text(
+                            RoleplayMessageContent(
                                 text = text?.let {
                                     expandSillyTavernNames(it, greetingCharacter.orEmpty(), state.draft.selfName.trim().ifBlank { "你" })
                                 } ?: "由模型生成开场",
-                                maxLines = 8,
-                                overflow = TextOverflow.Ellipsis,
+                                maxProseLines = 8,
                                 style = MaterialTheme.typography.bodySmall,
+                                baseColor = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }

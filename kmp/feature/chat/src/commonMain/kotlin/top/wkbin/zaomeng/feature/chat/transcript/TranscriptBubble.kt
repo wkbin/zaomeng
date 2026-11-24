@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.chat
 
+import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
+
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -152,6 +154,7 @@ internal fun TranscriptBubble(
     displayPreferences: ChatDisplayPreferences,
     actionsEnabled: Boolean,
     includeInnerThoughts: Boolean,
+    readingLayout: Boolean = false,
     streaming: Boolean = false,
     canRegenerate: Boolean = false,
     isSpeaking: Boolean = false,
@@ -170,6 +173,91 @@ internal fun TranscriptBubble(
     val messageStyle = MaterialTheme.typography.bodyMedium.copy(
         fontSize = MaterialTheme.typography.bodyMedium.fontSize * displayPreferences.fontSizeScale,
     )
+
+    if (readingLayout && !isUser && !isDirector) {
+        val body = MaterialTheme.typography.bodyLarge
+        val scale = displayPreferences.fontSizeScale
+        val readingStyle = body.copy(fontSize = body.fontSize * scale, lineHeight = body.lineHeight * scale)
+        val isThisSpeaking = isSpeaking && speakingId == item.transcriptKey()
+        Box(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (!isScene) {
+                        ChatPersonaAvatar(
+                            bytes = avatarBytes[item.speaker],
+                            name = item.speaker,
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                    val speaker = if (isScene) {
+                        item.speaker.takeIf(String::isNotBlank)?.let { "旁白 · $it" } ?: "旁白"
+                    } else item.speaker.ifBlank { "人物" }
+                    Text(
+                        text = speaker,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (onSpeak != null && !isScene && !streaming) {
+                        IconButton(onClick = onSpeak) {
+                            Icon(
+                                imageVector = if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff
+                                else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isThisSpeaking) "停止朗读" else "朗读",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    if (!streaming) {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "消息操作", modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+                RoleplayMessageContent(
+                    text = item.message,
+                    style = readingStyle,
+                    baseColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (streaming) Modifier else Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClickLabel = "消息操作",
+                            onLongClick = { menuExpanded = true },
+                        ),
+                    ),
+                    streaming = streaming,
+                    readingLayout = true,
+                )
+                if (includeInnerThoughts && item.innerThought.isNotBlank() && !isScene) {
+                    var thoughtExpanded by rememberSaveable { mutableStateOf(false) }
+                    TextButton(onClick = { thoughtExpanded = !thoughtExpanded }) {
+                        Text(if (thoughtExpanded) "收起内心独白" else "展开内心独白")
+                    }
+                    if (thoughtExpanded) {
+                        Text(item.innerThought, style = readingStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (streaming) {
+                    Text("正在生成", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            MessageContextMenu(
+                expanded = menuExpanded,
+                onDismiss = { menuExpanded = false },
+                actionsEnabled = actionsEnabled,
+                canRegenerate = !isScene && canRegenerate,
+                canBranch = canBranch,
+                onCopy = onCopy,
+                onRegenerate = onRegenerate,
+                onBranch = onBranch,
+            )
+        }
+        return
+    }
 
     if (isScene) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -193,12 +281,17 @@ internal fun TranscriptBubble(
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        ParentheticalMessageText(
+                        val narrationStyle = messageStyle.copy(fontStyle = FontStyle.Italic)
+                        val narrationColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        RoleplayMessageContent(
                             text = item.message,
                             modifier = Modifier.padding(top = 3.dp),
-                            style = messageStyle.copy(fontStyle = FontStyle.Italic),
-                            baseColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
+                            style = narrationStyle,
+                            baseColor = narrationColor,
+                            streaming = streaming,
+                        ) { prose ->
+                            ParentheticalMessageText(prose, style = narrationStyle, baseColor = narrationColor)
+                        }
                     }
                 }
                 MessageContextMenu(
@@ -352,16 +445,25 @@ internal fun TranscriptBubble(
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                             fontWeight = FontWeight.SemiBold,
                         )
-                        ParentheticalMessageText(
-                            text = item.message,
-                            modifier = Modifier.padding(top = 3.dp),
-                            style = messageStyle,
-                            baseColor = if (isUser) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                        )
+                        if (isUser) {
+                            ParentheticalMessageText(
+                                text = item.message,
+                                modifier = Modifier.padding(top = 3.dp),
+                                style = messageStyle,
+                                baseColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        } else {
+                            val replyColor = MaterialTheme.colorScheme.onSurface
+                            RoleplayMessageContent(
+                                text = item.message,
+                                modifier = Modifier.padding(top = 3.dp),
+                                style = messageStyle,
+                                baseColor = replyColor,
+                                streaming = streaming,
+                            ) { prose ->
+                                ParentheticalMessageText(prose, style = messageStyle, baseColor = replyColor)
+                            }
+                        }
                         if (includeInnerThoughts && item.innerThought.isNotBlank() && !isUser) {
                             androidx.compose.material3.HorizontalDivider(
                                 modifier = Modifier.padding(top = 6.dp),

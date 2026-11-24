@@ -395,7 +395,7 @@ class PluginSystemTests(unittest.TestCase):
 
     def test_app_surfaces_plugin_management_entries(self):
         settings_home = Path(
-            "kmp/app/shared/src/commonMain/kotlin/"
+            "kmp/feature/settings/src/commonMain/kotlin/"
             "top/wkbin/zaomeng/feature/settings/SettingsHomeScreen.kt"
         ).read_text(encoding="utf-8")
         web_modal = Path("src/web/static/fragments/settings-modal.html").read_text(
@@ -620,22 +620,24 @@ class PluginSystemTests(unittest.TestCase):
             )
             self.assertEqual(result["suggestion"], "installed")
     def test_android_chat_surfaces_plugins_in_a_dedicated_menu(self):
-        chat_screen = Path(
-            "kmp/app/shared/src/commonMain/kotlin/"
-            "top/wkbin/zaomeng/feature/chat/ChatScreen.kt"
-        ).read_text(encoding="utf-8")
+        chat_root = Path(
+            "kmp/feature/chat/src/commonMain/kotlin/top/wkbin/zaomeng/feature/chat"
+        )
+        chat_composer = (chat_root / "composer/ChatComposer.kt").read_text(encoding="utf-8")
+        chat_screen = (chat_root / "ChatScreen.kt").read_text(encoding="utf-8")
 
-        self.assertIn('Text(if (pluginActionBusy) "插件运行中…" else "插件")', chat_screen)
-        self.assertIn("state.pluginActions.forEach", chat_screen)
-        self.assertIn("state.generationEnhancers.forEach", chat_screen)
-        chat_view_model = Path(
-            "kmp/app/shared/src/commonMain/kotlin/"
-            "top/wkbin/zaomeng/feature/chat/ChatViewModel.kt"
-        ).read_text(encoding="utf-8")
+        self.assertIn('Text(if (pluginActionBusy) "插件运行中…" else "插件")', chat_composer)
+        self.assertIn("state.pluginActions.forEach", chat_composer)
+        self.assertIn("state.generationEnhancers.forEach", chat_composer)
+        chat_view_model = (chat_root / "ChatViewModel.kt").read_text(encoding="utf-8")
+        chat_tools = (chat_root / "internal/ChatToolsDelegate.kt").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("temporaryNpcGenerators", chat_view_model)
-        self.assertIn("invokePluginTemporaryNpcGenerator", chat_view_model)
-        self.assertNotIn('contentDescription = "一键生成续写建议"', chat_screen)
-        self.assertNotIn('Text(if (state.includeInnerThoughts) "关闭读心"', chat_screen)
+        self.assertIn("invokePluginTemporaryNpcGenerator", chat_tools)
+        for source in (chat_screen, chat_composer):
+            self.assertNotIn('contentDescription = "一键生成续写建议"', source)
+            self.assertNotIn('Text(if (state.includeInnerThoughts) "关闭读心"', source)
 
     def test_manifest_rejects_unknown_permission(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from prompts.loader import get_self_card_generation_prompt
 
+from src.web.path_safety import resolve_storage_child
 from src.web.review.persona_completion import PERSONA_REVIEW_FIELD_LABELS
 from src.web.review.persona import (
     PERSONA_REVIEW_FIELDS,
@@ -128,7 +129,7 @@ def load_self_card_payload(
     load_profile_source: Callable[[Path], dict[str, Any]],
     read_persona_review_fields: Callable[[dict[str, Any]], dict[str, str]],
 ) -> dict[str, Any]:
-    card_dir = cards_root / str(card_id or "").strip()
+    card_dir = resolve_storage_child(cards_root, card_id, field_name="card_id")
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     meta = _load_card_meta(card_dir)
@@ -159,7 +160,7 @@ def save_self_card_payload(
     validate_self_card_fields(normalized)
 
     resolved_card_id = str(card_id or "").strip() or f"card-{uuid4().hex[:10]}"
-    card_dir = cards_root / resolved_card_id
+    card_dir = resolve_storage_child(cards_root, resolved_card_id, field_name="card_id")
     if str(card_id or "").strip() and not card_dir.exists():
         raise FileNotFoundError(card_id)
     card_dir.mkdir(parents=True, exist_ok=True)
@@ -193,7 +194,7 @@ def save_self_card_payload(
 
 
 def delete_self_card_payload(cards_root: Path, card_id: str) -> dict[str, str]:
-    card_dir = cards_root / str(card_id or "").strip()
+    card_dir = resolve_storage_child(cards_root, card_id, field_name="card_id")
     if not card_dir.exists():
         raise FileNotFoundError(card_id)
     shutil.rmtree(card_dir)

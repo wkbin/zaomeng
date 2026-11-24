@@ -7,6 +7,9 @@ import kotlinx.serialization.Serializable
 data object BookshelfDestination : NavKey
 
 @Serializable
+data object MoreDestination : NavKey
+
+@Serializable
 data object ImportBookDestination : NavKey
 
 @Serializable

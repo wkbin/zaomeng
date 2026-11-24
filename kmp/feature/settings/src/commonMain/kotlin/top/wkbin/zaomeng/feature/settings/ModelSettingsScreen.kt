@@ -144,9 +144,12 @@ fun ModelProfileEditorScreen(
     var showApiKey by remember { mutableStateOf(false) }
     var showCatalogSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
+    var showManualModelInput by remember { mutableStateOf(false) }
     var showMaxTokensSheet by remember { mutableStateOf(false) }
     var showReasoningEffortSheet by remember { mutableStateOf(false) }
     var maxTokensDraft by remember { mutableStateOf("") }
+    val catalog = modelCatalogs.firstOrNull { it.id == state.selectedCatalogId }
+    val canDiscoverModels = state.provider != "ollama"
 
     LaunchedEffect(state.completed) {
         if (state.completed) {
@@ -192,35 +195,37 @@ fun ModelProfileEditorScreen(
             onDismiss = { showCatalogSheet = false },
             onSelect = {
                 viewModel.selectCatalog(it)
+                showManualModelInput = false
                 showCatalogSheet = false
             },
         )
     }
     if (showModelSheet) {
-        val catalog = modelCatalogs.firstOrNull { it.id == state.selectedCatalogId }
-        catalog?.takeIf { it.models.isNotEmpty() }?.let {
-            ModelSelectionSheet(
-                title = it.title,
-                models = it.models,
-                selectedModel = state.model,
-                onDismiss = { showModelSheet = false },
-                onSelect = {
-                    viewModel.updateModel(it)
-                    showModelSheet = false
-                },
-            )
+        val models = remember(catalog, state.discoveredModels, state.model) {
+            val presetModels = catalog?.models.orEmpty()
+            val presetById = presetModels.associateBy { it.id }
+            buildList {
+                val current = state.model.trim()
+                if (current.isNotEmpty()) add(presetById[current] ?: ModelChoice(current, current))
+                state.discoveredModels.forEach { add(presetById[it] ?: ModelChoice(it, it)) }
+                addAll(presetModels)
+            }.distinctBy { it.id }
         }
-    }
-    if (state.discoveredModels.isNotEmpty()) {
-        val models = remember(state.discoveredModels) { state.discoveredModels.map { ModelChoice(it, it) } }
         ModelSelectionSheet(
-            title = "服务商返回的模型",
             models = models,
-            selectedModel = state.model,
-            onDismiss = viewModel::dismissDiscoveredModels,
+            selectedModel = state.model.trim(),
+            discovering = state.discoveringModels,
+            discoveryError = state.modelDiscoveryError,
+            onDiscover = if (canDiscoverModels) viewModel::discoverModels else null,
+            onDismiss = { showModelSheet = false },
             onSelect = {
                 viewModel.updateModel(it)
-                viewModel.dismissDiscoveredModels()
+                showManualModelInput = false
+                showModelSheet = false
+            },
+            onManualInput = {
+                showManualModelInput = true
+                showModelSheet = false
             },
         )
     }
@@ -289,7 +294,6 @@ fun ModelProfileEditorScreen(
             LoadingContent(Modifier.fillMaxSize().padding(innerPadding), "正在读取模型档案…")
             return@Scaffold
         }
-        val catalog = modelCatalogs.firstOrNull { it.id == state.selectedCatalogId }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -325,18 +329,6 @@ fun ModelProfileEditorScreen(
                             placeholder = "openai-compatible / openai / anthropic / ollama",
                         )
                     }
-                    if (catalog != null && catalog.models.isNotEmpty()) {
-                        val modelTitle = catalog.models.firstOrNull { it.id == state.model }?.title
-                            ?: state.model.ifBlank { "选择模型" }
-                        SelectionRow(
-                            title = "模型名称",
-                            value = modelTitle,
-                            onClick = { showModelSheet = true },
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    } else {
-                        EditorField(state.model, viewModel::updateModel, "模型名称", "例如 deepseek-v4-flash / gpt-5-mini")
-                    }
                     EditorField(
                         value = state.baseUrl,
                         onValueChange = viewModel::updateBaseUrl,
@@ -350,7 +342,7 @@ fun ModelProfileEditorScreen(
                             onValueChange = viewModel::updateApiKey,
                             label = "API Key",
                             placeholder = if (state.apiKeyConfigured) "已保存；留空继续沿用" else "输入模型服务密钥",
-                            supportingText = "密钥由 Android Keystore 加密保护，不显示在档案列表或诊断信息中。",
+                            supportingText = "公开模型列表可留空直接拉取。",
                             password = !showApiKey,
                             trailingIcon = {
                                 IconButton(onClick = { showApiKey = !showApiKey }) {
@@ -359,17 +351,20 @@ fun ModelProfileEditorScreen(
                             },
                         )
                     }
-                    OutlinedButton(
-                        onClick = viewModel::discoverModels,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.discoveringModels && !state.saving && !state.deleting &&
-                            !state.testing && !state.detecting && state.provider != "ollama",
-                    ) {
-                        if (state.discoveringModels) ProgressIcon()
-                        Text(if (state.discoveringModels) "正在拉取模型…" else "拉取模型列表")
-                    }
-                    if (state.modelDiscoveryError.isNotBlank()) {
-                        StatusMessage(state.modelDiscoveryError, true)
+                    val needsDiscovery = canDiscoverModels && catalog?.models.orEmpty().isEmpty() &&
+                        state.discoveredModels.isEmpty()
+                    val modelTitle = catalog?.models?.firstOrNull { it.id == state.model }?.title
+                        ?: state.model.ifBlank { if (needsDiscovery) "拉取并选择" else "选择模型" }
+                    SelectionRow(
+                        title = "模型名称",
+                        value = modelTitle,
+                        onClick = {
+                            showModelSheet = true
+                            if (needsDiscovery) viewModel.discoverModels()
+                        },
+                    )
+                    if (showManualModelInput) {
+                        EditorField(state.model, viewModel::updateModel, "手动输入模型名称", "例如 gpt-5-mini")
                     }
                 }
             }
@@ -590,22 +585,43 @@ private fun CatalogSelectionSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSelectionSheet(
-    title: String,
     models: List<ModelChoice>,
     selectedModel: String,
+    discovering: Boolean,
+    discoveryError: String,
+    onDiscover: (() -> Unit)?,
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
+    onManualInput: () -> Unit,
 ) {
+    var query by remember { mutableStateOf("") }
+    val filteredModels = remember(models, query) {
+        val search = query.trim()
+        models.filter { it.id.contains(search, ignoreCase = true) || it.title.contains(search, ignoreCase = true) }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 32.dp),
         ) {
             item {
-                Text("选择模型", style = MaterialTheme.typography.titleLarge)
-                Text(title, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("选择模型", style = MaterialTheme.typography.titleLarge)
+                    if (onDiscover != null) {
+                        OutlinedButton(onClick = onDiscover, enabled = !discovering, modifier = Modifier.fillMaxWidth()) {
+                            if (discovering) ProgressIcon()
+                            Text(if (discovering) "正在拉取模型…" else "拉取模型列表")
+                        }
+                    }
+                    if (discoveryError.isNotBlank()) StatusMessage(discoveryError, error = true)
+                    if (models.isNotEmpty()) {
+                        EditorField(query, { query = it }, "搜索模型", "模型名称或 ID")
+                        if (filteredModels.isEmpty()) Text("没有匹配的模型。")
+                    }
+                    TextButton(onClick = onManualInput) { Text("手动输入模型名称") }
+                }
             }
-            items(models, key = { it.id }) { model ->
+            items(filteredModels, key = { it.id }) { model ->
                 SheetChoiceRow(title = model.title, selected = model.id == selectedModel, onClick = { onSelect(model.id) })
             }
         }

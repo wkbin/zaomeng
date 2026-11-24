@@ -129,6 +129,27 @@ data class DeleteSessionsResponse(
 )
 
 @Serializable
+enum class AuthorNotePosition(val sillyTavernId: Int) {
+    @SerialName("before_prompt") BeforePrompt(2),
+    @SerialName("after_prompt") AfterPrompt(0),
+    @SerialName("in_chat") InChat(1),
+}
+
+@Serializable
+data class AuthorNoteDto(
+    val text: String = "",
+    val enabled: Boolean = true,
+    val depth: Int = 4,
+    val role: WorldBookInjectionRole = WorldBookInjectionRole.System,
+    val interval: Int = 1,
+    val position: AuthorNotePosition = AuthorNotePosition.InChat,
+) {
+    companion object {
+        const val MAX_TEXT_LENGTH = 4000
+    }
+}
+
+@Serializable
 data class DialogueSessionDto(
     @SerialName("session_id") val sessionId: String = "",
     @SerialName("run_id") val runId: String = "",
@@ -183,6 +204,7 @@ data class DialogueSessionDto(
     val pluginEnhancerStates: Map<String, Map<String, Boolean>> = emptyMap(),
     @SerialName("muted_characters") val mutedCharacters: List<String> = emptyList(),
     @SerialName("story_recap") val storyRecap: StoryRecapDto? = null,
+    @SerialName("author_note") val authorNote: AuthorNoteDto = AuthorNoteDto(),
 )
 
 @Serializable
@@ -322,10 +344,20 @@ data class CreateDialogueSessionRequest(
 )
 
 @Serializable
-data class CardGreetingsDto(val character: String = "", val options: List<CardGreetingDto> = emptyList())
+data class CardGreetingsDto(
+    val character: String = "",
+    val options: List<CardGreetingDto> = emptyList(),
+    val revision: String = "",
+    @SerialName("next_alternate_index") val nextAlternateIndex: Int? = null,
+)
 
 @Serializable
-data class CardGreetingDto(val index: Int, val text: String)
+data class CardGreetingDto(val index: Int, val text: String, val truncated: Boolean = false)
+
+const val CARD_GREETING_CHAR_LIMIT = 4_000
+
+@Serializable
+data class UpdateCardGreetingRequest(val revision: String, val index: Int, val text: String)
 
 @Serializable
 data class ImportSillyTavernChatRequest(

@@ -231,14 +231,19 @@ class ChapterServiceTests(unittest.TestCase):
         self.assertEqual(ordered[1]["chapter_id"], first["chapter_id"])
 
     def test_searches_local_chapters_and_sessions(self) -> None:
-        self.service.save_chapter(self.run["run_id"], title="雨夜", content="小甲在桥边等候。")
-        self.service.dialogue.list_sessions = Mock(return_value=[{"session_id": "session-4", "last_entry_preview": "会话末句"}])
-        self.service.dialogue.get_session = Mock(return_value={"transcript": [{"speaker": "小乙", "message": "桥边的风很冷。"}]})
-
-        results = self.service.search_run_content(self.run["run_id"], query="桥边")
+        run_id = self.run["run_id"]
+        self.service.save_chapter(run_id, title="雨夜", content="小甲在桥边等候。")
+        dialogue = self.service.dialogue
+        dialogue._write_json(dialogue._session_file(run_id, "session-4"), {
+            "session_id": "session-4",
+            "history": [{"speaker": "小乙", "message": "桥边的风很冷。"}],
+        })
+        with patch.object(dialogue, "_serialize_session", side_effect=AssertionError("Full session loaded")):
+            results = self.service.search_run_content(run_id, query="桥边")
 
         self.assertEqual([item["kind"] for item in results], ["chapter", "session"])
         self.assertIn("桥边", results[0]["preview"])
+        self.assertEqual("桥边的风很冷。", results[1]["title"])
 
 
     def test_searches_persona_preview(self) -> None:
@@ -247,8 +252,6 @@ class ChapterServiceTests(unittest.TestCase):
             {"name": "Moss", "preview": {"core_identity": "Bridge nightwatcher"}}
         ]
         self.service._write_json(self.service._manifest_path(self.run["run_id"]), manifest)
-        self.service.dialogue.list_sessions = Mock(return_value=[])
-
         results = self.service.search_run_content(self.run["run_id"], query="watch")
 
         self.assertEqual([item["kind"] for item in results], ["persona"])

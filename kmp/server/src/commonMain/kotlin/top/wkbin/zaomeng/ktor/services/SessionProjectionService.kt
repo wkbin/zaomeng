@@ -6,7 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -102,18 +102,18 @@ class SessionProjectionService(
         )
     }
 
-    fun cancel(runId: String, sessionId: String) {
+    suspend fun cancel(runId: String, sessionId: String) {
         val key = key(runId, sessionId)
         val job = lock.withLock {
             cancelled += key
             queued.remove(key)
             failures.remove(key)
             workerIds.remove(key)
-            jobs.remove(key)
+            jobs[key]
         }
-        job?.let {
-            it.cancel()
-            runBlocking { it.join() }
+        job?.cancelAndJoin()
+        lock.withLock {
+            if (jobs[key] === job) jobs.remove(key)
         }
     }
 
@@ -282,7 +282,7 @@ class SessionProjectionService(
     }
 
     private fun buildSessionSummary(volumes: List<SummaryVolume>, manifest: JsonObject): JsonObject {
-        val recap = volumes.takeLast(4).joinToString("\n") { it.summary }.take(2_000)
+        val recap = volumes.takeLast(4).joinToString("\n") { it.summary }.takeLast(2_000)
         val last = volumes.lastOrNull()
         val stateScene = manifest["state"]?.jsonObject?.get("scene")?.jsonObject ?: JsonObject(emptyMap())
         val sceneProgress = manifest["scene_progress"]?.jsonObject ?: JsonObject(emptyMap())
@@ -330,9 +330,10 @@ class SessionProjectionService(
         val archived = projection.volumes.filter { it.endSeq <= cutoff }
         if (archived.isEmpty()) return JsonObject(emptyMap())
         return buildJsonObject {
-            put("summary", archived.joinToString("\n") { it.summary }.take(1_800))
+            // 归档摘要要保留最近的上下文：按时间累积后截断时取下限，而不是最老的部分。
+            put("summary", archived.joinToString("\n") { it.summary }.takeLast(1_800))
             put("key_points", buildJsonArray {
-                archived.flatMap { it.keyPoints }.distinct().take(12).forEach { add(JsonPrimitive(it)) }
+                archived.flatMap { it.keyPoints }.distinct().takeLast(12).forEach { add(JsonPrimitive(it)) }
             })
             put("compressed_turns", archived.sumOf(SummaryVolume::turnCount))
             put("recent_turns_kept", transcriptCount - cutoff)
@@ -448,7 +449,7 @@ class SessionProjectionService(
         is JsonPrimitive -> if (isString) content else contentOrNull ?: toString()
     }
 
-    private fun key(runId: String, sessionId: String): String = "$runId:$sessionId"
+    private fun key(runId: String, sessionId: String): String = "${runId.trim()}:${sessionId.trim()}"
 
     private companion object {
         const val TURNS_PER_VOLUME = 8

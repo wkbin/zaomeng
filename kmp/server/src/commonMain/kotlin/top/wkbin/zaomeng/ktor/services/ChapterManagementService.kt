@@ -104,7 +104,7 @@ class ChapterManagementService(
             if (results.size >= limit) return buildJsonArray { results.forEach(::add) }
         }
         var scannedChars = 0
-        for (session in storage.listDialogueSessionManifests(runId).take(MAX_SEARCH_SESSIONS)) {
+        for (session in storage.listDialogueSessionManifests(runId, includeCharacterAvatars = false).take(MAX_SEARCH_SESSIONS)) {
             if (scannedChars >= MAX_SEARCH_TRANSCRIPT_CHARS) break
             val sessionId = session["session_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
             if (sessionId.isEmpty()) continue
@@ -596,7 +596,9 @@ class ChapterManagementService(
 
     private fun searchPreview(text: String, needle: String): String {
         val normalized = text.trim()
-        val index = normalized.lowercase().indexOf(needle)
+        // 索引必须落在 normalized 的坐标里：lowercase() 会改变长度（İ→i̇、ẞ→ss 等），
+        // 在小写副本上算 offset 再切原文会整体错位甚至 start>end 抛异常。
+        val index = normalized.indexOf(needle, ignoreCase = true)
         if (index < 0) return normalized.take(180)
         val start = (index - 56).coerceAtLeast(0)
         val end = (index + needle.length + 100).coerceAtMost(normalized.length)

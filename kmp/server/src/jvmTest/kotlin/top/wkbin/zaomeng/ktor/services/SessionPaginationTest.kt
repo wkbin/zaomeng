@@ -8,6 +8,12 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.encodeToString
 import okio.Path.Companion.toPath
+import okio.Path
+import top.wkbin.zaomeng.db.DocumentStore
+import top.wkbin.zaomeng.db.DomainStore
+import top.wkbin.zaomeng.db.RoomDocumentStore
+import top.wkbin.zaomeng.db.buildZaomengDatabase
+import top.wkbin.zaomeng.db.getDatabaseBuilder
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,6 +26,52 @@ import kotlin.test.assertTrue
  */
 class SessionPaginationTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun `Room recent sessions only look up avatars on the returned page`() {
+        val dir = createTempDirectory("zaomeng-session-page")
+        val root = dir.toString().toPath()
+        val db = buildZaomengDatabase(getDatabaseBuilder(root / "test.db"))
+        try {
+            val documents = RoomDocumentStore(db)
+            val avatarReads = mutableListOf<Path>()
+            val directoryReads = mutableListOf<Path>()
+            val store = object : DocumentStore by documents {
+                override fun fileVersion(path: Path): String? {
+                    avatarReads += path
+                    return documents.fileVersion(path)
+                }
+
+                override fun listFiles(path: Path): List<Path> {
+                    directoryReads += path
+                    return documents.listFiles(path)
+                }
+            }
+            val storage = StorageService(root, store, DomainStore(root, db.domainDao(), store))
+            storage.writeRunManifest("run-1", runManifest("run-1", "第一本"))
+            writeSession(storage, "run-1", "first", "最新", "2026-08-03T00:00:00Z", listOf("同一角色"))
+            writeSession(storage, "run-1", "second", "次新", "2026-08-02T00:00:00Z", listOf("同一角色"))
+            writeSession(storage, "legacy", "third", "旧会话", "2026-08-01T00:00:00Z", listOf("页外角色"))
+            val avatar = storage.avatarFile("run-1", "同一角色")
+            storage.writeBytes(avatar, byteArrayOf(1, 2, 3))
+            val service = SessionManagementService(storage, DialogueService(storage))
+
+            val page = service.listRecentSessions(limit = 2)
+            assertEquals(3, page.total)
+            assertTrue(page.hasMore)
+            assertEquals(listOf("first", "second"), page.items.map { it.sessionId })
+            assertEquals(listOf(avatar), avatarReads)
+            assertTrue(page.items.all { it.characterAvatars.getValue("同一角色").endsWith("-3") })
+            assertTrue(storage.runsDir !in directoryReads)
+
+            val legacy = service.listRecentSessions(offset = 2, limit = 1).items.single()
+            assertEquals("legacy", legacy.runId)
+            assertEquals("third", legacy.sessionId)
+        } finally {
+            db.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
 
     @Test
     fun `recent sessions page by offset and limit`() {

@@ -6,6 +6,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import top.wkbin.zaomeng.data.api.CreateRunRequest
 import top.wkbin.zaomeng.data.api.ImportRunPackageRequest
@@ -36,6 +37,8 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
             val request = call.receive<ImportRunPackageRequest>()
             val result = withContext(platformIoDispatcher) { packageService.importPackage(request) }
             call.respond(HttpStatusCode.Created, result)
+        } catch (e: WorldBookChangedException) {
+            call.respondError(HttpStatusCode.Conflict, e.message.orEmpty())
         } catch (e: IllegalArgumentException) {
             call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid run package"))
         } catch (_: NoSuchElementException) {
@@ -47,16 +50,20 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
     post("/api/web/runs") {
         try {
             val request = call.receive<CreateRunRequest>()
-            val result = runService.createRun(
-                novelName = request.novelName,
-                novelContentBase64 = request.novelContentBase64,
-                characters = request.characters,
-                maxSentences = request.maxSentences,
-                maxChars = request.maxChars,
-                autoRun = request.autoRun,
-                deferRun = request.deferRun
-            )
+            val result = withContext(platformIoDispatcher) {
+                runService.createRun(
+                    novelName = request.novelName,
+                    novelContentBase64 = request.novelContentBase64,
+                    characters = request.characters,
+                    maxSentences = request.maxSentences,
+                    maxChars = request.maxChars,
+                    autoRun = request.autoRun,
+                    deferRun = request.deferRun,
+                )
+            }
             call.respond(HttpStatusCode.Created, result)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: IllegalArgumentException) {
             call.respondError(HttpStatusCode.BadRequest, (e.message ?: "Invalid request"))
         } catch (e: Exception) {
@@ -79,8 +86,10 @@ fun Route.runManagementRoutes(runService: RunManagementService, packageService: 
         val runId = call.parameters["run_id"] ?: return@delete call.respondError(HttpStatusCode.BadRequest, "Missing run_id")
 
         try {
-            val result = runService.deleteRun(runId)
+            val result = withContext(platformIoDispatcher) { runService.deleteRun(runId) }
             call.respond(HttpStatusCode.OK, result)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: IllegalArgumentException) {
             call.respondError(HttpStatusCode.NotFound, "Run not found")
         } catch (e: Exception) {
@@ -96,8 +105,10 @@ private suspend fun stopRun(call: ApplicationCall, runService: RunManagementServ
     }
 
     try {
-        val result = runService.stopRun(runId)
+        val result = withContext(platformIoDispatcher) { runService.stopRun(runId) }
         call.respond(HttpStatusCode.OK, result)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: IllegalArgumentException) {
         call.respondError(HttpStatusCode.NotFound, "Run not found")
     } catch (e: Exception) {

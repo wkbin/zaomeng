@@ -325,6 +325,40 @@ class RunLifecycleServiceTests(unittest.TestCase):
             self.assertIn("增量蒸馏 2 人", refreshed["redistill"]["summary"])
             start_background_run.assert_called_once()
 
+    def test_resume_keeps_completed_characters_and_rejects_a_live_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = WebRunService(tmp)
+            service.save_model_settings(
+                provider="openai-compatible", model="deepseek-chat",
+                base_url="https://example.com/v1", api_key="sk-test",
+            )
+            initial = service.create_run(
+                novel_name="novel.txt",
+                novel_content_base64=base64.b64encode("林黛玉见了贾宝玉。".encode()).decode("ascii"),
+                characters=["林黛玉", "贾宝玉"],
+                defer_run=True,
+            )
+            run_id = initial["run_id"]
+            manifest_path = service._manifest_path(run_id)
+            manifest = service._load_manifest(manifest_path)
+            manifest["status"] = "stopped"
+            manifest["progress"]["completed_characters"] = ["林黛玉"]
+            service._write_json(manifest_path, manifest)
+
+            with patch.object(service, "_start_background_run") as start:
+                service._active_run_threads[run_id] = Mock(is_alive=lambda: True)
+                with self.assertRaisesRegex(ValueError, "already running"):
+                    service.resume_unfinished_characters(run_id)
+                self.assertEqual(manifest, service._load_manifest(manifest_path))
+                start.assert_not_called()
+
+                service._active_run_threads.clear()
+                resumed = service.resume_unfinished_characters(run_id)
+                start.assert_called_once()
+                self.assertEqual(["林黛玉", "贾宝玉"], start.call_args.kwargs["locked_characters"])
+                self.assertEqual(["林黛玉"], resumed["progress"]["completed_characters"])
+                self.assertEqual(["贾宝玉"], resumed["redistill"]["pending_characters"])
+
     def test_restart_run_distill_accepts_new_source_segment_for_incremental_update(
         self,
     ):

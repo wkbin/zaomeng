@@ -14,7 +14,11 @@ import top.wkbin.zaomeng.data.api.SamplingPlanDto
 import top.wkbin.zaomeng.data.api.SillyTavernPreviewDto
 import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
 import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.SetWorldBookRecursionRequest
 import top.wkbin.zaomeng.data.api.WorldBookTestDto
+import top.wkbin.zaomeng.data.api.TestWorldBooksRequest
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldFactDto
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
@@ -44,6 +48,7 @@ interface RunRepository {
         bytes: ByteArray,
         libraryPackage: LibraryPackageImportDto? = null,
         targetRunId: String? = null,
+        expectedWorldBookRevision: String? = null,
     ): RunManifestDto
 
     suspend fun previewSillyTavern(
@@ -55,8 +60,12 @@ interface RunRepository {
     ): SillyTavernPreviewDto
 
     suspend fun listWorldBooks(runId: String): ManagedWorldBooksDto
-    suspend fun testWorldBooks(runId: String, text: String): WorldBookTestDto
+    suspend fun testWorldBooks(runId: String, input: TestWorldBooksRequest): WorldBookTestDto
     suspend fun setWorldBookEntry(runId: String, source: String, index: Int, request: SetWorldBookEntryRequest): ManagedWorldBooksDto
+    suspend fun editWorldBookEntry(runId: String, source: String, index: Int, request: EditWorldBookEntryRequest): ManagedWorldBooksDto
+    suspend fun createWorldBookEntry(runId: String, source: String, request: CreateWorldBookEntryRequest): ManagedWorldBooksDto
+    suspend fun deleteWorldBookEntry(runId: String, source: String, index: Int, revision: String): ManagedWorldBooksDto
+    suspend fun setWorldBookRecursion(runId: String, source: String, request: SetWorldBookRecursionRequest): ManagedWorldBooksDto
     suspend fun removeStandaloneWorldBook(runId: String, revision: String): ManagedWorldBooksDto
 
     suspend fun exportSillyTavernCard(runId: String, character: String, cacheDirectory: Path): ExportedRunPackage

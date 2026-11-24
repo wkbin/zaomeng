@@ -73,8 +73,7 @@ class ReplyOperationStore(private val storage: StorageService) {
     }
 
     fun listCompleted(runId: String, sessionId: String): List<ReplyOperationReceipt> {
-        PathSafety.validateStorageId(sessionId, "session_id")
-        val directory = storage.getDialogueSessionsDirectory(runId) / "$sessionId/operations"
+        val directory = operationDirectory(runId, sessionId)
         if (!storage.isDirectory(directory)) return emptyList()
         return storage.listFiles(directory).mapNotNull { operationDir ->
             storage.readTextOrNull(operationDir / "receipt.json")
@@ -86,7 +85,7 @@ class ReplyOperationStore(private val storage: StorageService) {
     fun recoverOrphan(runId: String, sessionId: String, operationId: String): ReplyOperationReceipt? {
         val path = receiptPath(runId, sessionId, operationId)
         if (!storage.exists(path)) return null
-        return storage.updateOrCreateText(path) { original ->
+        return storage.updateExistingSessionText(runId, sessionId, path) { original ->
             val receipt = original?.let(::decode)
                 ?: throw NoSuchElementException("Operation receipt not found: $operationId")
             val now = nowEpochMillis()
@@ -118,7 +117,7 @@ class ReplyOperationStore(private val storage: StorageService) {
         ownerId: String,
     ): OperationClaim {
         val path = receiptPath(runId, sessionId, operationId)
-        return storage.updateOrCreateText(path) { original ->
+        return storage.updateExistingSessionText(runId, sessionId, path) { original ->
             val now = nowEpochMillis()
             if (original == null) {
                 val receipt = ReplyOperationReceipt(
@@ -134,11 +133,11 @@ class ReplyOperationStore(private val storage: StorageService) {
                     createdAt = now,
                     updatedAt = now,
                 )
-                return@updateOrCreateText encode(receipt) to OperationClaim.Owner(receipt)
+                return@updateExistingSessionText encode(receipt) to OperationClaim.Owner(receipt)
             }
             val current = decode(original)
             if (current.requestHash != requestHash) {
-                return@updateOrCreateText original to OperationClaim.Conflict(
+                return@updateExistingSessionText original to OperationClaim.Conflict(
                     "OPERATION_ID_CONFLICT",
                     "operation_id 已用于不同的请求。",
                 )
@@ -240,7 +239,7 @@ class ReplyOperationStore(private val storage: StorageService) {
         transform: (ReplyOperationReceipt) -> ReplyOperationReceipt,
     ): ReplyOperationReceipt {
         val path = receiptPath(receipt)
-        return storage.updateOrCreateText(path) { original ->
+        return storage.updateExistingSessionText(receipt.runId, receipt.sessionId, path) { original ->
             val current = original?.let(::decode)
                 ?: throw IllegalStateException("Operation receipt not found: ${receipt.operationId}")
             val updated = transform(current)
@@ -256,9 +255,11 @@ class ReplyOperationStore(private val storage: StorageService) {
 
     private fun receiptPath(runId: String, sessionId: String, operationId: String): Path {
         val safeOperationId = PathSafety.validateStorageId(operationId, "operation_id")
-        PathSafety.validateStorageId(sessionId, "session_id")
-        return storage.getDialogueSessionsDirectory(runId) / "$sessionId/operations/$safeOperationId/receipt.json"
+        return operationDirectory(runId, sessionId) / "$safeOperationId/receipt.json"
     }
+
+    private fun operationDirectory(runId: String, sessionId: String): Path =
+        requireNotNull(storage.getDialogueSessionManifestFile(runId, sessionId).parent) / "operations"
 
     private fun receiptPath(receipt: ReplyOperationReceipt): Path =
         receiptPath(receipt.runId, receipt.sessionId, receipt.operationId)

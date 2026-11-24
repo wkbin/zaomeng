@@ -4,14 +4,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.PersonaRepository
 import top.wkbin.zaomeng.data.RunRepository
+import top.wkbin.zaomeng.data.SessionRepository
+import top.wkbin.zaomeng.data.api.DialogueSessionDto
+import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionCommand
+import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionUseCase
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
 import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
 import top.wkbin.zaomeng.data.api.ManagedWorldBooksDto
 import top.wkbin.zaomeng.data.api.SetWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
+import top.wkbin.zaomeng.data.api.SetWorldBookRecursionRequest
 import top.wkbin.zaomeng.data.api.WorldBookTestDto
+import top.wkbin.zaomeng.data.api.TestWorldBooksRequest
 import top.wkbin.zaomeng.platform.cropAvatarBytes
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.SillyTavernPng
 import top.wkbin.zaomeng.platform.platformIoDispatcher
+import top.wkbin.zaomeng.ui.graphics.encodeAvatarAsPng
 import okio.FileSystem
 import okio.Path
 import okio.Sink
@@ -52,6 +63,9 @@ data class RunDetailUiState(
     val updatingAvatar: String = "",
     val reviewLoading: Boolean = false,
     val reviewOverview: RunReviewOverview? = null,
+    val startingCardChat: Boolean = false,
+    val cardChatError: String = "",
+    val startedCardChat: DialogueSessionDto? = null,
 )
 
 data class AvatarCrop(
@@ -74,6 +88,8 @@ class RunDetailViewModel(
     private val cacheDir: Path,
     private val distillationForeground: DistillationForeground,
     private val loadRunReview: LoadRunReviewUseCase,
+    private val sessions: SessionRepository,
+    private val createDialogueSession: CreateDialogueSessionUseCase,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RunDetailUiState())
     val state: StateFlow<RunDetailUiState> = mutableState.asStateFlow()
@@ -93,12 +109,49 @@ class RunDetailViewModel(
 
     fun refresh() = loadRun(refreshManifest = true)
 
+    suspend fun loadCardGreetings() = sessions.getCardGreetings(runId)
+
+    suspend fun updateCardGreeting(request: UpdateCardGreetingRequest) = sessions.updateCardGreeting(runId, request)
+
+    suspend fun loadCardProfile(character: String) = persona.getPersona(runId, character)
+
+    fun startCardChat(character: String, greetingIndex: Int?) {
+        val snapshot = state.value
+        val run = snapshot.run ?: return
+        if (snapshot.startingCardChat || snapshot.startedCardChat != null ||
+            !run.isSillyTavernCharacterCard || character !in run.availableCharacters
+        ) return
+
+        mutableState.update { it.copy(startingCardChat = true, cardChatError = "") }
+        viewModelScope.launch {
+            try {
+                val chat = createDialogueSession(
+                    CreateDialogueSessionCommand(
+                        runId = runId,
+                        mode = "insert",
+                        participants = listOf(character),
+                        cardGreetingIndex = greetingIndex,
+                    ),
+                )
+                mutableState.update { it.copy(startedCardChat = chat) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                mutableState.update { it.copy(cardChatError = failure.message ?: "无法开始对话，请重试。") }
+            } finally {
+                mutableState.update { it.copy(startingCardChat = false) }
+            }
+        }
+    }
+
+    fun consumeStartedCardChat() = mutableState.update { it.copy(startedCardChat = null) }
+
     fun loadWorldBooks() = worldBookAction {
         it.copy(data = runs.listWorldBooks(runId), result = null)
     }
 
-    fun testWorldBooks(text: String) = worldBookAction {
-        it.copy(result = runs.testWorldBooks(runId, text))
+    fun testWorldBooks(input: TestWorldBooksRequest) = worldBookAction {
+        it.copy(result = runs.testWorldBooks(runId, input))
     }
 
     fun clearWorldBookTest() = mutableWorldBooks.update { it.copy(result = null) }
@@ -112,13 +165,36 @@ class RunDetailViewModel(
         it.copy(data = runs.removeStandaloneWorldBook(runId, book.revision), result = null)
     }
 
-    private fun worldBookAction(action: suspend (WorldBooksUiState) -> WorldBooksUiState) {
+    fun setWorldBookRecursion(book: ManagedWorldBookDto, enabled: Boolean) = worldBookAction {
+        val data = runs.setWorldBookRecursion(runId, book.source, SetWorldBookRecursionRequest(book.revision, enabled))
+        it.copy(data = data, result = null)
+    }
+
+    fun editWorldBookEntry(source: String, index: Int, request: EditWorldBookEntryRequest, onSaved: () -> Unit) =
+        worldBookAction(onSuccess = onSaved) {
+            it.copy(data = runs.editWorldBookEntry(runId, source, index, request), result = null)
+        }
+
+    fun createWorldBookEntry(source: String, request: CreateWorldBookEntryRequest, onSaved: () -> Unit) =
+        worldBookAction(onSuccess = onSaved) {
+            it.copy(data = runs.createWorldBookEntry(runId, source, request), result = null)
+        }
+
+    fun deleteWorldBookEntry(source: String, index: Int, revision: String, onDeleted: () -> Unit) =
+        worldBookAction(onSuccess = onDeleted) {
+            it.copy(data = runs.deleteWorldBookEntry(runId, source, index, revision), result = null)
+        }
+
+    fun clearWorldBookError() = mutableWorldBooks.update { it.copy(error = "") }
+
+    private fun worldBookAction(onSuccess: () -> Unit = {}, action: suspend (WorldBooksUiState) -> WorldBooksUiState) {
         val current = mutableWorldBooks.value
         if (current.busy) return
         mutableWorldBooks.value = current.copy(busy = true, error = "")
         viewModelScope.launch {
             try {
                 mutableWorldBooks.value = action(current).copy(busy = false, error = "")
+                onSuccess()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -244,6 +320,34 @@ class RunDetailViewModel(
 
     fun exportSillyTavernCard(character: String) = prepareExport {
         runs.exportSillyTavernCard(runId, character, cacheDir)
+    }
+
+    fun exportSillyTavernPngCard(character: String, avatarVersion: String) = prepareExport {
+        val avatar = requireNotNull(persona.getPersonaAvatar(runId, character, avatarVersion)) {
+            "请先为角色添加头像。"
+        }
+        val exported = runs.exportSillyTavernCard(runId, character, cacheDir)
+        try {
+            withContext(platformIoDispatcher) {
+                require(exported.byteCount in 1L..SillyTavernPng.MAX_JSON_BYTES.toLong()) {
+                    "角色卡数据过大，无法生成可重新导入的 PNG。"
+                }
+                val image = if (SillyTavernPng.hasSignature(avatar)) avatar else encodeAvatarAsPng(avatar)
+                val json = FileSystem.SYSTEM.read(exported.file) { readByteArray() }
+                val png = SillyTavernPng.writeCard(image, json)
+                FileSystem.SYSTEM.write(exported.file) { write(png) }
+                exported.copy(
+                    filename = exported.filename.removeSuffix(".json") + ".png",
+                    byteCount = png.size.toLong(),
+                    mimeType = "image/png",
+                )
+            }
+        } catch (failure: Throwable) {
+            withContext(NonCancellable + platformIoDispatcher) {
+                runCatching { FileSystem.SYSTEM.delete(exported.file) }
+            }
+            throw failure
+        }
     }
 
     fun exportWorldBook(book: ManagedWorldBookDto) = prepareExport {
@@ -515,7 +619,7 @@ class RunDetailViewModel(
 
     private fun loadReviewOverview(run: RunManifestDto) {
         reviewJob?.cancel()
-        if (run.status == RUNNING_STATUS || run.availableCharacters.isEmpty()) {
+        if (run.status == RUNNING_STATUS || run.availableCharacters.isEmpty() || run.isSillyTavernCharacterCard) {
             mutableState.update { it.copy(reviewLoading = false, reviewOverview = null) }
             return
         }

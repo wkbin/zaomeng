@@ -94,7 +94,7 @@ class OriginalKnowledgeStore:
             payload.setdefault("source", {})
             payload.setdefault("entries", [])
             payload["entry_count"] = len(payload["entries"])
-            return deepcopy(payload)
+            return payload
 
     def ensure(
         self,
@@ -139,7 +139,7 @@ class OriginalKnowledgeStore:
                 "updated_at": now,
             }
             write_json(self._path(run_id), payload)
-            return deepcopy(payload)
+            return payload
 
     @staticmethod
     def _apply_manual_boundaries(
@@ -216,6 +216,12 @@ class OriginalKnowledgeStore:
         scene_terms: Iterable[str] = (),
         limit: int = 6,
     ) -> list[dict[str, Any]]:
+        query_text = " ".join(
+            item for item in [str(query).strip(), *[str(term).strip() for term in scene_terms]] if item
+        )
+        if not query_text:
+            return []
+        query_tokens = self._tokens(query_text)
         character_names = [
             str(item.get("name", "")).strip()
             for item in list(run_manifest.get("artifact_index", {}).get("characters", []) or [])
@@ -223,29 +229,22 @@ class OriginalKnowledgeStore:
         ]
         payload = self.ensure(run_manifest, character_names=character_names)
         names = list(dict.fromkeys(str(name).strip() for name in participants if str(name).strip()))
-        active = list(
-            dict.fromkeys(str(name).strip() for name in active_participants if str(name).strip())
-        )
-        query_text = " ".join(
-            item for item in [str(query).strip(), *[str(term).strip() for term in scene_terms]] if item
-        )
-        query_tokens = self._tokens(query_text)
+        active = {str(name).strip() for name in active_participants if str(name).strip()}
+        participant_names = set(names)
+        mentioned_active = {name for name in active if name in query_text}
         scored: list[tuple[float, dict[str, Any]]] = []
-        for entry in list(payload.get("entries", []) or []):
+        for entry in payload.get("entries", []) or []:
             text = str(entry.get("text", ""))
             normalized_text = text.casefold()
             overlap = {token for token in query_tokens if token in normalized_text}
             score = float(sum(1.0 + min(3, len(token)) * 0.15 for token in overlap))
-            if query_text and query_text in text:
+            if query_text in text:
                 score += 16.0
-            mentioned = set(entry.get("characters", []) or [])
             if score > 0:
-                score += len(mentioned & set(active)) * 2.5
-                score += len(mentioned & set(names)) * 0.75
-                for name in active:
-                    if name and name in query_text and name in mentioned:
-                        score += 3.0
-            if score > 0:
+                mentioned = set(entry.get("characters", []) or [])
+                score += len(mentioned & active) * 2.5
+                score += len(mentioned & participant_names) * 0.75
+                score += len(mentioned & mentioned_active) * 3.0
                 scored.append((score, entry))
         scored.sort(key=lambda pair: (pair[0], -int(pair[1].get("ordinal", 0))), reverse=True)
         selected = scored[: max(1, min(int(limit or 6), 10))]

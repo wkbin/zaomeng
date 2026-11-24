@@ -817,14 +817,13 @@ class SessionsViewModel(
                 }
             }
             .filter { it.runId.isNotBlank() && it.character.isNotBlank() && it.version.isNotBlank() }
-            .filter { it.key !in loadedAvatarKeys }
+            .filter { it.cacheKey !in loadedAvatarKeys }
             .distinct()
             .toList()
         if (targets.isEmpty()) return
         avatarJob?.cancel()
         avatarJob = viewModelScope.launch {
             targets.forEach { avatar ->
-                loadedAvatarKeys += avatar.key
                 val bytes = try {
                     persona.getPersonaAvatar(avatar.runId, avatar.character, avatar.version)
                 } catch (cancelled: CancellationException) {
@@ -832,6 +831,8 @@ class SessionsViewModel(
                 } catch (_: Throwable) {
                     null
                 } ?: return@forEach
+                // 只在成功后登记：失败或被取消时保留 key 会让该头像永不重试。
+                loadedAvatarKeys += avatar.cacheKey
                 mutableState.update { current ->
                     current.copy(avatarBytes = current.avatarBytes + (avatar.key to bytes))
                 }
@@ -960,8 +961,13 @@ private data class SessionAvatarReference(
     val character: String,
     val version: String,
 ) {
+    /** UI 读取头像使用的键（不含版本），与 SessionsScreen 保持一致。 */
     val key: String
         get() = "$runId|$character"
+
+    /** 去重键必须含版本：头像更新后 version 变化，需要重新拉取覆盖旧字节。 */
+    val cacheKey: String
+        get() = "$runId|$character|$version"
 }
 
 private data class PagerParams(

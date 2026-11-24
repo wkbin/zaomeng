@@ -11,7 +11,7 @@ import top.wkbin.zaomeng.db.ZaomengDatabase
 import top.wkbin.zaomeng.db.getDatabaseBuilder
 
 /** JVM 实现：数据目录/提示词优先从仓库根目录解析（开发/测试用），
- *  打包安装后自动落到用户可写目录，密钥走 [FileSecureKeyValueStore]（Windows DPAPI）。 */
+ *  打包安装后自动落到用户可写目录，密钥走 [FileSecureKeyValueStore]（Windows DPAPI / macOS Keychain）。 */
 class JvmServerPlatform(
     override val dataRoot: Path = defaultDataRoot(),
     override val promptSource: PromptSource = JvmPromptSource(),
@@ -87,15 +87,16 @@ class JvmPromptSource(
 }
 
 /**
- * JVM 安全存储：Windows 下每个值用 DPAPI 加密后落盘；其他系统退化为 0600 权限的明文 properties。
+ * JVM 安全存储：Windows 下每个值用 DPAPI 加密后落盘；macOS 下值进系统 Keychain、文件只留标记；
+ * 其他系统退化为 0600 权限的明文 properties。
  *
- * 历史明文条目在首次构造时迁移为密文，原文件保留为 `<name>.<millis>.legacy` 备份。
+ * 历史明文条目在首次构造时迁移，原文件保留为 `<name>.<millis>.legacy` 备份。
  */
 class FileSecureKeyValueStore internal constructor(
     private val file: Path,
     private val codec: SecretCodec,
 ) : SecureKeyValueStore {
-    constructor(file: Path) : this(file, SecretCodec.platformDefault())
+    constructor(file: Path) : this(file, DesktopSecretCodec.platformDefault())
 
     private val fs = okio.FileSystem.SYSTEM
     private val lock = Any()
@@ -124,49 +125,60 @@ class FileSecureKeyValueStore internal constructor(
     }
 
     override fun get(key: String): String? = synchronized(lock) {
-        load()[key]?.let(codec::reveal)
+        load()[key]?.let { codec.reveal(key, it) }
     }
 
     override fun put(key: String, value: String) {
         synchronized(lock) {
-            val next = load().toMutableMap().apply { put(key, codec.encode(value)) }
+            val next = load().toMutableMap().apply { put(key, codec.encode(key, value)) }
             save(next)
         }
     }
 
     override fun remove(key: String) {
         synchronized(lock) {
-            val next = load().toMutableMap().apply { remove(key) }
-            save(next)
+            val current = load()
+            val stored = current[key] ?: return
+            // 系统侧记录先删：即使文件写入随后失败，残留标记也只会按“没有密钥”读出。
+            if (codec.isEncoded(stored)) codec.forget(key)
+            save(current.toMutableMap().apply { remove(key) })
         }
     }
 
     override fun entries(): Map<String, String> = synchronized(lock) {
-        load().mapNotNull { (key, stored) -> codec.reveal(stored)?.let { key to it } }.toMap()
+        load().mapNotNull { (key, stored) -> codec.reveal(key, stored)?.let { key to it } }.toMap()
     }
 
-    /** 已存在明文条目时整体重写为密文；备份文件只做保留，不自动删除。 */
+    /** 已存在明文条目时整体重写为受保护形式；备份文件只做保留，不自动删除。 */
     private fun migrateLegacyPlaintext() {
         if (!codec.canEncrypt) return
         val raw = load()
-        if (raw.isEmpty() || raw.values.none { !codec.isEncoded(it) }) return
-        // 先加密到内存：任一条目加密失败就保持原文件，避免出现“备份没了、明文还在”的中间态。
-        val encoded = raw.mapValues { (_, value) -> codec.encode(value) }
-        if (encoded.values.any { !codec.isEncoded(it) }) {
+        // 带其他保护标记的值（从别的平台/账户复制过来）无法解出，也不是明文：
+        // 必须原样保留并继续按“未配置密钥”读出，绝不能当明文重新加密。
+        fun isMigratable(stored: String): Boolean = !codec.isEncoded(stored) && !SecretMarkers.isForeign(stored)
+        val migratable = raw.filterValues { isMigratable(it) }
+        if (migratable.isEmpty()) return
+        // 先在系统侧完成写入：任一条目保护失败就保持原文件，避免出现“备份没了、明文还在”的中间态。
+        val encoded = raw.mapValues { (key, value) -> if (isMigratable(value)) codec.encode(key, value) else value }
+        if (migratable.keys.any { !codec.isEncoded(encoded.getValue(it)) }) {
             PlatformLog.w(TAG, "Skip secret migration: OS protection unavailable")
+            // 迁移失败时不能留下半写入的系统侧记录。
+            migratable.keys.forEach(codec::forget)
             return
         }
         synchronized(lock) {
             val backup = file.parent!! / "${file.name}.${nowEpochMillis()}.legacy"
             if (!writeLegacyBackup(backup)) {
                 // 备份失败就不改写：宁可继续用明文文件，也不要丢掉回滚能力。
+                // 系统侧已写入的条目同样回滚，保持与文件一致。
+                migratable.keys.forEach(codec::forget)
                 PlatformLog.w(TAG, "Skip secret migration: cannot write backup")
                 return
             }
             // 备份里仍是明文，至少收紧到仅当前用户可读。
             runCatching { restrictSecretFilePermissions(secretFilePath(backup.toString())) }
             save(encoded)
-            PlatformLog.i(TAG, "Migrated ${raw.size} plaintext secret(s) to DPAPI; backup=${backup.name}")
+            PlatformLog.i(TAG, "Migrated ${migratable.size} plaintext secret(s) to ${codec.protection}; backup=${backup.name}")
         }
     }
 

@@ -167,25 +167,27 @@ class ArtifactServiceMixin:
         return report
 
     def save_persona_review(self, run_id: str, character: str, fields: dict[str, str]) -> dict[str, Any]:
-        manifest = self._require_manifest(run_id)
-        persona_dir = resolve_persona_dir(manifest, character)
-        result = save_persona_review_payload(
-            run_id=run_id,
-            character=character,
-            fields=fields,
-            manifest=manifest,
-            persona_dir=persona_dir,
-            resolve_persona_review_source=resolve_persona_review_source,
-            load_profile_source=load_profile_source,
-            read_persona_review_fields=read_persona_review_fields,
-            apply_persona_review_updates=apply_persona_review_updates,
-            write_persona_profile=write_persona_profile,
-            discover_artifacts=self._discover_artifacts,
-            get_persona_review=self.get_persona_review,
-            utc_now=_utc_now,
-        )
-        self._write_json(self._manifest_path(run_id), result["manifest"])
-        return result["payload"]
+        # 与 _write_json 的其它路径共用 run 级锁：避免基于旧 manifest 整份覆盖并发写入。
+        with self._manifest_lock_for_run(run_id):
+            manifest = self._require_manifest(run_id)
+            persona_dir = resolve_persona_dir(manifest, character)
+            result = save_persona_review_payload(
+                run_id=run_id,
+                character=character,
+                fields=fields,
+                manifest=manifest,
+                persona_dir=persona_dir,
+                resolve_persona_review_source=resolve_persona_review_source,
+                load_profile_source=load_profile_source,
+                read_persona_review_fields=read_persona_review_fields,
+                apply_persona_review_updates=apply_persona_review_updates,
+                write_persona_profile=write_persona_profile,
+                discover_artifacts=self._discover_artifacts,
+                get_persona_review=self.get_persona_review,
+                utc_now=_utc_now,
+            )
+            self._write_json(self._manifest_path(run_id), result["manifest"])
+            return result["payload"]
 
     def suggest_persona_field(self, run_id: str, character: str, field: str) -> dict[str, Any]:
         if not self.model_is_configured():

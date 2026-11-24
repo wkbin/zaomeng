@@ -39,27 +39,35 @@ class RuntimeSupportMixin:
         max_sentences: int,
         max_chars: int,
     ) -> None:
-        manifest = self._update_manifest(
-            manifest_path,
-            lambda current: prepare_background_manifest(current, utc_now=_utc_now),
-            create_if_missing=True,
-        )
+        run_id = self._manifest_run_id(manifest_path) or manifest_path.parent.name
+        with self._manifest_lock_context(manifest_path):
+            self._require_background_run_idle(run_id)
+            manifest = self._update_manifest(
+                manifest_path,
+                lambda current: prepare_background_manifest(current, utc_now=_utc_now),
+                create_if_missing=True,
+            )
 
-        run_id = str(manifest.get("run_id", "")).strip() or manifest_path.parent.name
-        start_background_thread(
-            active_run_threads=self._active_run_threads,
-            target=self._run_automatic_pipeline_safely,
-            kwargs=build_background_run_kwargs(
-                manifest_path=manifest_path,
-                novel_path=novel_path,
+            run_id = str(manifest.get("run_id", "")).strip() or manifest_path.parent.name
+            start_background_thread(
+                active_run_threads=self._active_run_threads,
+                target=self._run_automatic_pipeline_safely,
+                kwargs=build_background_run_kwargs(
+                    manifest_path=manifest_path,
+                    novel_path=novel_path,
+                    run_id=run_id,
+                    locked_characters=locked_characters,
+                    relation_characters=relation_characters,
+                    max_sentences=max_sentences,
+                    max_chars=max_chars,
+                ),
                 run_id=run_id,
-                locked_characters=locked_characters,
-                relation_characters=relation_characters,
-                max_sentences=max_sentences,
-                max_chars=max_chars,
-            ),
-            run_id=run_id,
-        )
+            )
+
+    def _require_background_run_idle(self, run_id: str) -> None:
+        worker = self._active_run_threads.get(run_id)
+        if worker is not None and worker.is_alive():
+            raise ValueError("This run is already running.")
 
     def _run_automatic_pipeline_safely(self, **kwargs: Any) -> None:
         run_pipeline_safely(

@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.feature.chat
 
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import top.wkbin.zaomeng.data.ReusableCardKind
@@ -142,6 +144,9 @@ class ChatViewModel(
                 it.copy(
                     loading = it.session == null,
                     refreshing = it.session != null,
+                    // 刷新已作废旧分页请求；旧结果回填会被 requestId 守卫丢弃，
+                    // 因此必须在这里复位标志，否则 loadingEarlier 永久为 true 锁死输入。
+                    loadingEarlier = false,
                     toolBusy = "",
                     modelReasoning = "",
                     error = "",
@@ -854,6 +859,8 @@ class ChatViewModel(
 
     fun updateBranchMeta(label: String, isMainline: Boolean) =
         toolsDelegate.updateBranchMeta(label, isMainline)
+
+    fun updateAuthorNote(note: AuthorNoteDto) = toolsDelegate.updateAuthorNote(note)
 
     fun setMainlineEventLocked(turnId: String, locked: Boolean) =
         toolsDelegate.setMainlineEventLocked(turnId, locked)

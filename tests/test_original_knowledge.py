@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.web.chat.helpers import build_dialogue_llm_messages, parse_dialogue_responses
 from src.web.chat.original_knowledge import OriginalKnowledgeStore
@@ -10,6 +11,15 @@ from src.web.chat.session_views import serialize_transcript
 
 
 class OriginalKnowledgeStoreTests(unittest.TestCase):
+    def test_blank_query_skips_loading_the_source_index(self):
+        store = OriginalKnowledgeStore(Path("."))
+        with patch.object(store, "ensure") as ensure:
+            self.assertEqual(
+                [],
+                store.search({}, query=" ", participants=[], active_participants=[], scene_terms=[" "]),
+            )
+        ensure.assert_not_called()
+
     def test_automatic_boundary_requires_explicit_knowledge_evidence(self):
         self.assertEqual(
             OriginalKnowledgeStore._infer_boundary(

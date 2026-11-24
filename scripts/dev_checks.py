@@ -62,8 +62,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def check_packaged_prompts() -> None:
+    sources = PROJECT_ROOT / "prompts"
+    assets = PROJECT_ROOT / "kmp/server/src/androidMain/assets"
+    extensions = {".md", ".yaml", ".yml"}
+    source_paths = {
+        path.relative_to(sources)
+        for path in sources.rglob("*")
+        if path.suffix in extensions and path.name not in {"AGENTS.md", "README.md"}
+    }
+    asset_paths = {
+        path.relative_to(assets)
+        for path in assets.rglob("*")
+        if path.suffix in extensions
+    }
+    mismatches = source_paths ^ asset_paths
+    mismatches |= {
+        path for path in source_paths & asset_paths
+        if (sources / path).read_text(encoding="utf-8") != (assets / path).read_text(encoding="utf-8")
+    }
+    if mismatches:
+        paths = ", ".join(path.as_posix() for path in sorted(mismatches))
+        raise SystemExit(f"Prompt sources and Android assets differ: {paths}")
+
+
 def main() -> int:
     args = parse_args()
+    check_packaged_prompts()
     configured_temp_root = str(os.getenv("TMPDIR", "") or os.getenv("TEMP", "") or os.getenv("TMP", "")).strip()
     temp_root = Path(configured_temp_root) if configured_temp_root else Path(tempfile.gettempdir()) / "zaomeng-tests"
     temp_root.mkdir(parents=True, exist_ok=True)

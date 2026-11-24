@@ -497,10 +497,13 @@ class PluginRegistry:
                 self._deactivate(record)
             self._records = discovered
             for plugin_id, record in self._records.items():
+                # 第三方插件的入口会被 exec 进当前进程，defaultEnabled 不能替用户做主：
+                # 只有内置插件可以默认启用，第三方必须在 UI 里显式启用（写入 plugin-state.json）。
+                default_enabled = record.source == "official" and record.manifest.default_enabled
                 should_enable = (
                     plugin_id in desired
                     if desired is not None
-                    else (plugin_id in previously_enabled or record.manifest.default_enabled)
+                    else (plugin_id in previously_enabled or default_enabled)
                 )
                 if should_enable and not record.enabled:
                     try:

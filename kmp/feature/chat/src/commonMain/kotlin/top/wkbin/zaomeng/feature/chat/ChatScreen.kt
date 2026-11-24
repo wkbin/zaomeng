@@ -179,6 +179,10 @@ fun ChatScreen(
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var directorOpen by rememberSaveable { mutableStateOf(false) }
+    var readingLayoutOverride by rememberSaveable(runId, sessionId) { mutableStateOf<Boolean?>(null) }
+    val readingLayout = readingLayoutOverride ?: state.session?.let {
+        it.mode == "insert" && it.participants.size == 1
+    } ?: false
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val closeSearch: () -> Unit = {
@@ -237,6 +241,11 @@ fun ChatScreen(
     if (toolsOpen && state.session != null) {
         ChatToolsSheet(
             state = state,
+            readingLayout = readingLayout,
+            onToggleReadingLayout = {
+                readingLayoutOverride = !readingLayout
+                toolsOpen = false
+            },
             onDismiss = { toolsOpen = false },
             onDirector = viewModel::requestDirectorOptions,
             onCorrectLatest = viewModel::correctLatest,
@@ -244,6 +253,7 @@ fun ChatScreen(
             onBranchTurn = viewModel::branchFromTurn,
             onBranchScene = viewModel::branchFromScene,
             onUpdateBranchMeta = viewModel::updateBranchMeta,
+            onUpdateAuthorNote = viewModel::updateAuthorNote,
             onToggleMainlineEvent = viewModel::setMainlineEventLocked,
             onOpenExistingBranch = { branchSessionId ->
                 toolsOpen = false
@@ -409,6 +419,7 @@ fun ChatScreen(
                                 streamingReplies = state.streamingReplies,
                                 pendingUserMessage = state.pendingUserMessage,
                                 displayPreferences = state.chatDisplay,
+                                readingLayout = readingLayout,
                                 actionsEnabled = state.canUseTools,
                                 includeInnerThoughts = state.includeInnerThoughts,
                                 onRegenerate = viewModel::correctLatest,

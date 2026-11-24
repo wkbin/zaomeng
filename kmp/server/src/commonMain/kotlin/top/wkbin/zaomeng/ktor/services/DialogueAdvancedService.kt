@@ -1,5 +1,7 @@
 package top.wkbin.zaomeng.ktor.services
 
+import top.wkbin.zaomeng.data.api.WorldBookGenerationType
+
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -577,6 +579,7 @@ class DialogueAdvancedService(
             put("transcript", buildJsonArray { baseTranscript.forEach(::add) })
             put("transcript_start", 0)
             put("transcript_count", baseTranscript.size)
+            put(WorldBookTiming.FIELD, WorldBookTiming.fromTranscript(baseTranscript))
             put("state", JsonObject(emptyMap()))
         })
         val baseState = SceneProgressState.deriveSceneProgressState(
@@ -630,6 +633,7 @@ class DialogueAdvancedService(
             session = generationSession,
             turnId = turnId,
             message = originalMessage,
+            generationType = WorldBookGenerationType.Regenerate,
         ).toMutableMap()
         payload["correction_context"] = correctionContext.mapValues { (_, value) -> jsonValueToAny(value) }
         val messages = promptBuilder.buildDialogueLlmMessages(payload = payload, retryOnEmpty = true)
@@ -687,7 +691,8 @@ class DialogueAdvancedService(
                 put("turn_id", turnId)
                 put("timestamp", timestamp)
             })
-            correctedResponses.forEach { response ->
+            val timingDelta = payload[WorldBookTiming.DELTA] as? JsonObject
+            correctedResponses.forEachIndexed { index, response ->
                 updatedTranscript.add(buildJsonObject {
                     put("speaker", response.speaker)
                     put("message", response.message)
@@ -699,6 +704,7 @@ class DialogueAdvancedService(
                     put("turn_id", turnId)
                     put("timestamp", timestamp)
                     put("corrected_at", timestamp)
+                    if (index == 0 && timingDelta != null) put(WorldBookTiming.DELTA, timingDelta)
                 })
             }
             val lastPreview = updatedTranscript.lastOrNull { entry ->
@@ -726,6 +732,7 @@ class DialogueAdvancedService(
                 put("last_entry_preview", lastPreview)
                 put("updated_at", timestamp)
                 put("consistency_monitor", monitorFields)
+                if (timingDelta != null) put(WorldBookTiming.FIELD, WorldBookTiming.apply(latest, timingDelta))
             })
             // 修正分支重推 scene progress，避免继承源会话后续轮次的场景事实。
             val transcriptMaps = updatedTranscript.mapNotNull { entry ->
@@ -998,14 +1005,32 @@ class DialogueAdvancedService(
         autoContinue: Boolean,
     ): JsonObject {
         requireSession(runId, sessionId)
+        // 客户端只传 card_id 时，必须按 id 读取场景卡文件；否则 fields 恒为空、场景状态推导失真。
+        val resolvedProfile = if (sceneCardId.isNotBlank()) {
+            val safeCardId = PathSafety.validateStorageId(sceneCardId.trim(), "card_id")
+            val cardFile = storage.getStorageRoot() / "scene-cards" / safeCardId / "scene-card.json"
+            if (!storage.exists(cardFile)) throw IllegalArgumentException("所选场景卡不存在。")
+            val card = runCatching {
+                json.parseToJsonElement(storage.readText(cardFile)).jsonObject
+            }.getOrElse { throw IllegalArgumentException("所选场景卡不存在。") }
+            val fields = card["fields"]?.jsonObject ?: JsonObject(emptyMap())
+            // 显式传入的 scene_profile 优先级高于卡文件，并回写 card_id（对齐 Python）。
+            buildJsonObject {
+                fields.forEach { (key, value) -> put(key, value) }
+                sceneProfile.forEach { (key, value) -> put(key, value) }
+                put("scene_card_id", card["card_id"]?.jsonPrimitive?.contentOrNull ?: safeCardId)
+            }
+        } else {
+            sceneProfile
+        }
         val timestamp = nowIsoString()
         val sceneCard = buildJsonObject {
             if (sceneCardId.isNotBlank()) put("card_id", sceneCardId)
-            put("fields", sceneProfile)
+            put("fields", resolvedProfile)
             put("preview", buildJsonObject {
-                sceneProfile["title"]?.let { put("title", it) }
-                sceneProfile["location"]?.let { put("location", it) }
-                sceneProfile["time_hint"]?.let { put("time_hint", it) }
+                resolvedProfile["title"]?.let { put("title", it) }
+                resolvedProfile["location"]?.let { put("location", it) }
+                resolvedProfile["time_hint"]?.let { put("time_hint", it) }
             })
         }
         val transitionEntry = if (transitionMessage.isNotBlank()) {
@@ -1017,7 +1042,7 @@ class DialogueAdvancedService(
         } else {
             null
         }
-        val sceneProfileMap = sceneProfile.mapValues { (_, value) ->
+        val sceneProfileMap = resolvedProfile.mapValues { (_, value) ->
             value.jsonPrimitive.contentOrNull
         }
         // 场景切换的三次写入合并为一次锁内读改写：避免覆盖期间提交的新回合，也少两次全量写。
@@ -1259,6 +1284,7 @@ class DialogueAdvancedService(
             put("transcript", buildJsonArray { kept.forEach(::add) })
             put("transcript_start", 0)
             put("transcript_count", kept.size)
+            put(WorldBookTiming.FIELD, WorldBookTiming.fromTranscript(kept))
             put("revision", if (kept.isEmpty()) 0 else 1)
             put("branch_origin", branchOrigin)
             put("branch_graph", graph)
@@ -1314,9 +1340,7 @@ class DialogueAdvancedService(
         )
         val branchManifest = buildJsonObject {
             branchWithState.forEach { (key, value) -> put(key, value) }
-            put("transcript", compacted.recent)
-            put("transcript_start", compacted.startIndex)
-            put("transcript_count", compacted.totalCount)
+            compacted.writeFields(this)
         }
         val file = dir / "session_manifest.json"
         chatTransfer.copyBranchMetadata(

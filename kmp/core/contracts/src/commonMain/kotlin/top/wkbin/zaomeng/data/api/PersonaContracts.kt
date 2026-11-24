@@ -84,6 +84,17 @@ data class PersonaReviewDto(
     @SerialName("editable_profile_path") val editableProfilePath: String = "",
     @SerialName("generated_profile_path") val generatedProfilePath: String = "",
     val fields: Map<String, String> = emptyMap(),
+    @SerialName("card_fields") val cardFields: Map<String, String>? = null,
+    @SerialName("card_metadata") val cardMetadata: SillyTavernCardMetadataDto? = null,
+)
+
+@Serializable
+data class SillyTavernCardMetadataDto(
+    val creator: String = "",
+    @SerialName("creator_notes") val creatorNotes: String = "",
+    @SerialName("character_version") val characterVersion: String = "",
+    val tags: List<String> = emptyList(),
+    @SerialName("creator_notes_truncated") val creatorNotesTruncated: Boolean = false,
 )
 
 @Serializable
@@ -97,6 +108,7 @@ data class PersonaQualityReportDto(
     @SerialName("evidence_coverage") val evidenceCoverage: Int = 0,
     val confidence: Int = 0,
     @SerialName("pending_repair_count") val pendingRepairCount: Int = 0,
+    val applicable: Boolean = true,
 )
 
 @Serializable

@@ -1,4 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
+
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.feature.chat.insights.*
 
 import androidx.compose.foundation.layout.Arrangement
@@ -76,6 +78,8 @@ import kotlin.math.roundToInt
 @Composable
 fun ChatToolsSheet(
     state: ChatUiState,
+    readingLayout: Boolean,
+    onToggleReadingLayout: () -> Unit,
     onDismiss: () -> Unit,
     onDirector: (String, String) -> Unit,
     onCorrectLatest: () -> Unit,
@@ -83,6 +87,7 @@ fun ChatToolsSheet(
     onBranchTurn: (String) -> Unit,
     onBranchScene: (Int) -> Unit,
     onUpdateBranchMeta: (String, Boolean) -> Unit,
+    onUpdateAuthorNote: (AuthorNoteDto) -> Unit,
     onToggleMainlineEvent: (String, Boolean) -> Unit,
     onOpenExistingBranch: (String) -> Unit,
     onLoadScenes: () -> Unit,
@@ -105,6 +110,8 @@ fun ChatToolsSheet(
     var pendingRelationLockChange by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var relationLockHelpDialog by remember { mutableStateOf(false) }
     var branchMetaDialog by remember { mutableStateOf(false) }
+    var authorNoteDialog by remember(state.sessionId) { mutableStateOf(false) }
+    var pendingAuthorNote by remember(state.sessionId) { mutableStateOf<AuthorNoteDto?>(null) }
     var branchLabel by remember(state.session?.sessionId) {
         mutableStateOf(state.session?.branchMeta?.stringValue("label").orEmpty())
     }
@@ -113,6 +120,27 @@ fun ChatToolsSheet(
     }
     val toolsEnabled = state.canUseTools
     val session = state.session
+    LaunchedEffect(session?.authorNote, pendingAuthorNote, state.toolBusy) {
+        if (pendingAuthorNote != null && session?.authorNote == pendingAuthorNote && state.toolBusy.isBlank()) {
+            authorNoteDialog = false
+            pendingAuthorNote = null
+        }
+    }
+    if (authorNoteDialog && session != null) {
+        AuthorNoteDialog(
+            current = session.authorNote,
+            saving = state.toolBusy == "author_note",
+            error = state.error.takeIf { pendingAuthorNote != null }.orEmpty(),
+            onSave = {
+                pendingAuthorNote = it
+                onUpdateAuthorNote(it)
+            },
+            onDismiss = {
+                authorNoteDialog = false
+                pendingAuthorNote = null
+            },
+        )
+    }
     val branchNodes = remember(session) { session?.branchGraph?.branchNodeInsights().orEmpty() }
     val consistency = remember(session) { session?.consistencyMonitor?.consistencyInsight() }
     val characterArcs = remember(session) { session?.characterArcs.orEmpty().characterArcInsights() }
@@ -223,6 +251,13 @@ fun ChatToolsSheet(
             }
 
             item {
+                OutlinedButton(
+                    onClick = onToggleReadingLayout,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (readingLayout) "切换到气泡排版" else "切换到阅读排版") }
+            }
+
+            item {
                 ToolSection("剧情复盘") {
                     ToolButton(
                         label = "查看剧情卡并分享",
@@ -230,6 +265,16 @@ fun ChatToolsSheet(
                         enabled = toolsEnabled,
                         onClick = onOpenStoryRecap,
                     )
+                }
+            }
+
+            if (session != null) {
+                item {
+                    OutlinedButton(
+                        onClick = { authorNoteDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = toolsEnabled,
+                    ) { Text("作者注释") }
                 }
             }
 

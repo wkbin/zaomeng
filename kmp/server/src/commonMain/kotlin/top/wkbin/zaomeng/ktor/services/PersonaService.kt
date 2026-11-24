@@ -40,22 +40,28 @@ class PersonaService(
         val source = resolveProfile(runId, character)
         val profile = loadProfile(source)
         val directory = requireNotNull(source.parent)
+        val card = importedCard(runId, character)
         return PersonaReviewDto(
             runId = runId,
             character = profile["name"]?.toString()?.trim().orEmpty().ifBlank { character },
             editableProfilePath = (directory / "PROFILE.md").takeIf { storage.exists(it) }?.toString().orEmpty(),
             generatedProfilePath = (directory / "PROFILE.generated.md").takeIf { storage.exists(it) }?.toString().orEmpty(),
-            fields = REVIEW_FIELDS.associateWith { readField(profile, it) },
+            fields = REVIEW_FIELDS.associateWith { readField(profile, it) } +
+                SillyTavernExport.distilledCardFields.associateWith { readField(profile, it).replace("\\n", "\n") },
+            cardFields = card?.let { SillyTavernExport.importedProfileFields(profile, it) },
+            cardMetadata = card?.let { SillyTavernImport.cardMetadata(it) },
         )
     }
 
     fun exportSillyTavernCard(runId: String, character: String): JsonObject {
         val profile = getReview(runId, character)
-        val original = storage.readTextOrNull(storage.getRunDirectory(runId) / SillyTavernImport.CARD_FILE)?.let {
-            SillyTavernImport.parseCard(it.encodeToByteArray(), stored = true)
-        }
-        return SillyTavernExport.characterCard(character, profile.fields, original)
+        return SillyTavernExport.characterCard(character, profile.fields, importedCard(runId, character), profile.cardFields)
     }
+
+    private fun importedCard(runId: String, character: String): SillyTavernImport.Card? =
+        storage.readTextOrNull(storage.getRunDirectory(runId) / SillyTavernImport.CARD_FILE)
+            ?.let { SillyTavernImport.parseCard(it.encodeToByteArray(), stored = true) }
+            ?.takeIf { it.data["name"]?.jsonPrimitive?.contentOrNull?.trim() == character }
 
     fun deletePersona(runId: String, character: String): DeleteStatusDto {
         val normalized = character.trim()
@@ -239,8 +245,28 @@ class PersonaService(
     fun saveReview(runId: String, character: String, fields: Map<String, String>): PersonaReviewDto {
         val source = resolveProfile(runId, character)
         val profile = loadProfile(source).toMutableMap()
+        val card = importedCard(runId, character)
+        val cardMapping = if (card != null) SillyTavernExport.personaFields else emptyMap()
         fields.forEach { (field, value) ->
-            if (field in REVIEW_FIELDS) applyField(profile, field, value)
+            if (field in REVIEW_FIELDS || field in SillyTavernExport.distilledCardFields) {
+                if (readField(profile, field) != PersonaProfileNormalizer.normalizeFieldValue(value)) {
+                    cardMapping.entries.firstOrNull { it.value == field }?.key?.let(profile::remove)
+                }
+                applyField(profile, field, value)
+            }
+        }
+        if (card != null && cardMapping.keys.any(fields::containsKey)) {
+            val previous = SillyTavernExport.importedProfileFields(profile, card)
+            val updated = previous + fields.filterKeys(cardMapping::containsKey)
+            require(updated.values.sumOf { it.encodeToByteArray().size } <= 1024 * 1024) { "角色卡文字总量不能超过 1 MB。" }
+            val cardData = JsonObject(card.data + updated.mapValues { JsonPrimitive(it.value) })
+            val projection = SillyTavernImport.profileFields(cardData)
+            for ((field, mapped) in cardMapping) {
+                if (field in fields && updated[field] != previous[field]) {
+                    profile[field] = updated.getValue(field)
+                    applyField(profile, mapped, projection[mapped].orEmpty())
+                }
+            }
         }
         val editable = requireNotNull(source.parent) / "PROFILE.md"
         val existingBody = storage.readText(source).substringAfterFrontmatter()
@@ -252,6 +278,9 @@ class PersonaService(
 
     fun getQualityReport(runId: String, character: String): PersonaQualityReportDto {
         val source = resolveProfile(runId, character)
+        if (importedCard(runId, character) != null) {
+            return PersonaQualityReportDto(character = character, maxScore = 0, verdict = "角色卡使用原始字段。", applicable = false)
+        }
         val reportFile = requireNotNull(source.parent) / "QUALITY_REPORT.json"
         if (storage.exists(reportFile)) {
             runCatching { return json.decodeFromString<PersonaQualityReportDto>(storage.readText(reportFile)) }

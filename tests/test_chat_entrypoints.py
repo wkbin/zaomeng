@@ -68,7 +68,7 @@ class ChatEntrypointWorkflowTests(unittest.TestCase):
 
         self.assertEqual(
             events,
-            ["load", "generate", "evolve", "ingest", "refresh"],
+            ["load", "generate", "ingest", "evolve", "refresh"],
         )
         self.assertEqual(
             result,
@@ -82,6 +82,43 @@ class ChatEntrypointWorkflowTests(unittest.TestCase):
             generation_cache=generation_cache,
         )
         dialogue.abort_pending_turn.assert_not_called()
+
+    def test_relation_evolution_skipped_when_ingest_fails(self):
+        events: list[str] = []
+        dialogue = Mock()
+        dialogue.prepare_turn.return_value = {
+            "pending_turn_summary": {"turn_id": "turn-1"}
+        }
+
+        def evolve(*args, **kwargs):
+            events.append("evolve")
+
+        def ingest(*args, **kwargs):
+            events.append("ingest")
+            raise ValueError("No valid responses provided.")
+
+        dialogue.ingest_turn_responses.side_effect = ingest
+
+        with self.assertRaisesRegex(ValueError, "No valid responses"):
+            reply_dialogue_turn_payload(
+                run_id="run-1",
+                session_id="dlg-1",
+                message="hello",
+                message_kind="dialogue",
+                manifest={"run_id": "run-1"},
+                dialogue=dialogue,
+                load_pending_turn_payload=Mock(
+                    return_value={"turn_id": "turn-1", "session_id": "dlg-1"}
+                ),
+                generate_dialogue_responses=Mock(
+                    return_value={"responses": [{"speaker": "A", "message": "reply"}]}
+                ),
+                friendly_dialogue_llm_error=str,
+                evolve_relations_from_turn=evolve,
+            )
+
+        self.assertEqual(events, ["ingest"])
+        dialogue.abort_pending_turn.assert_called_once()
 
     def test_reply_translates_llm_error_then_aborts_expected_turn(self):
         dialogue = Mock()

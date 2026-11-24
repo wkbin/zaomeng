@@ -2648,6 +2648,8 @@ function shouldAutoFocusDialogueComposer() {
   return !narrowViewport && !coarsePointer;
 }
 
+let pendingSidebarSelection = null;
+
 async function renderDialogueSession(session) {
   if (typeof UI_BRIDGE_TOOLS?.syncLegacyUiState === "function") {
     UI_BRIDGE_TOOLS.syncLegacyUiState("dialogue-session-local", {
@@ -2995,10 +2997,15 @@ async function loadRecentSessions() {
           toggleSessionSelection(itemKey);
           return;
         }
-        const previousRunId = currentRunId;
-        const previousRun = currentRun;
-        const previousSessionId = currentDialogueSessionId;
-        const previousSession = currentDialogueSession;
+        const previous = pendingSidebarSelection?.isCurrent()
+          ? pendingSidebarSelection.previous
+          : { runId: currentRunId, run: currentRun, sessionId: currentDialogueSessionId, session: currentDialogueSession };
+        const selection = {
+          previous,
+          isCurrent: () => pendingSidebarSelection === selection
+            && currentRunId === item.run_id && currentDialogueSessionId === item.session_id && sessionBooting,
+        };
+        pendingSidebarSelection = selection;
         currentRunId = item.run_id || currentRunId;
         if (typeof UI_BRIDGE_TOOLS?.syncLegacyUiState === "function") {
           UI_BRIDGE_TOOLS.syncLegacyUiState("dialogue-session-selecting", {
@@ -3036,9 +3043,12 @@ async function loadRecentSessions() {
             apiJson(`/api/web/runs/${item.run_id}`),
             apiJson(`/api/web/runs/${item.run_id}/dialogue/sessions/${item.session_id}`),
           ]);
+          if (!selection.isCurrent()) return;
           ensureRunReadyForDialogue(run, { preserveDialogue: true, suppressWorkflowUpdate: true });
           await renderDialogueSession(session);
         } catch (error) {
+          if (!selection.isCurrent()) return;
+          const { runId: previousRunId, run: previousRun, sessionId: previousSessionId, session: previousSession } = previous;
           currentRunId = previousRunId;
           currentRun = previousRun;
           if (typeof UI_BRIDGE_TOOLS?.syncLegacyUiState === "function") {
@@ -3077,6 +3087,8 @@ async function loadRecentSessions() {
             });
           }
           setStatus("dialogue-session-status", error.message || "这段会话暂时没有载入成功。");
+        } finally {
+          if (pendingSidebarSelection === selection) pendingSidebarSelection = null;
         }
       });
 

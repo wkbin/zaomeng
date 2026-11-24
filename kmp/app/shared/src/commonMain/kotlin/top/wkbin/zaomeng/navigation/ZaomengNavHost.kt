@@ -1,4 +1,4 @@
-﻿package top.wkbin.zaomeng.navigation
+package top.wkbin.zaomeng.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -12,8 +12,13 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
@@ -75,15 +80,7 @@ import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 import top.wkbin.zaomeng.platform.PlatformBackHandler
-/**
- * nav3 导航宿主：按窗口宽度自适应布局。
- *
- * - compact（手机竖屏/未展开折叠屏）：保持全屏单页导航，与旧版手机端一致；
- * - medium/expanded（平板、展开后的折叠屏、桌面窗口）：左侧导航栏 + 右侧内容区。
- *
- * 使用非持久化 NavBackStack（进程死亡不恢复）；后续需要恢复时可换
- * rememberNavBackStack(SavedStateConfiguration) + NavKey 多态注册。
- */
+/** 窄屏使用底栏，宽屏使用侧栏。详情页保留各自的返回路径。 */
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ZaomengNavHost(
@@ -142,13 +139,17 @@ fun ZaomengNavHost(
                 val viewModel: BookshelfViewModel = koinViewModel()
                 BookshelfScreen(
                     viewModel = viewModel,
-                    showTopBarActions = !wideLayout,
                     onImport = { backStack.add(ImportBookDestination) },
-                    onOpenSettings = { backStack.add(ModelSettingsDestination) },
-                    onOpenCards = { backStack.add(CardLibraryDestination) },
-                    onOpenSessions = { backStack.add(SessionsDestination()) },
-                    onOpenCrossover = { backStack.add(CrossoverDestination) },
+                    onOpenSettings = { backStack.add(ModelConfigurationDestination) },
                     onOpenRun = { runId -> backStack.add(RunDetailDestination(runId)) },
+                )
+            }
+            entry(MoreDestination) {
+                MoreScreen(
+                    onOpenCards = { backStack.add(CardLibraryDestination) },
+                    onOpenCrossover = { backStack.add(CrossoverDestination) },
+                    onOpenLibrary = { backStack.add(OnlineLibraryDestination) },
+                    onOpenSettings = { backStack.add(ModelSettingsDestination) },
                 )
             }
             entry(ImportBookDestination) {
@@ -156,14 +157,14 @@ fun ZaomengNavHost(
                 ImportBookScreen(
                     viewModel = viewModel,
                     onBack = popBack,
-                    onOpenSettings = { backStack.add(ModelSettingsDestination) },
+                    onOpenSettings = { backStack.add(ModelConfigurationDestination) },
                     onOpenOnlineLibrary = { backStack.add(OnlineLibraryDestination) },
                     onRunCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
             }
             entry(ModelSettingsDestination) {
                 SettingsHomeScreen(
-                    showBackButton = !wideLayout || backStack.size > 1,
+                    showBackButton = true,
                     onBack = popBack,
                     onOpenModelSettings = { backStack.add(ModelConfigurationDestination) },
                     onOpenChatDisplay = { backStack.add(ChatDisplaySettingsDestination) },
@@ -236,7 +237,7 @@ fun ZaomengNavHost(
                 val viewModel: CardLibraryViewModel = koinViewModel()
                 CardLibraryScreen(
                     viewModel = viewModel,
-                    showBackButton = !wideLayout || backStack.size > 1,
+                    showBackButton = true,
                     onBack = popBack,
                 )
             }
@@ -244,7 +245,7 @@ fun ZaomengNavHost(
                 val viewModel: CrossoverViewModel = koinViewModel()
                 CrossoverScreen(
                     viewModel = viewModel,
-                    showBackButton = !wideLayout || backStack.size > 1,
+                    showBackButton = true,
                     onBack = popBack,
                     onCreated = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
@@ -254,7 +255,7 @@ fun ZaomengNavHost(
                 SessionsScreen(
                     viewModel = viewModel,
                     runId = destination.runId.takeIf(String::isNotBlank),
-                    showBackButton = !wideLayout || backStack.size > 1,
+                    showBackButton = destination.runId.isNotBlank(),
                     onBack = popBack,
                     onOpenChat = { runId, sessionId ->
                         backStack.add(ChatDestination(runId, sessionId))
@@ -272,6 +273,7 @@ fun ZaomengNavHost(
                         backStack.add(PersonaDestination(runId, character))
                     },
                     onOpenSessions = { runId -> backStack.add(SessionsDestination(runId)) },
+                    onOpenChat = { runId, sessionId -> backStack.add(ChatDestination(runId, sessionId)) },
                     onOpenChapters = { runId -> backStack.add(ChaptersDestination(runId)) },
                     onOpenRelations = { runId -> backStack.add(RelationsDestination(runId)) },
                     onOpenWorldTimeline = { runId -> backStack.add(WorldTimelineDestination(runId)) },
@@ -363,7 +365,7 @@ fun ZaomengNavHost(
                 val viewModel: OnlineLibraryViewModel = koinViewModel()
                 OnlineLibraryScreen(
                     viewModel = viewModel,
-                    showBackButton = !wideLayout || backStack.size > 1,
+                    showBackButton = true,
                     onBack = popBack,
                     onRunImported = { runId -> backStack.add(RunDetailDestination(runId)) },
                 )
@@ -381,26 +383,31 @@ fun ZaomengNavHost(
             }
         }
 
-    if (wideLayout) {
-        Row(Modifier.fillMaxSize()) {
-            AppTopLevelRail(
-                selectedDestination = backStack.lastOrNull { it.isTopLevelDestination() }
-                    ?: BookshelfDestination,
-                onSelectDestination = { destination ->
-                    // 保留书卷架为栈底：先弹掉其上所有内容，再压入所选 tab。
-                    // 已在该 tab 根部时不做任何事，避免重置页面状态。
-                    while (backStack.size > 1) {
-                        backStack.removeLastOrNull()
-                    }
-                    if (backStack.lastOrNull() != destination) {
-                        backStack.add(destination)
-                    }
-                },
-            )
+    val current = backStack.lastOrNull()
+    val showNavigation = current == BookshelfDestination ||
+        current == SessionsDestination() || current == MoreDestination
+    val selectDestination: (NavKey) -> Unit = { destination ->
+        if (backStack.lastOrNull() != destination) {
+            while (backStack.size > 1) backStack.removeLastOrNull()
+            if (destination != BookshelfDestination) backStack.add(destination)
+        }
+    }
+
+    val bottomNavigation = !wideLayout && showNavigation
+    val contentInsets = if (bottomNavigation) {
+        Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+    } else {
+        Modifier
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.weight(1f).then(contentInsets)) {
+            if (wideLayout && showNavigation) {
+                AppTopLevelRail(current, selectDestination)
+            }
             CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
                 NavDisplay(
                     backStack = backStack,
-                    modifier = Modifier.fillMaxHeight().weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxSize(),
                     onBack = popBack,
                     entryProvider = navEntryProvider,
                     predictivePopTransitionSpec = { _ -> lightPredictivePopTransition() },
@@ -411,19 +418,8 @@ fun ZaomengNavHost(
                 )
             }
         }
-    } else {
-        CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
-            NavDisplay(
-                backStack = backStack,
-                modifier = Modifier.fillMaxSize(),
-                onBack = popBack,
-                entryProvider = navEntryProvider,
-                predictivePopTransitionSpec = { _ -> lightPredictivePopTransition() },
-                entryDecorators = listOf(
-                    rememberSaveableStateHolderNavEntryDecorator(),
-                    rememberViewModelStoreNavEntryDecorator(),
-                ),
-            )
+        if (bottomNavigation) {
+            AppTopLevelBar(current, selectDestination)
         }
     }
 }
@@ -437,16 +433,3 @@ private fun AnimatedContentTransitionScope<*>.lightPredictivePopTransition(): Co
         scaleIn(initialScale = 0.98f) togetherWith
         slideOutHorizontally(targetOffsetX = { it / 8 }) +
         scaleOut(targetScale = 0.96f)
-
-/** 判断栈内条目是否为顶级导航目的地（侧栏 tab）。会话列表页视为顶级，书卷专属会话页不算。 */
-private fun NavKey.isTopLevelDestination(): Boolean = when (this) {
-    BookshelfDestination,
-    CardLibraryDestination,
-    CrossoverDestination,
-    OnlineLibraryDestination,
-    ModelSettingsDestination,
-    -> true
-
-    is SessionsDestination -> runId.isBlank()
-    else -> false
-}

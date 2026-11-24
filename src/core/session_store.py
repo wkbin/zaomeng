@@ -10,6 +10,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from importlib import import_module
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -228,6 +229,28 @@ class MarkdownSessionStore(SessionStore):
         scored.sort(key=lambda hit: hit.score, reverse=True)
         return [hit.to_payload() for hit in [*exact_hits, *scored][:limit]]
 
+    def top_memory_text(self, session_id: str, query: str) -> str:
+        """Reuse local summary lookups while the corresponding memory archive stays unchanged."""
+        if self._memory_config()["vector_provider"] != "local":
+            return self._top_memory_text(session_id, query)
+        path = self._long_term_memory_path(session_id)
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return ""
+        revision = (str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
+        return self._cached_top_memory_text(session_id, query, revision)
+
+    @lru_cache(maxsize=512)
+    def _cached_top_memory_text(
+        self, session_id: str, query: str, _revision: tuple[str, int, int, int]
+    ) -> str:
+        return self._top_memory_text(session_id, query)
+
+    def _top_memory_text(self, session_id: str, query: str) -> str:
+        hits = self.search_long_term_memory(session_id, query, top_k=1)
+        return str(hits[0].get("text", "")).strip() if hits else ""
+
     def save_relation_snapshot(self, session: Dict[str, Any]) -> None:
         session_id = self._session_identity(session)
         if not session_id:
@@ -250,13 +273,21 @@ class MarkdownSessionStore(SessionStore):
         )
 
     def _session_path(self, session_id: str):
-        return self.path_provider.sessions_dir() / f"{session_id}.md"
+        return self.path_provider.sessions_dir() / f"{self._validate_session_id(session_id)}.md"
 
     def _relation_snapshot_path(self, session_id: str):
-        return self.path_provider.sessions_dir() / f"{session_id}_relations.md"
+        return self.path_provider.sessions_dir() / f"{self._validate_session_id(session_id)}_relations.md"
 
     def _long_term_memory_path(self, session_id: str):
-        return self.path_provider.sessions_dir() / f"{session_id}_memory.md"
+        return self.path_provider.sessions_dir() / f"{self._validate_session_id(session_id)}_memory.md"
+
+    @staticmethod
+    def _validate_session_id(session_id: str) -> str:
+        """会话 id 会直接拼进文件名，必须拒绝路径分隔符与上跳。"""
+        clean = str(session_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", clean):
+            raise ValueError(f"Invalid session id: {session_id!r}")
+        return clean
 
     def _load_long_term_payload(self, session_id: str) -> Dict[str, Any]:
         return load_markdown_data(
