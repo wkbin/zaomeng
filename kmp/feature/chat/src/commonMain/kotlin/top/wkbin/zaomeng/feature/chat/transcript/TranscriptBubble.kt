@@ -1,6 +1,10 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
+import top.wkbin.zaomeng.ui.theme.chatMessageTint
 
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -47,48 +51,17 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Play
+import io.github.suqi8.coui.kmp.icon.extended.VolumeOff
+import io.github.suqi8.coui.kmp.icon.extended.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -125,7 +98,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -170,12 +142,12 @@ internal fun TranscriptBubble(
     val canBranch = item.turnId.isNotBlank()
     var menuExpanded by remember(item.turnId, item.message) { mutableStateOf(false) }
     val verticalPadding = if (displayPreferences.compactMode) 6.dp else 9.dp
-    val messageStyle = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = MaterialTheme.typography.bodyMedium.fontSize * displayPreferences.fontSizeScale,
+    val messageStyle = COUITheme.textStyles.bodyM.copy(
+        fontSize = COUITheme.textStyles.bodyM.fontSize * displayPreferences.fontSizeScale,
     )
 
     if (readingLayout && !isUser && !isDirector) {
-        val body = MaterialTheme.typography.bodyLarge
+        val body = COUITheme.textStyles.bodyXL
         val scale = displayPreferences.fontSizeScale
         val readingStyle = body.copy(fontSize = body.fontSize * scale, lineHeight = body.lineHeight * scale)
         val isThisSpeaking = isSpeaking && speakingId == item.transcriptKey()
@@ -199,14 +171,14 @@ internal fun TranscriptBubble(
                     Text(
                         text = speaker,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.buttonM,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                     if (onSpeak != null && !isScene && !streaming) {
                         IconButton(onClick = onSpeak) {
                             Icon(
-                                imageVector = if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff
-                                else Icons.AutoMirrored.Filled.VolumeUp,
+                                imageVector = if (isThisSpeaking) COUIIcons.VolumeOff
+                                else COUIIcons.VolumeUp,
                                 contentDescription = if (isThisSpeaking) "停止朗读" else "朗读",
                                 modifier = Modifier.size(18.dp),
                             )
@@ -214,14 +186,14 @@ internal fun TranscriptBubble(
                     }
                     if (!streaming) {
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "消息操作", modifier = Modifier.size(20.dp))
+                            Icon(COUIIcons.More, contentDescription = "消息操作", modifier = Modifier.size(20.dp))
                         }
                     }
                 }
                 RoleplayMessageContent(
                     text = item.message,
                     style = readingStyle,
-                    baseColor = MaterialTheme.colorScheme.onSurface,
+                    baseColor = COUITheme.colorScheme.labelPrimary,
                     modifier = Modifier.fillMaxWidth().then(
                         if (streaming) Modifier else Modifier.combinedClickable(
                             onClick = {},
@@ -234,15 +206,18 @@ internal fun TranscriptBubble(
                 )
                 if (includeInnerThoughts && item.innerThought.isNotBlank() && !isScene) {
                     var thoughtExpanded by rememberSaveable { mutableStateOf(false) }
-                    TextButton(onClick = { thoughtExpanded = !thoughtExpanded }) {
-                        Text(if (thoughtExpanded) "收起内心独白" else "展开内心独白")
-                    }
+                    TextButton(
+                        text = if (thoughtExpanded) "收起内心独白" else "展开内心独白",
+                        onClick = { thoughtExpanded = !thoughtExpanded },
+                        minWidth = 0.dp,
+                        textStyle = COUITheme.textStyles.bodyM,
+                    )
                     if (thoughtExpanded) {
-                        Text(item.innerThought, style = readingStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.innerThought, style = readingStyle, color = COUITheme.colorScheme.labelSecondary)
                     }
                 }
                 if (streaming) {
-                    Text("正在生成", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("正在生成", style = COUITheme.textStyles.description, color = COUITheme.colorScheme.primary)
                 }
             }
             MessageContextMenu(
@@ -269,20 +244,20 @@ internal fun TranscriptBubble(
                             onClick = {},
                             onLongClick = { if (!streaming) menuExpanded = true },
                         ),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(8.dp),
+                    color = COUITheme.colorScheme.chatMessageTint(),
+                    shape = SquircleShape(COUIRoundCorner.Normal.S, COUIRoundCorner.Normal.Weight),
                 ) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = verticalPadding)) {
                         Text(
                             text = "旁白${
                                 item.speaker.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
                             }",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.primaryText,
                             fontWeight = FontWeight.SemiBold,
                         )
                         val narrationStyle = messageStyle.copy(fontStyle = FontStyle.Italic)
-                        val narrationColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        val narrationColor = COUITheme.colorScheme.labelPrimary
                         RoleplayMessageContent(
                             text = item.message,
                             modifier = Modifier.padding(top = 3.dp),
@@ -320,19 +295,18 @@ internal fun TranscriptBubble(
                             onLongClick = { if (!streaming) menuExpanded = true },
                         ),
                     color = androidx.compose.ui.graphics.Color.Transparent,
-                    shape = RoundedCornerShape(0.dp),
                 ) {
                     Column(
                         Modifier.padding(horizontal = 14.dp, vertical = verticalPadding),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        androidx.compose.material3.HorizontalDivider()
+                        HorizontalDivider()
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                Icons.Default.PlayArrow,
+                                COUIIcons.Play,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = COUITheme.colorScheme.labelSecondary,
                             )
                             Text(
                                 text = "导演${
@@ -340,8 +314,8 @@ internal fun TranscriptBubble(
                                         .orEmpty()
                                 }",
                                 modifier = Modifier.padding(start = 5.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.description,
+                                color = COUITheme.colorScheme.labelSecondary,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
@@ -351,7 +325,7 @@ internal fun TranscriptBubble(
                                 .fillMaxWidth()
                                 .padding(top = 3.dp),
                             style = messageStyle,
-                            baseColor = MaterialTheme.colorScheme.onSurface,
+                            baseColor = COUITheme.colorScheme.labelPrimary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                     }
@@ -397,8 +371,8 @@ internal fun TranscriptBubble(
                 ) {
                     Text(
                         text = item.speaker.ifBlank { "人物" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                     if (onSpeak != null && !streaming) {
                         val isThisSpeaking = isSpeaking && speakingId == item.transcriptKey()
@@ -409,10 +383,10 @@ internal fun TranscriptBubble(
                                 .size(18.dp),
                         ) {
                             Icon(
-                                imageVector = if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                imageVector = if (isThisSpeaking) COUIIcons.VolumeOff else COUIIcons.VolumeUp,
                                 contentDescription = if (isThisSpeaking) "停止朗读" else "朗读",
                                 modifier = Modifier.size(14.dp),
-                                tint = if (isThisSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                tint = if (isThisSpeaking) COUITheme.colorScheme.primary else COUITheme.colorScheme.labelSecondary.copy(alpha = 0.7f),
                             )
                         }
                     }
@@ -427,22 +401,22 @@ internal fun TranscriptBubble(
                             onLongClick = { if (!streaming) menuExpanded = true },
                         ),
                     color = if (isUser) {
-                        MaterialTheme.colorScheme.primaryContainer
+                        COUITheme.colorScheme.chatMessageTint()
                     } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
+                        COUITheme.colorScheme.surfaceWithCard
                     },
                     shape = RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (isUser) 18.dp else 4.dp,
-                        bottomEnd = if (isUser) 4.dp else 18.dp,
+                        topStart = COUIRoundCorner.XL,
+                        topEnd = COUIRoundCorner.XL,
+                        bottomStart = if (isUser) COUIRoundCorner.XL else COUIRoundCorner.XS,
+                        bottomEnd = if (isUser) COUIRoundCorner.XS else COUIRoundCorner.XL,
                     ),
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = verticalPadding)) {
                         if (isUser) Text(
                             text = if (item.speaker == "作者") "作者" else "你 · ${item.speaker}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.labelSecondary,
                             fontWeight = FontWeight.SemiBold,
                         )
                         if (isUser) {
@@ -450,10 +424,10 @@ internal fun TranscriptBubble(
                                 text = item.message,
                                 modifier = Modifier.padding(top = 3.dp),
                                 style = messageStyle,
-                                baseColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                baseColor = COUITheme.colorScheme.labelPrimary,
                             )
                         } else {
-                            val replyColor = MaterialTheme.colorScheme.onSurface
+                            val replyColor = COUITheme.colorScheme.labelPrimary
                             RoleplayMessageContent(
                                 text = item.message,
                                 modifier = Modifier.padding(top = 3.dp),
@@ -465,25 +439,25 @@ internal fun TranscriptBubble(
                             }
                         }
                         if (includeInnerThoughts && item.innerThought.isNotBlank() && !isUser) {
-                            androidx.compose.material3.HorizontalDivider(
+                            HorizontalDivider(
                                 modifier = Modifier.padding(top = 6.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant,
+                                color = COUITheme.colorScheme.divider,
                             )
                             Text(
                                 text = "内心独白：${item.innerThought}",
                                 modifier = Modifier.padding(top = 6.dp),
-                                style = MaterialTheme.typography.labelMedium.copy(
+                                style = COUITheme.textStyles.description.copy(
                                     fontStyle = FontStyle.Italic,
                                 ),
-                                color = MaterialTheme.colorScheme.tertiary,
+                                color = COUITheme.colorScheme.primaryText,
                             )
                         }
                         if (streaming) {
                             Text(
                                 "正在生成",
                                 modifier = Modifier.padding(top = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                style = COUITheme.textStyles.description,
+                                color = COUITheme.colorScheme.primary,
                             )
                         }
                     }

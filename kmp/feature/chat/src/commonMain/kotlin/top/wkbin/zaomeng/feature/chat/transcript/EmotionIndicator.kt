@@ -1,21 +1,22 @@
 package top.wkbin.zaomeng.feature.chat.transcript
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 
 @Composable
 fun EmotionBadge(innerThought: String?, modifier: Modifier = Modifier) {
     val emoji = classifyEmotion(innerThought.orEmpty()) ?: return
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.extraSmall,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 2.dp,
+        shape = SquircleShape(COUIRoundCorner.Normal.XS, COUIRoundCorner.Normal.Weight),
+        color = COUITheme.colorScheme.surfaceTop,
     ) {
         Text(text = emoji, fontSize = 11.sp, lineHeight = 12.sp)
     }

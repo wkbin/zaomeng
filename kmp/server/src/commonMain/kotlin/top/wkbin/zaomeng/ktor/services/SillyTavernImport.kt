@@ -21,6 +21,14 @@ import top.wkbin.zaomeng.data.api.WorldBookKeywordMatching
 import top.wkbin.zaomeng.data.api.WorldBookSecondaryLogic
 import top.wkbin.zaomeng.data.api.WorldBookScanSource
 import top.wkbin.zaomeng.data.api.SillyTavernCardMetadataDto
+import top.wkbin.zaomeng.data.api.SillyTavernCharacterNoteDto
+import top.wkbin.zaomeng.data.api.CARD_CHARACTER_NOTE_LIMIT
+import top.wkbin.zaomeng.data.api.CARD_CHARACTER_NOTE_MAX_DEPTH
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
+import top.wkbin.zaomeng.data.api.CARD_METADATA_LABEL_LIMIT
+import top.wkbin.zaomeng.data.api.CARD_CREATOR_NOTES_LIMIT
+import top.wkbin.zaomeng.data.api.CARD_TAG_LIMIT
+import top.wkbin.zaomeng.data.api.CARD_TAG_CHAR_LIMIT
 import top.wkbin.zaomeng.data.api.WorldBookTestContext
 import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
 import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
@@ -515,14 +523,10 @@ internal class SillyTavernImport(private val storage: StorageService) {
     fun updateCardGreeting(runId: String, request: UpdateCardGreetingRequest): CardGreetingsDto {
         require(request.revision.isNotBlank() && request.index in 0..MAX_ALTERNATE_GREETINGS) { "开场版本或编号无效。" }
         require(request.text.length <= CARD_GREETING_CHAR_LIMIT) { "每条开场最多 4000 字符。" }
-        storage.updateRunManifest(runId) { manifest ->
-            val file = storage.getRunDirectory(runId) / CARD_FILE
-            val bytes = storage.readTextOrNull(file)?.encodeToByteArray()
-                ?: throw NoSuchElementException("这份书卷没有导入的角色卡。")
+        updateStoredCard(runId) { card, bytes ->
             if (bytes.toByteString().sha256().hex() != request.revision) throw CardGreetingChangedException()
-            val card = parseCard(bytes, stored = true)
             val text = JsonPrimitive(request.text.trim())
-            val data = if (request.index == 0) {
+            if (request.index == 0) {
                 JsonObject(card.data + ("first_mes" to text))
             } else {
                 val alternates = alternateGreetings(card).toMutableList()
@@ -531,14 +535,70 @@ internal class SillyTavernImport(private val storage: StorageService) {
                 if (position == alternates.size) alternates.add(text) else alternates[position] = text
                 JsonObject(card.data + ("alternate_greetings" to JsonArray(alternates)))
             }
-            if (data == card.data) return@updateRunManifest manifest
+        }
+        return getCardGreetings(runId)
+    }
+
+    fun updateCardMetadata(runId: String, character: String, request: UpdateSillyTavernCardMetadataRequest): SillyTavernCardMetadataDto {
+        require(request.revision.isNotBlank()) { "角色卡版本不能为空。" }
+        require(listOf(request.creator, request.creatorNotes, request.characterVersion, request.tags, request.characterNote).any { it != null }) {
+            "请至少修改一个角色卡字段。"
+        }
+        require(request.creator.orEmpty().length <= CARD_METADATA_LABEL_LIMIT &&
+            request.characterVersion.orEmpty().length <= CARD_METADATA_LABEL_LIMIT
+        ) { "作者和版本各最多 120 字符。" }
+        require(request.creatorNotes.orEmpty().length <= CARD_CREATOR_NOTES_LIMIT) { "作者说明最多 16000 字符。" }
+        require(request.tags.orEmpty().size <= CARD_TAG_LIMIT &&
+            request.tags.orEmpty().all { it.trim().length in 1..CARD_TAG_CHAR_LIMIT && '\n' !in it && '\r' !in it }
+        ) { "最多填写 32 个标签，每个标签为 1 至 64 个单行字符。" }
+        request.characterNote?.let { note ->
+            require(note.text.length <= CARD_CHARACTER_NOTE_LIMIT) { "角色注记最多 4000 字符。" }
+            require(note.depth in 0..CARD_CHARACTER_NOTE_MAX_DEPTH) { "角色注记深度须为 0 至 10000。" }
+        }
+
+        val saved = updateStoredCard(runId) { card, _ ->
+            if (card.data.string("name") != character) throw NoSuchElementException("这份书卷没有该角色卡。")
+            if (metadataRevision(card) != request.revision) throw CardMetadataChangedException()
+            JsonObject(card.data.toMutableMap().apply {
+                request.creator?.let { put("creator", JsonPrimitive(it.trim())) }
+                request.creatorNotes?.let {
+                    val notes = JsonPrimitive(it.trim())
+                    put("creator_notes", notes)
+                    if (containsKey("creatorcomment")) put("creatorcomment", notes)
+                }
+                request.characterVersion?.let { put("character_version", JsonPrimitive(it.trim())) }
+                request.tags?.let { put("tags", JsonArray(it.map(String::trim).distinct().map(::JsonPrimitive))) }
+                request.characterNote?.let { note ->
+                    val extensions = (card.data["extensions"] as? JsonObject).orEmpty()
+                    val updated = JsonObject(characterNote(card.data).orEmpty() + mapOf(
+                        "prompt" to JsonPrimitive(note.text.trim()),
+                        "depth" to JsonPrimitive(note.depth),
+                        "role" to JsonPrimitive(note.role.chatRole),
+                    ))
+                    put("extensions", JsonObject(extensions + ("depth_prompt" to updated)))
+                }
+            })
+        }
+        return cardMetadata(saved)
+    }
+
+    private fun updateStoredCard(runId: String, transform: (Card, ByteArray) -> JsonObject): Card {
+        lateinit var saved: Card
+        storage.updateRunManifest(runId) { manifest ->
+            val file = storage.getRunDirectory(runId) / CARD_FILE
+            val bytes = storage.readTextOrNull(file)?.encodeToByteArray()
+                ?: throw NoSuchElementException("这份书卷没有导入的角色卡。")
+            val card = parseCard(bytes, stored = true)
+            val data = transform(card, bytes)
             val root = if (card.data === card.original) data else JsonObject(card.original + ("data" to data))
+            saved = Card(root, data)
+            if (data == card.data) return@updateRunManifest manifest
             val updated = root.toString().encodeToByteArray()
             require(updated.size <= MAX_STORED_JSON_BYTES) { "保存后角色卡大小将超过上限。" }
             storage.writeBytesAtomically(file, updated)
             markLoreChanged(manifest)
         }
-        return getCardGreetings(runId)
+        return saved
     }
 
     private fun readAttachedBook(runId: String, source: String): AttachedBook? {
@@ -691,22 +751,32 @@ internal class SillyTavernImport(private val storage: StorageService) {
         internal fun cardMetadata(card: Card): SillyTavernCardMetadataDto {
             val data = card.data
             val notes = data.string("creator_notes").ifBlank { data.string("creatorcomment") }
-            val notesLimit = 16_000
+            val characterNote = characterNote(data)
+            val characterNoteText = characterNoteText(characterNote)
             val tags = (data["tags"] as? JsonArray).orEmpty().asSequence()
                 .mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content?.trim() }
                 .filter(String::isNotBlank)
-                .map { it.take(64) }
                 .distinct()
-                .take(32)
+                .take(CARD_TAG_LIMIT + 1)
                 .toList()
             return SillyTavernCardMetadataDto(
-                creator = data.string("creator").take(120),
-                creatorNotes = notes.take(notesLimit),
-                characterVersion = data.string("character_version").take(120),
-                tags = tags,
-                creatorNotesTruncated = notes.length > notesLimit,
+                creator = data.string("creator").take(CARD_METADATA_LABEL_LIMIT),
+                creatorNotes = notes.take(CARD_CREATOR_NOTES_LIMIT),
+                characterVersion = data.string("character_version").take(CARD_METADATA_LABEL_LIMIT),
+                tags = tags.take(CARD_TAG_LIMIT).map { it.take(CARD_TAG_CHAR_LIMIT) }.distinct(),
+                creatorNotesTruncated = notes.length > CARD_CREATOR_NOTES_LIMIT,
+                tagsTruncated = tags.size > CARD_TAG_LIMIT || tags.any { it.length > CARD_TAG_CHAR_LIMIT || '\r' in it || '\n' in it },
+                revision = metadataRevision(card),
+                characterNote = SillyTavernCharacterNoteDto(
+                    text = characterNoteText.take(CARD_CHARACTER_NOTE_LIMIT),
+                    depth = characterNoteDepth(characterNote),
+                    role = sillyTavernInjectionRole(characterNote?.get("role")),
+                ),
+                characterNoteTruncated = characterNoteText.length > CARD_CHARACTER_NOTE_LIMIT,
             )
         }
+
+        private fun metadataRevision(card: Card): String = card.original.toString().encodeToByteArray().toByteString().sha256().hex()
 
         private const val MAX_ALTERNATE_GREETINGS = 20
 
@@ -745,6 +815,14 @@ internal class SillyTavernImport(private val storage: StorageService) {
         internal fun embeddedBook(card: Card, participants: List<String>): JsonObject? =
             (card.data["character_book"] as? JsonObject)?.takeIf { card.data.string("name") in participants }
 
+        internal fun characterNote(data: JsonObject): JsonObject? =
+            (data["extensions"] as? JsonObject)?.get("depth_prompt") as? JsonObject
+
+        internal fun characterNoteText(note: JsonObject?): String = note?.string("prompt").orEmpty()
+
+        internal fun characterNoteDepth(note: JsonObject?): Int =
+            ((note?.get("depth") as? JsonPrimitive)?.intOrNull ?: 4).coerceIn(0, CARD_CHARACTER_NOTE_MAX_DEPTH)
+
         internal fun usesScanSources(vararg books: JsonObject?): Boolean =
             books.filterNotNull().any { book ->
                 loreEntries(book).any { entry ->
@@ -763,13 +841,13 @@ internal class SillyTavernImport(private val storage: StorageService) {
             user: String = "你",
         ): Map<WorldBookScanSource, String> {
             val data = card?.data
-            val depth = (data?.get("extensions") as? JsonObject)?.get("depth_prompt") as? JsonObject
+            val depth = data?.let(::characterNote)
             val name = data?.string("name").orEmpty().ifBlank { "{{char}}" }
             return mapOf(
                 WorldBookScanSource.PersonaDescription to personaDescription,
                 WorldBookScanSource.CharacterDescription to (characterDescription ?: data?.string("description").orEmpty()),
                 WorldBookScanSource.CharacterPersonality to (characterPersonality ?: data?.string("personality").orEmpty()),
-                WorldBookScanSource.CharacterDepthPrompt to depth?.string("prompt").orEmpty(),
+                WorldBookScanSource.CharacterDepthPrompt to characterNoteText(depth),
                 WorldBookScanSource.Scenario to scenario.ifBlank { cardScenario ?: data?.string("scenario").orEmpty() },
                 WorldBookScanSource.CreatorNotes to data?.string("creator_notes").orEmpty(),
             ).filterValues(String::isNotBlank).mapValues { (_, text) -> cardText(text, name, 4000, user) }
@@ -1272,15 +1350,19 @@ internal fun JsonObject.injectionDepth(embedded: Boolean, position: WorldBookInj
 
 internal fun JsonObject.injectionRole(embedded: Boolean, position: WorldBookInjectionPosition?): WorldBookInjectionRole? {
     if (position != WorldBookInjectionPosition.AtDepth) return null
-    return when ((lorePlacementField("role", embedded) as? JsonPrimitive)?.contentOrNull) {
+    return sillyTavernInjectionRole(lorePlacementField("role", embedded))
+}
+
+internal fun sillyTavernInjectionRole(value: JsonElement?): WorldBookInjectionRole =
+    when ((value as? JsonPrimitive)?.contentOrNull) {
         "1", "user" -> WorldBookInjectionRole.User
         "2", "assistant" -> WorldBookInjectionRole.Assistant
         else -> WorldBookInjectionRole.System
     }
-}
 
 internal class WorldBookChangedException : IllegalStateException("世界书已变化，请刷新后重试。")
 internal class CardGreetingChangedException : IllegalStateException("角色卡已变化，请重新加载开场后再编辑。")
+internal class CardMetadataChangedException : IllegalStateException("角色卡已变化，请重新加载设定后再编辑。")
 
 private fun JsonObject.string(key: String): String =
     (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty().trim()

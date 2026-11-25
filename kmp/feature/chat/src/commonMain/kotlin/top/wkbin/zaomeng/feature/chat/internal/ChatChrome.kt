@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,29 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +28,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.icon.extended.Search
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.feature.chat.insights.consistencyInsight
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageTopBar
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
 
 private data class DirectorActionOption(val value: String, val label: String)
 
@@ -74,9 +70,9 @@ internal fun ChatContextStrip(session: DialogueSessionDto, onOpenTools: () -> Un
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(COUIRoundCorner.Normal.M, COUIRoundCorner.Normal.Weight))
             .clickable(onClick = onOpenTools),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = COUITheme.colorScheme.containerThemeHalftone,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -88,30 +84,30 @@ internal fun ChatContextStrip(session: DialogueSessionDto, onOpenTools: () -> Un
             ) {
                 Text(
                     "${summary.mode} · ${summary.scene}",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = COUITheme.textStyles.buttonM,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     summary.participants,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.primaryText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 consistencyIssueCount?.let { count ->
                     Text(
                         "$count 项一致性提醒，点击查看工具与详情",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.error,
                     )
                 }
             }
             Text(
                 "工具",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                style = COUITheme.textStyles.description,
+                color = COUITheme.colorScheme.primary,
             )
         }
     }
@@ -125,10 +121,13 @@ internal fun DirectorDialog(
 ) {
     var goal by rememberSaveable { mutableStateOf("") }
     var action by rememberSaveable { mutableStateOf("advance") }
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (action == "fourth_wall") "第四面墙" else "剧情导演") },
-        text = {
+        title = if (action == "fourth_wall") "第四面墙" else "剧情导演",
+        confirmText = "生成方案",
+        onConfirm = { onGenerate(goal, action) },
+        confirmEnabled = enabled && goal.isNotBlank(),
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 directorActionOptions.chunked(2).forEach { actions ->
                     Row(
@@ -136,21 +135,21 @@ internal fun DirectorDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         actions.forEach { option ->
-                            FilterChip(
+                            Chip(
                                 selected = action == option.value,
                                 onClick = { action = option.value },
-                                label = { Text(option.label) },
+                                label = option.label,
                                 modifier = Modifier.weight(1f),
                             )
                         }
                     }
                 }
-                OutlinedTextField(
+                CouiTextField(
                     value = goal,
                     onValueChange = { goal = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (action == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展") },
-                    placeholder = { Text(if (action == "fourth_wall") "例如：让他们和好，否则我删掉这段记忆" else "例如：让两人因为旧事发生正面冲突") },
+                    label = if (action == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展",
+                    singleLine = false,
                     minLines = 3,
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -160,19 +159,20 @@ internal fun DirectorDialog(
                         },
                     ),
                 )
+                Text(
+                    if (action == "fourth_wall") {
+                        "例如：让他们和好，否则我删掉这段记忆"
+                    } else {
+                        "例如：让两人因为旧事发生正面冲突"
+                    },
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
+                )
             }
         },
-        confirmButton = {
-            Button(
-                onClick = { onGenerate(goal, action) },
-                enabled = enabled && goal.isNotBlank(),
-            ) { Text("生成方案") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChatTopBar(
     session: DialogueSessionDto?,
@@ -184,47 +184,31 @@ internal fun ChatTopBar(
     onOpenTools: () -> Unit,
     onOpenSearch: () -> Unit,
 ) {
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent,
-        ),
-        title = {
-            Column {
-                Text(
-                    text = session?.participants?.joinToString("、")?.ifBlank { "人物会话" }
-                        ?: "人物会话",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                session?.let {
-                    Text(
-                        text = "${it.mode.chineseMode()} · ${if (it.status == "ready") "可继续" else "待处理"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-            }
-        },
+    CouiPageTopBar(
+        title = session?.participants?.joinToString("、")?.ifBlank { "人物会话" }
+            ?: "人物会话",
+        scrollBehavior = null,
+        subtitle = session?.let {
+            "${it.mode.chineseMode()} · ${if (it.status == "ready") "可继续" else "待处理"}"
+        }.orEmpty(),
+        onBack = onBack,
+        style = CouiTopBarStyle.Small,
+        // 聊天页顶栏叠在背景图与半透明遮罩之上，由外层 Surface 负责底色，这里必须透明且不画分割线，
+        // 否则 COUI 顶栏的实底会盖掉背景图。
+        color = Color.Transparent,
+        showDivider = false,
         actions = {
             IconButton(onClick = onOpenSearch) {
-                Icon(Icons.Default.Search, contentDescription = "搜索聊天记录")
+                Icon(COUIIcons.Search, contentDescription = "搜索聊天记录")
             }
             IconButton(onClick = onOpenTools, enabled = toolsEnabled) {
-                Icon(Icons.Default.MoreVert, contentDescription = "会话工具")
+                Icon(COUIIcons.More, contentDescription = "会话工具")
             }
             IconButton(onClick = onRefresh, enabled = refreshEnabled) {
                 if (refreshing) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新聊天")
+                    Icon(COUIIcons.Refresh, contentDescription = "刷新聊天")
                 }
             }
         },
@@ -239,10 +223,13 @@ internal fun ChatToolOptionsDialog(
     onChoose: (ChatToolOption) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title.ifBlank { "选择一个方案" }) },
-        text = {
+        title = title.ifBlank { "选择一个方案" },
+        confirmText = "取消",
+        onConfirm = onDismiss,
+        dismissText = null,
+        body = {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -250,12 +237,11 @@ internal fun ChatToolOptionsDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(options, key = { "${it.label}-${it.value}" }) { option ->
-                    OutlinedButton(
+                    Button(
                         onClick = { onChoose(option) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = enabled,
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        cornerRadius = 10.dp,
                     ) {
                         Column(Modifier.fillMaxWidth()) {
                             Text(option.label, fontWeight = FontWeight.SemiBold)
@@ -266,15 +252,15 @@ internal fun ChatToolOptionsDialog(
                             ) {
                                 Text(
                                     option.value,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.bodyXS,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                 )
                             }
                             if (option.description.isNotBlank() && option.description != option.value) {
                                 Text(
                                     option.description,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.description,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                 )
                             }
                         }
@@ -282,8 +268,6 @@ internal fun ChatToolOptionsDialog(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -295,7 +279,7 @@ internal fun ChatLoading(modifier: Modifier = Modifier) {
             Text(
                 "正在打开这段故事…",
                 modifier = Modifier.padding(top = 12.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -308,17 +292,16 @@ internal fun MissingChat(error: String, onRetry: () -> Unit, modifier: Modifier 
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("暂时无法打开会话", style = MaterialTheme.typography.titleMedium)
+            Text("暂时无法打开会话", style = COUITheme.textStyles.headlineXS)
             if (error.isNotBlank()) {
                 Text(
                     error,
                     modifier = Modifier.padding(top = 8.dp),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
+                    color = COUITheme.colorScheme.error,
+                    style = COUITheme.textStyles.bodyM,
                 )
             }
             Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) { Text("重试") }
         }
     }
 }
-

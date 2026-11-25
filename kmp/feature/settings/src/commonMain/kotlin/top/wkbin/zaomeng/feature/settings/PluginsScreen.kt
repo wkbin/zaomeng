@@ -15,28 +15,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.InstallMobile
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,23 +25,43 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import org.koin.compose.viewmodel.koinViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.icon.extended.Tasks
+import io.github.suqi8.coui.kmp.icon.extended.Update
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.coroutines.launch
-import top.wkbin.zaomeng.platform.rememberZipFilePicker
-import top.wkbin.zaomeng.data.api.PluginDto
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import okio.Path
+import org.koin.compose.viewmodel.koinViewModel
+import top.wkbin.zaomeng.data.api.PluginDto
+import top.wkbin.zaomeng.platform.rememberZipFilePicker
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 import top.wkbin.zaomeng.ui.theme.AppDimens
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PluginsScreen(
     viewModel: PluginsViewModel = koinViewModel(),
@@ -83,168 +81,184 @@ fun PluginsScreen(
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
 
-    if (sourceChooserOpen) {
-        AlertDialog(
-            onDismissRequest = { sourceChooserOpen = false },
-            title = { Text("安装第三方插件包") },
-            text = { Text("选择一个 ZIP 插件包。Plugin API 2 声明式插件可以在确认权限后安全运行；包内任意代码不会被执行。") },
-            confirmButton = {
-                Button(onClick = {
-                    sourceChooserOpen = false
-                    zipPicker()
-                }) { Text("选择 ZIP") }
-            },
-            // TODO: 目录安装（SAF tree -> zip）跨平台化后恢复
-        )
-    }
-
-    state.packageInspection?.let { inspection ->
-        PluginPermissionDialog(
-            inspection = inspection,
-            busy = state.packageBusy,
-            onDismiss = viewModel::dismissPackageInspection,
-            onConfirm = viewModel::installInspectedPackage,
-        )
-    }
-
-    uninstallTarget?.let { plugin ->
-        AlertDialog(
-            onDismissRequest = { uninstallTarget = null },
-            title = { Text("卸载「${plugin.name}」？") },
-            text = { Text("插件文件会移到应用的可恢复目录；该插件随后将不再出现在列表中。") },
-            confirmButton = {
-                Button(onClick = {
-                    uninstallTarget = null
-                    viewModel.uninstall(plugin)
-                }) { Text("卸载") }
-            },
-            dismissButton = {
-                TextButton(onClick = { uninstallTarget = null }) { Text("取消") }
-            },
-        )
-    }
-
-    state.detailPlugin?.let { plugin ->
-        PluginDetailsDialog(
-            plugin = plugin,
-            logs = state.detailLogs,
-            loading = state.detailLoading,
-            onDismiss = viewModel::closeDetails,
-        )
-    }
-
-    state.configPlugin?.let { plugin ->
-        PluginConfigDialog(
-            plugin = plugin,
-            draft = state.configDraft,
-            saving = state.configSaving,
-            onValueChange = viewModel::updateConfigValue,
-            onDismiss = viewModel::closeConfig,
-            onSave = viewModel::saveConfig,
-        )
-    }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("插件") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenBuilder) {
-                        Icon(Icons.Outlined.Add, contentDescription = "制作插件")
-                    }
-                    IconButton(
-                        onClick = { sourceChooserOpen = true },
-                        enabled = !state.packageBusy && state.busyPluginId.isBlank(),
-                    ) {
-                        if (state.packageBusy) {
-                            CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Outlined.InstallMobile, contentDescription = "安装第三方插件包")
-                        }
-                    }
-                    IconButton(
-                        onClick = { viewModel.load(refresh = true) },
-                        enabled = !state.refreshing && state.busyPluginId.isBlank(),
-                    ) {
-                        if (state.refreshing) {
-                            CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Outlined.Refresh, contentDescription = "刷新插件")
-                        }
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        when {
-            state.loading -> Box(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
-
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 380.dp),
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                contentPadding = PaddingValues(AppDimens.screenPadding),
-                verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
-                horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+    CouiPageScaffold(
+        title = "插件",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+        actions = {
+            IconButton(onClick = onOpenBuilder) {
+                Icon(COUIIcons.Add, contentDescription = "制作插件")
+            }
+            IconButton(
+                onClick = { sourceChooserOpen = true },
+                enabled = !state.packageBusy && state.busyPluginId.isBlank(),
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    PluginIntroductionCard(onOpenBuilder)
-                }
-                if (state.error.isNotBlank()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.error, error = true) }
-                }
-                if (state.message.isNotBlank()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.message, error = false) }
-                }
-                if (state.plugins.isEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            "当前没有发现插件。可以从 ZIP 安装，或打开插件工坊制作一个。",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                if (state.packageBusy) {
+                    CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
                 } else {
-                    gridItems(state.plugins, key = PluginDto::id) { plugin ->
-                        PluginCard(
-                            plugin = plugin,
-                            busy = state.busyPluginId == plugin.id,
-                            interactionsEnabled = state.busyPluginId.isBlank() && !state.refreshing,
-                            onEnabledChange = { enabled -> viewModel.setEnabled(plugin, enabled) },
-                            onUninstall = { uninstallTarget = plugin },
-                            onDetails = { viewModel.openDetails(plugin) },
-                            onConfig = { viewModel.openConfig(plugin) },
-                        )
+                    Icon(COUIIcons.Update, contentDescription = "安装第三方插件包")
+                }
+            }
+            IconButton(
+                onClick = { viewModel.load(refresh = true) },
+                enabled = !state.refreshing && state.busyPluginId.isBlank(),
+            ) {
+                if (state.refreshing) {
+                    CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(COUIIcons.Refresh, contentDescription = "刷新插件")
+                }
+            }
+        },
+    ) { scope ->
+        Box(Modifier.fillMaxSize()) {
+            when {
+                state.loading -> Box(
+                    modifier = Modifier.fillMaxSize().padding(scope.contentPadding),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 380.dp),
+                    modifier = Modifier.couiPageScroll(scope),
+                    contentPadding = PaddingValues(
+                        start = scope.contentPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr) + AppDimens.screenPadding,
+                        top = scope.contentPadding.calculateTopPadding() + AppDimens.screenPadding,
+                        end = scope.contentPadding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr) + AppDimens.screenPadding,
+                        bottom = scope.contentPadding.calculateBottomPadding() + AppDimens.screenPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        PluginIntroductionCard(onOpenBuilder)
+                    }
+                    if (state.error.isNotBlank()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.error, error = true) }
+                    }
+                    if (state.message.isNotBlank()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { StatusCard(state.message, error = false) }
+                    }
+                    if (state.plugins.isEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                "当前没有发现插件。可以从 ZIP 安装，或打开插件工坊制作一个。",
+                                style = COUITheme.textStyles.bodyM,
+                                color = COUITheme.colorScheme.labelSecondary,
+                            )
+                        }
+                    } else {
+                        gridItems(state.plugins, key = PluginDto::id) { plugin ->
+                            PluginCard(
+                                plugin = plugin,
+                                busy = state.busyPluginId == plugin.id,
+                                interactionsEnabled = state.busyPluginId.isBlank() && !state.refreshing,
+                                onEnabledChange = { enabled -> viewModel.setEnabled(plugin, enabled) },
+                                onUninstall = { uninstallTarget = plugin },
+                                onDetails = { viewModel.openDetails(plugin) },
+                                onConfig = { viewModel.openConfig(plugin) },
+                            )
+                        }
                     }
                 }
             }
+
+        if (sourceChooserOpen) {
+            CouiAlertDialog(
+                onDismissRequest = { sourceChooserOpen = false },
+                title = "安装第三方插件包",
+                confirmText = "选择 ZIP",
+                onConfirm = {
+                    sourceChooserOpen = false
+                    zipPicker()
+                },
+                dismissText = "取消",
+                onDismiss = { sourceChooserOpen = false },
+                // TODO: 目录安装（SAF tree -> zip）跨平台化后恢复
+                body = {
+                    Text(
+                        "选择一个 ZIP 插件包。Plugin API 2 声明式插件可以在确认权限后安全运行；包内任意代码不会被执行。",
+                        style = COUITheme.textStyles.bodyM,
+                        color = COUITheme.colorScheme.labelSecondary,
+                    )
+                },
+            )
+        }
+
+        state.packageInspection?.let { inspection ->
+            PluginPermissionDialog(
+                inspection = inspection,
+                busy = state.packageBusy,
+                onDismiss = viewModel::dismissPackageInspection,
+                onConfirm = viewModel::installInspectedPackage,
+            )
+        }
+
+        uninstallTarget?.let { plugin ->
+            CouiAlertDialog(
+                onDismissRequest = { uninstallTarget = null },
+                title = "卸载「${plugin.name}」？",
+                confirmText = "卸载",
+                onConfirm = {
+                    uninstallTarget = null
+                    viewModel.uninstall(plugin)
+                },
+                dismissText = "取消",
+                onDismiss = { uninstallTarget = null },
+                body = {
+                    Text(
+                        "插件文件会移到应用的可恢复目录；该插件随后将不再出现在列表中。",
+                        style = COUITheme.textStyles.bodyM,
+                        color = COUITheme.colorScheme.labelSecondary,
+                    )
+                },
+            )
+        }
+
+        state.detailPlugin?.let { plugin ->
+            PluginDetailsDialog(
+                plugin = plugin,
+                logs = state.detailLogs,
+                loading = state.detailLoading,
+                onDismiss = viewModel::closeDetails,
+            )
+        }
+
+        state.configPlugin?.let { plugin ->
+            PluginConfigDialog(
+                plugin = plugin,
+                draft = state.configDraft,
+                saving = state.configSaving,
+                onValueChange = viewModel::updateConfigValue,
+                onDismiss = viewModel::closeConfig,
+                onSave = viewModel::saveConfig,
+            )
+        }
         }
     }
 }
 
 @Composable
 private fun PluginIntroductionCard(onOpenBuilder: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        shape = RoundedCornerShape(14.dp),
-    ) {
+    Card(colors = CardDefaults.defaultColors(color = COUITheme.colorScheme.secondaryContainer)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(AppDimens.cardPadding),
             horizontalArrangement = Arrangement.spacedBy(AppDimens.itemSpacing),
             verticalAlignment = Alignment.Top,
         ) {
-            Icon(Icons.Outlined.Extension, contentDescription = null)
+            Icon(COUIIcons.Tasks, contentDescription = null)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("扩展造梦能力", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "扩展造梦能力",
+                    style = COUITheme.textStyles.headlineXS,
+                    fontWeight = FontWeight.SemiBold,
+                    color = COUITheme.colorScheme.labelPrimary,
+                )
                 Text(
                     "官方插件和 Plugin API 2 声明式插件都由 Kotlin 宿主安全执行。你也可以在插件工坊里只写自然语言提示词，制作并导出自己的插件。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = COUITheme.textStyles.bodyS,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
                 Button(onClick = onOpenBuilder) { Text("制作插件") }
             }
@@ -262,11 +276,7 @@ private fun PluginCard(
     onDetails: () -> Unit,
     onConfig: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    ) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(AppDimens.cardPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -277,7 +287,12 @@ private fun PluginCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            plugin.name,
+                            style = COUITheme.textStyles.headlineXS,
+                            fontWeight = FontWeight.SemiBold,
+                            color = COUITheme.colorScheme.labelPrimary,
+                        )
                         Text(
                             if (plugin.source == "official") {
                                 "官方 · 可执行"
@@ -286,14 +301,14 @@ private fun PluginCard(
                             } else {
                                 "第三方 · 仅保存"
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (plugin.source == "official") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                            style = COUITheme.textStyles.bodyXS,
+                            color = if (plugin.source == "official") COUITheme.colorScheme.primary else COUITheme.colorScheme.secondary,
                         )
                     }
                     Text(
                         "v${plugin.version} · API ${plugin.apiVersion}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
                 if (busy) {
@@ -309,67 +324,70 @@ private fun PluginCard(
             if (!plugin.executable) {
                 Text(
                     plugin.capabilityNotice.ifBlank { "该插件当前只能保存，不能执行。" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
+                    style = COUITheme.textStyles.bodyS,
+                    color = COUITheme.colorScheme.secondary,
                 )
             }
             if (plugin.description.isNotBlank()) {
-                Text(plugin.description, style = MaterialTheme.typography.bodyMedium)
+                Text(plugin.description, style = COUITheme.textStyles.bodyM)
             }
             if (plugin.contributes.chatActions.isNotEmpty()) {
                 Text(
                     "${if (plugin.executable) "聊天动作" else "清单声明的聊天动作（当前不可用）"}：${plugin.contributes.chatActions.joinToString("、") { it.title }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyS,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
             }
             if (plugin.contributes.generationEnhancers.isNotEmpty()) {
                 Text(
                     "${if (plugin.executable) "聊天生成增强" else "清单声明的生成增强（当前不可用）"}：${plugin.contributes.generationEnhancers.joinToString("、") { it.title }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyS,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
                 if (plugin.executable) {
                     Text(
                         "具体开关在各聊天的“插件”菜单中设置。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
             if (plugin.permissions.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("权限", style = MaterialTheme.typography.labelMedium)
+                    Text("权限", style = COUITheme.textStyles.bodyS)
                     Text(
                         plugin.permissions.joinToString(" · ") { it.permissionLabel() },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
             if (plugin.error.isNotBlank()) {
                 Text(
                     plugin.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    style = COUITheme.textStyles.bodyS,
+                    color = COUITheme.colorScheme.error,
                 )
             }
             Row(modifier = Modifier.align(Alignment.End)) {
                 TextButton(
+                    text = "日志与详情",
                     onClick = onDetails,
                     enabled = interactionsEnabled && !busy,
-                ) { Text("日志与详情") }
+                )
                 if (plugin.settings.isNotEmpty() && plugin.executable) {
                     TextButton(
+                        text = "配置",
                         onClick = onConfig,
                         enabled = interactionsEnabled && !busy,
-                    ) { Text("配置") }
+                    )
                 }
                 if (plugin.source == "third-party") {
-                TextButton(
-                    onClick = onUninstall,
-                    enabled = interactionsEnabled && !busy,
-                ) { Text("卸载插件") }
+                    TextButton(
+                        text = "卸载插件",
+                        onClick = onUninstall,
+                        enabled = interactionsEnabled && !busy,
+                    )
                 }
             }
         }
@@ -385,10 +403,15 @@ private fun PluginConfigDialog(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("配置「${plugin.name}」") },
-        text = {
+        title = "配置「${plugin.name}」",
+        confirmText = if (saving) "保存中…" else "保存",
+        onConfirm = onSave,
+        confirmEnabled = !saving,
+        dismissText = "取消",
+        onDismiss = { if (!saving) onDismiss() },
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 plugin.settings.forEach { setting ->
                     val value = draft[setting.key] ?: setting.default
@@ -397,7 +420,11 @@ private fun PluginConfigDialog(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(setting.title, modifier = Modifier.weight(1f))
+                            Text(
+                                setting.title,
+                                modifier = Modifier.weight(1f),
+                                style = COUITheme.textStyles.bodyM,
+                            )
                             Switch(
                                 checked = value.jsonPrimitive.booleanOrNull ?: false,
                                 onCheckedChange = { onValueChange(setting.key, JsonPrimitive(it)) },
@@ -409,29 +436,35 @@ private fun PluginConfigDialog(
                             val maximum = setting.max ?: 100
                             val current = value.jsonPrimitive.intOrNull ?: minimum
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(setting.title)
+                                Text(setting.title, style = COUITheme.textStyles.bodyM)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     TextButton(
+                                        text = "－",
                                         onClick = { onValueChange(setting.key, JsonPrimitive((current - 1).coerceAtLeast(minimum))) },
                                         enabled = !saving && current > minimum,
-                                    ) { Text("－") }
-                                    Text(current.toString(), modifier = Modifier.padding(horizontal = 12.dp))
+                                    )
+                                    Text(
+                                        current.toString(),
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        style = COUITheme.textStyles.bodyM,
+                                    )
                                     TextButton(
+                                        text = "＋",
                                         onClick = { onValueChange(setting.key, JsonPrimitive((current + 1).coerceAtMost(maximum))) },
                                         enabled = !saving && current < maximum,
-                                    ) { Text("＋") }
+                                    )
                                 }
                             }
                         }
                         "enum" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(setting.title)
+                            Text(setting.title, style = COUITheme.textStyles.bodyM)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 val current = value.jsonPrimitive.contentOrNull.orEmpty()
                                 setting.options.forEach { option ->
-                                    FilterChip(
+                                    Chip(
                                         selected = current == option.value,
                                         onClick = { onValueChange(setting.key, JsonPrimitive(option.value)) },
-                                        label = { Text(option.label) },
+                                        label = option.label,
                                         enabled = !saving,
                                     )
                                 }
@@ -440,14 +473,6 @@ private fun PluginConfigDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(onClick = onSave, enabled = !saving) {
-                Text(if (saving) "保存中…" else "保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
         },
     )
 }
@@ -459,45 +484,54 @@ private fun PluginDetailsDialog(
     loading: Boolean,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${plugin.name} · ${if (plugin.executable) "运行详情" else "清单详情"}") },
-        text = {
+        title = "${plugin.name} · ${if (plugin.executable) "运行详情" else "清单详情"}",
+        confirmText = "关闭",
+        onConfirm = onDismiss,
+        dismissText = null,
+        body = {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    Text("${plugin.id}\nv${plugin.version} · API ${plugin.apiVersion}")
+                    Text(
+                        "${plugin.id}\nv${plugin.version} · API ${plugin.apiVersion}",
+                        style = COUITheme.textStyles.bodyM,
+                    )
                     if (plugin.error.isNotBlank()) {
-                        Text(plugin.error, color = MaterialTheme.colorScheme.error)
+                        Text(plugin.error, color = COUITheme.colorScheme.error)
                     }
                 }
                 when {
                     loading -> item { CircularProgressIndicator() }
                     logs.isEmpty() -> item {
-                        Text(if (plugin.executable) "还没有运行日志。" else "该第三方包未执行，因此没有运行日志。")
+                        Text(
+                            if (plugin.executable) "还没有运行日志。" else "该第三方包未执行，因此没有运行日志。",
+                            style = COUITheme.textStyles.bodyM,
+                            color = COUITheme.colorScheme.labelSecondary,
+                        )
                     }
                     else -> items(logs) { log ->
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 "${log.level.uppercase()} · ${log.event}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (log.level == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                style = COUITheme.textStyles.bodyS,
+                                color = if (log.level == "error") COUITheme.colorScheme.error else COUITheme.colorScheme.primary,
                             )
-                            Text(log.message, style = MaterialTheme.typography.bodySmall)
-                            Text(log.timestamp, style = MaterialTheme.typography.labelSmall)
+                            Text(log.message, style = COUITheme.textStyles.bodyS)
+                            Text(log.timestamp, style = COUITheme.textStyles.bodyXS)
                             log.details["traceback"]?.jsonPrimitive?.contentOrNull
                                 ?.takeIf(String::isNotBlank)
                                 ?.let { trace ->
-                                    Text(trace, style = MaterialTheme.typography.labelSmall)
+                                    Text(trace, style = COUITheme.textStyles.bodyXS)
                                 }
                         }
                     }
                 }
             }
         },
-        confirmButton = { Button(onClick = onDismiss) { Text("关闭") } },
     )
 }
 
@@ -510,22 +544,40 @@ private fun PluginPermissionDialog(
 ) {
     val plugin = inspection.plugin
     val blocked = inspection.operation == "blocked" || !inspection.compatible
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = {
-            Text(if (inspection.operation == "update") "更新「${plugin.name}」" else "安装「${plugin.name}」")
+        title = if (inspection.operation == "update") "更新「${plugin.name}」" else "安装「${plugin.name}」",
+        confirmText = if (blocked) {
+            "知道了"
+        } else {
+            if (busy) "处理中…" else if (inspection.operation == "update") "确认保存更新" else "确认保存"
         },
-        text = {
+        onConfirm = if (blocked) onDismiss else onConfirm,
+        confirmEnabled = !busy,
+        dismissText = if (blocked) null else "取消",
+        onDismiss = { if (!busy) onDismiss() },
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${plugin.id}\nv${plugin.version} · API ${plugin.apiVersion}")
+                Text(
+                    "${plugin.id}\nv${plugin.version} · API ${plugin.apiVersion}",
+                    style = COUITheme.textStyles.bodyM,
+                )
                 if (inspection.operation == "update") {
-                    Text("将替换当前 v${inspection.currentVersion}。")
+                    Text(
+                        "将替换当前 v${inspection.currentVersion}。",
+                        style = COUITheme.textStyles.bodyM,
+                    )
                 }
                 if (plugin.permissions.isEmpty()) {
-                    Text("此插件未申请权限。")
+                    Text("此插件未申请权限。", style = COUITheme.textStyles.bodyM)
                 } else {
-                    Text("申请的权限：")
-                    plugin.permissions.forEach { Text("• ${it.permissionLabel()}${it.permissionRiskLabel()}") }
+                    Text("申请的权限：", style = COUITheme.textStyles.bodyM)
+                    plugin.permissions.forEach {
+                        Text(
+                            "• ${it.permissionLabel()}${it.permissionRiskLabel()}",
+                            style = COUITheme.textStyles.bodyS,
+                        )
+                    }
                 }
                 Text(
                     if (plugin.executable) {
@@ -533,26 +585,19 @@ private fun PluginPermissionDialog(
                     } else {
                         "当前版本只保存这个第三方包，不会执行其中的 Python 或其他代码。"
                     },
+                    style = COUITheme.textStyles.bodyM,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
                 if (inspection.blockedReason.isNotBlank()) {
-                    Text(inspection.blockedReason, color = MaterialTheme.colorScheme.error)
+                    Text(inspection.blockedReason, color = COUITheme.colorScheme.error)
                 }
                 if (!inspection.compatible) {
-                    Text("该插件与当前宿主 API ${inspection.hostApiVersion} 不兼容。", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        "该插件与当前宿主 API ${inspection.hostApiVersion} 不兼容。",
+                        color = COUITheme.colorScheme.error,
+                    )
                 }
             }
-        },
-        confirmButton = {
-            if (blocked) {
-                Button(onClick = onDismiss, enabled = !busy) { Text("知道了") }
-            } else {
-                Button(onClick = onConfirm, enabled = !busy) {
-                    Text(if (busy) "处理中…" else if (inspection.operation == "update") "确认保存更新" else "确认保存")
-                }
-            }
-        },
-        dismissButton = if (blocked) null else {
-            { TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") } }
         },
     )
 }
@@ -560,14 +605,15 @@ private fun PluginPermissionDialog(
 @Composable
 private fun StatusCard(message: String, error: Boolean) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+        colors = CardDefaults.defaultColors(
+            color = if (error) COUITheme.colorScheme.containerRed else COUITheme.colorScheme.containerThemeHalftone,
         ),
     ) {
         Text(
             message,
             modifier = Modifier.fillMaxWidth().padding(14.dp),
-            color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+            color = COUITheme.colorScheme.labelPrimary,
+            style = COUITheme.textStyles.bodyM,
         )
     }
 }

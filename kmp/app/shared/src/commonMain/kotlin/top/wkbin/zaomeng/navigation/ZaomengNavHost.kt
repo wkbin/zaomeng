@@ -5,23 +5,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -31,7 +20,7 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
-import androidx.window.core.layout.WindowSizeClass
+import io.github.suqi8.coui.kmp.basic.Scaffold
 import org.koin.core.parameter.parametersOf
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -80,8 +69,10 @@ import top.wkbin.zaomeng.feature.redistill.RedistillViewModel
 import top.wkbin.zaomeng.feature.rundetail.RunDetailScreen
 import top.wkbin.zaomeng.feature.rundetail.RunDetailViewModel
 import top.wkbin.zaomeng.platform.PlatformBackHandler
+import top.wkbin.zaomeng.ui.coui.LocalCouiNavigationPadding
+import top.wkbin.zaomeng.ui.coui.isWideWindow
+
 /** 窄屏使用底栏，宽屏使用侧栏。详情页保留各自的返回路径。 */
-@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ZaomengNavHost(
     appUpdateState: AppUpdateUiState = AppUpdateUiState(),
@@ -110,8 +101,7 @@ fun ZaomengNavHost(
         }
     }
 
-    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
-    val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    val wideLayout = isWideWindow()
 
     // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回首页而不是退出；
     // 首页（栈深 1）时不做任何事，由系统处理退出。
@@ -394,42 +384,29 @@ fun ZaomengNavHost(
     }
 
     val bottomNavigation = !wideLayout && showNavigation
-    val contentInsets = if (bottomNavigation) {
-        Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-    } else {
-        Modifier
-    }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).then(contentInsets)) {
-            if (wideLayout && showNavigation) {
-                AppTopLevelRail(current, selectDestination)
+    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = { if (bottomNavigation) AppTopLevelBar(current, selectDestination) },
+        ) { navigationPadding ->
+            CompositionLocalProvider(LocalCouiNavigationPadding provides navigationPadding) {
+                Row(Modifier.fillMaxSize()) {
+                    if (wideLayout && showNavigation) {
+                        AppTopLevelRail(current, selectDestination)
+                    }
+                    NavDisplay(
+                        backStack = backStack,
+                        modifier = Modifier.weight(1f).fillMaxSize(),
+                        onBack = popBack,
+                        entryProvider = navEntryProvider,
+                        entryDecorators = listOf(
+                            rememberSaveableStateHolderNavEntryDecorator(),
+                            rememberViewModelStoreNavEntryDecorator(),
+                        ),
+                    )
+                }
             }
-            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
-                NavDisplay(
-                    backStack = backStack,
-                    modifier = Modifier.weight(1f).fillMaxSize(),
-                    onBack = popBack,
-                    entryProvider = navEntryProvider,
-                    predictivePopTransitionSpec = { _ -> lightPredictivePopTransition() },
-                    entryDecorators = listOf(
-                        rememberSaveableStateHolderNavEntryDecorator(),
-                        rememberViewModelStoreNavEntryDecorator(),
-                    ),
-                )
-            }
-        }
-        if (bottomNavigation) {
-            AppTopLevelBar(current, selectDestination)
         }
     }
 }
-
-/**
- * 轻量级预测返回动画：页面只做小幅缩放，同时沿返回方向平移，避免 NavDisplay 默认的
- * 0.7 倍缩放产生明显的“缩进”效果。
- */
-private fun AnimatedContentTransitionScope<*>.lightPredictivePopTransition(): ContentTransform =
-    slideInHorizontally(initialOffsetX = { -it / 8 }) +
-        scaleIn(initialScale = 0.98f) togetherWith
-        slideOutHorizontally(targetOffsetX = { it / 8 }) +
-        scaleOut(targetScale = 0.96f)

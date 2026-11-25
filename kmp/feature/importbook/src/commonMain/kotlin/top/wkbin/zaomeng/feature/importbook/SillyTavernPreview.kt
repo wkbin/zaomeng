@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.importbook
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
 
 import androidx.compose.foundation.Image
@@ -9,11 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
@@ -22,9 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.wkbin.zaomeng.data.api.WorldBookMatchDto
+import top.wkbin.zaomeng.ui.coui.CouiTextField
 import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
 
 @Composable
@@ -40,14 +40,17 @@ internal fun SillyTavernPreview(
         }
     }
     Card(Modifier.fillMaxWidth()) {
+        // COUI Card 的 insideMargin 默认为 0dp，内容需要自己留出内边距。
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("导入预览", style = MaterialTheme.typography.titleMedium)
+            Text("导入预览", style = COUITheme.textStyles.headlineXS)
             if (state.previewBusy) Text("正在分析文件…")
             if (state.previewError.isNotBlank()) {
-                Text(state.previewError, color = MaterialTheme.colorScheme.error)
-                OutlinedButton(onClick = { onPreview(false) }, enabled = !state.previewBusy && !state.submitting) {
-                    Text("重试预览")
-                }
+                Text(state.previewError, color = COUITheme.colorScheme.error)
+                TextButton(
+                    text = "重试预览",
+                    onClick = { onPreview(false) },
+                    enabled = !state.previewBusy && !state.submitting,
+                )
             }
             if (preview != null) {
                 if (preview.characterName.isNotBlank()) {
@@ -59,7 +62,7 @@ internal fun SillyTavernPreview(
                             Image(it, contentDescription = "角色卡头像", modifier = Modifier.size(56.dp), contentScale = ContentScale.Crop)
                         }
                         Column {
-                            Text(preview.characterName, style = MaterialTheme.typography.titleSmall)
+                            Text(preview.characterName, style = COUITheme.textStyles.buttonM)
                             Text(when (preview.format) {
                                 "chara_card_v2" -> "V2 角色卡"
                                 "chara_card_v3" -> "V3 角色卡"
@@ -78,11 +81,11 @@ internal fun SillyTavernPreview(
                     }
                     if (fields.isNotEmpty()) Text("将带入 ${fields.joinToString("、")}")
                     if (preview.greeting.isNotBlank()) {
-                        Text("首句", style = MaterialTheme.typography.labelLarge)
+                        Text("首句", style = COUITheme.textStyles.buttonM)
                         RoleplayMessageContent(
                             text = preview.greeting,
-                            style = MaterialTheme.typography.bodyMedium,
-                            baseColor = MaterialTheme.colorScheme.onSurface,
+                            style = COUITheme.textStyles.bodyM,
+                            baseColor = COUITheme.colorScheme.labelPrimary,
                         )
                     }
                     if (preview.alternateGreetingCount > 0) {
@@ -98,25 +101,26 @@ internal fun SillyTavernPreview(
                 }
                 if (preview.unsupportedRules.isNotEmpty()) {
                     Text("暂不生效：${preview.unsupportedRules.joinToString("、")}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = COUITheme.colorScheme.labelSecondary)
                 }
                 if (preview.entryCount > 0) {
-                    OutlinedTextField(
+                    CouiTextField(
                         value = state.testText,
                         onValueChange = onTestTextChange,
-                        label = { Text("输入一句台词") },
+                        label = "输入一句台词",
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 3,
                         enabled = !state.previewBusy && !state.submitting,
                     )
-                    OutlinedButton(
+                    TextButton(
+                        text = "试触发世界书",
                         onClick = { onPreview(true) },
                         enabled = state.testText.isNotBlank() && !state.previewBusy && !state.submitting,
-                    ) { Text("试触发世界书") }
+                    )
                     preview.testedEntries?.let { entries ->
                         Text("本次试触发选中 ${preview.injectedCount} 条。每次试触发会重新抽样，实际对话还会扫描近期消息并优先保留锁定的世界事实。")
                         entries.forEach { entry ->
-                            Text("${entry.title} · ${entry.reasonLabel()}", style = MaterialTheme.typography.labelLarge)
+                            Text("${entry.title} · ${entry.reasonLabel()}", style = COUITheme.textStyles.buttonM)
                             if (entry.status == "injected" && entry.recursionDepth > 0) Text("递归触发 · 第 ${entry.recursionDepth} 层")
                             if (entry.keywords.isNotEmpty()) Text("命中 ${entry.keywords.joinToString("、")}")
                             if (entry.status == "injected") Text(entry.excerpt)

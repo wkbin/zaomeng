@@ -2,11 +2,15 @@ package top.wkbin.zaomeng.feature.rundetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.data.PersonaRepository
 import top.wkbin.zaomeng.data.RunRepository
 import top.wkbin.zaomeng.data.SessionRepository
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
 import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionCommand
 import top.wkbin.zaomeng.domain.sessions.CreateDialogueSessionUseCase
 import top.wkbin.zaomeng.data.api.ExportedRunPackage
@@ -114,6 +118,9 @@ class RunDetailViewModel(
     suspend fun updateCardGreeting(request: UpdateCardGreetingRequest) = sessions.updateCardGreeting(runId, request)
 
     suspend fun loadCardProfile(character: String) = persona.getPersona(runId, character)
+
+    suspend fun updateCardMetadata(character: String, request: UpdateSillyTavernCardMetadataRequest) =
+        persona.updateCardMetadata(runId, character, request)
 
     fun startCardChat(character: String, greetingIndex: Int?) {
         val snapshot = state.value
@@ -334,7 +341,8 @@ class RunDetailViewModel(
                 }
                 val image = if (SillyTavernPng.hasSignature(avatar)) avatar else encodeAvatarAsPng(avatar)
                 val json = FileSystem.SYSTEM.read(exported.file) { readByteArray() }
-                val png = SillyTavernPng.writeCard(image, json)
+                val spec = Json.parseToJsonElement(json.decodeToString()).jsonObject["spec"]?.jsonPrimitive?.content
+                val png = SillyTavernPng.writeCard(image, json, isV3 = spec == "chara_card_v3")
                 FileSystem.SYSTEM.write(exported.file) { write(png) }
                 exported.copy(
                     filename = exported.filename.removeSuffix(".json") + ".png",

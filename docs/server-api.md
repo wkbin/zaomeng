@@ -218,7 +218,7 @@ SillyTavern 角色卡支持传统 JSON、V2/V3 JSON 和带 `chara`/`ccv3` 元数
 
 新增、编辑和列表支持 `matching`。其字段为 `scan_depth`（非负整数，实际最多 32，0 仅跳过对话消息扫描）、`case_sensitive`、`whole_words`、`use_secondary`（默认启用）和 `secondary_logic`（`and_any`、`not_all`、`not_any`、`and_all`）。扫描深度包含本轮输入。深度和两项匹配开关为 `null` 时继承默认值。编辑时省略整个 `matching` 会保留原值。
 
-`matching.sources` 可选 `persona_description`、`character_description`、`character_personality`、`character_depth_prompt`、`scenario`、`creator_notes`，默认空列表。扫描深度大于 0 时，主关键词和次关键词都会查找所选来源。场景优先取当前会话场景，缺省时查找角色卡场景。角色深度提示词和作者备注只作为匹配输入。导出用酒馆的 `matchPersonaDescription`、`matchCharacterDescription`、`matchCharacterPersonality`、`matchCharacterDepthPrompt`、`matchScenario`、`matchCreatorNotes`，角色卡内使用 `extensions` 下的蛇形字段。
+`matching.sources` 可选 `persona_description`、`character_description`、`character_personality`、`character_depth_prompt`、`scenario`、`creator_notes`，默认空列表。扫描深度大于 0 时，主关键词和次关键词都会查找所选来源。场景优先取当前会话场景，缺省时查找角色卡场景。作者备注可作为匹配输入。导出用酒馆的 `matchPersonaDescription`、`matchCharacterDescription`、`matchCharacterPersonality`、`matchCharacterDepthPrompt`、`matchScenario`、`matchCreatorNotes`，角色卡内使用 `extensions` 下的蛇形字段。
 
 管理页试触发读取已导入角色卡的设定。`context` 可选 `persona_description` 和 `scenario`，各最多 4000 个字符，用于模拟玩家和场景。导入预览使用待导入角色卡或目标书卷的角色卡设定。
 
@@ -675,17 +675,21 @@ preflight 阶段的冲突在 SSE 开始前返回 HTTP `409`，响应体包含 `c
 | POST | `/evolve/apply` | `ApplyPersonaEvolutionRequest` | `200 PersonaReview` |
 | POST | `/avatar` | `multipart/form-data`，文件 part 名为 `file` | `200 {"character":"...","avatar_version":"..."}` |
 | GET | `/avatar` | 无 | `200 image/png` |
-| GET | `/sillytavern-card` | 无 | `200` Character Card V2 JSON 附件；人物不存在为 `404` |
+| GET | `/sillytavern-card` | 无 | `200` Character Card JSON 附件，V3 来源导出 V3，其余导出 V2；人物不存在为 `404` |
 
 角色卡导出读取当前已保存的人物档案。对于 SillyTavern 导入的人物，会保留原卡首句、备用开场和卡内世界书。JSON 文件不含头像和会话记录。
 
-造梦客户端也可生成带头像的 PNG 角色卡。客户端读取同一个 JSON 接口和头像接口，把 V2 角色数据写入 PNG 的 `chara` 文本块，并去除旧的 `chara` 和 `ccv3` 角色数据。PNG 须符合重新导入的尺寸和大小限制，最终文件最多 5 MiB，内嵌 JSON 最多 1 MiB。
+造梦客户端也可生成带头像的 PNG 角色卡。客户端读取同一个 JSON 接口和头像接口，移除已有角色数据后，将 V2 写入 `chara` 文本块，V3 写入 `ccv3` 文本块。PNG 须符合重新导入的尺寸和大小限制，最终文件最多 5 MiB，内嵌 JSON 最多 1 MiB。
 
 小说蒸馏时同时生成人物档案和角色卡文本。导出 V2 时优先使用 `card_description`、`card_personality`、`card_scenario`、`card_first_mes` 和 `card_mes_example`，分别对应 `description`、`personality`、`scenario`、`first_mes` 和 `mes_example`。旧档案的描述、性格和场景可由已有档案字段映射。示例使用 `<START>` 及 `{{user}}:`、`{{char}}:` 区分双方台词。
 
-导入角色卡的人物资料响应包含 `card_fields`，提供 `description`、`personality`、`scenario`、`mes_example` 的原始文本。可在人物资料的 PUT 请求中使用这些原生键修改对应文本，省略的字段保持原值。此类人物的质量报告返回 `applicable: false`，造梦的蒸馏完整度评分不适用。
+导入角色卡的人物资料响应包含 `card_fields`，提供 `description`、`personality`、`scenario`、`mes_example`、`system_prompt`、`post_history_instructions` 的原始文本。可在人物资料的 PUT 请求中使用这些原生键修改对应文本，省略的字段保持原值，空字符串清空字段。两项提示词修改会用于后续单角色对话并写入导出的角色卡。此类人物的质量报告返回 `applicable: false`，造梦的蒸馏完整度评分不适用。
 
-导入角色卡的人物资料还返回只读的 `card_metadata`，包含 `creator`、`creator_notes`、`character_version` 和 `tags`。旧卡可用 `creatorcomment` 作为作者说明。展示字段中的作者和版本最多各 120 字符，标签去重后最多 32 个，每个最多 64 字符。作者说明最多返回 16000 字符，超出时 `creator_notes_truncated` 为 `true`。角色卡导出保留原始作者信息。
+导入卡的 `extensions.depth_prompt` 是角色注记。在单人「加入对话」的对话轮中，`prompt` 文本按 `depth` 和 `role` 插入聊天历史，缺省为深度 4、系统角色。深度 0 位于本轮输入之后。支持角色名、玩家名和世界书 Outlet 宏，文本最多读取 4000 字符，原始扩展字段随角色卡导出。
+
+导入角色卡的人物资料还返回 `card_metadata`，包含 `creator`、`creator_notes`、`character_version`、`tags` 和 `revision`。旧卡可用 `creatorcomment` 作为作者说明。作者和版本最多显示各 120 字符，标签去重后最多显示 32 个，每个最多 64 字符。作者说明最多返回 16000 字符。超出编辑范围的说明或标签分别通过 `creator_notes_truncated`、`tags_truncated` 标记。
+
+`PATCH /api/web/runs/{run_id}/personas/{character}/card-metadata` 使用上次读取的 `revision` 更新作者资料或角色注记。作者字段与上述文本和标签字段同名，传入空字符串或空标签数组可清空字段，省略字段保留原值。角色注记使用 `character_note: {"text":"保持简洁。","depth":4,"role":"system"}`。文本最多 4000 字符，深度为 0 至 10000，角色为 `system`、`user` 或 `assistant`。空文本停止注入。响应中的 `character_note_truncated` 表示原卡注记超过 4000 字符，`character_note.text` 只显示前 4000 字符。成功返回 `200 SillyTavernCardMetadataDto`，参数无效为 `400`，角色卡不存在为 `404`，卡片已更新为 `409`。保存后的字段可随角色卡导出。
 
 人物档案更新示例：
 

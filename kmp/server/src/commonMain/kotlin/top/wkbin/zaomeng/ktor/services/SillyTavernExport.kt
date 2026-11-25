@@ -12,7 +12,8 @@ internal object SillyTavernExport {
         "mes_example" to "speech_style",
     )
     val distilledCardFields = personaFields.keys.map { "card_$it" } + "card_first_mes"
-    private val cardTextFields = listOf("first_mes", "creator_notes", "system_prompt", "post_history_instructions", "creator", "character_version")
+    val promptFields = listOf("system_prompt", "post_history_instructions")
+    private val cardTextFields = listOf("first_mes", "creator_notes", "creator", "character_version")
     private val supplements = mapOf(
         "identity_anchor" to "身份背景", "gender" to "性别", "age_stage" to "年龄阶段",
         "appearance_feature" to "外貌", "habit_action" to "习惯", "soul_goal" to "目标",
@@ -31,7 +32,7 @@ internal object SillyTavernExport {
             (profile[field] as? String) ?: if (current == normalize(baseline[mapped].orEmpty())) {
                 card.data.text(field)
             } else current
-        }
+        } + promptFields.associateWith { field -> (profile[field] as? String) ?: card.data.text(field) }
     }
 
     fun characterCard(
@@ -63,6 +64,7 @@ internal object SillyTavernExport {
                 put(target, cardFields?.get(target) ?: value)
             }
             for (key in cardTextFields) put(key, originalData.text(key))
+            for (key in promptFields) put(key, cardFields?.get(key) ?: originalData.text(key))
             if (originalData.isEmpty()) {
                 put("first_mes", profile["card_first_mes"].orEmpty().replace("\\n", "\n"))
             }
@@ -88,9 +90,10 @@ internal object SillyTavernExport {
             put("extensions", originalData["extensions"] as? JsonObject ?: JsonObject(emptyMap()))
             (originalData["character_book"] as? JsonObject)?.let { put("character_book", characterBook(it)) }
         }
+        val isV3 = originalData.isNotEmpty() && original?.original?.text("spec") == "chara_card_v3"
         return buildJsonObject {
-            put("spec", "chara_card_v2")
-            put("spec_version", "2.0")
+            put("spec", if (isV3) "chara_card_v3" else "chara_card_v2")
+            put("spec_version", if (isV3) "3.0" else "2.0")
             put("data", data)
         }
     }

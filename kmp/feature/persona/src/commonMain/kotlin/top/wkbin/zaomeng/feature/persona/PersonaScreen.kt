@@ -14,39 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material3.AlertDialog
-import top.wkbin.zaomeng.platform.PlatformTts
-import top.wkbin.zaomeng.platform.rememberPlatformTts
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,17 +25,51 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.LinearProgressIndicator
+import io.github.suqi8.coui.kmp.basic.ProgressIndicatorDefaults
+import io.github.suqi8.coui.kmp.basic.SnackbarHostState
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TagView
+import io.github.suqi8.coui.kmp.basic.TagViewDefaults
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.basic.TextField
+import io.github.suqi8.coui.kmp.basic.TextFieldMode
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Create
+import io.github.suqi8.coui.kmp.icon.extended.Delete
+import io.github.suqi8.coui.kmp.icon.extended.ExpandLess
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
+import io.github.suqi8.coui.kmp.icon.extended.Ok
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.icon.extended.VolumeOff
+import io.github.suqi8.coui.kmp.icon.extended.VolumeUp
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.PersonaIssueDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaRepairChangeDto
 import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import org.koin.compose.viewmodel.koinViewModel
+import top.wkbin.zaomeng.platform.PlatformTts
+import top.wkbin.zaomeng.platform.rememberPlatformTts
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonaScreen(
     runId: String,
@@ -119,7 +120,6 @@ fun PersonaScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonaContent(
     state: PersonaUiState,
@@ -144,90 +144,89 @@ fun PersonaContent(
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     val tts = rememberPlatformTts()
 
-    Scaffold(
+    CouiPageScaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = state.character.ifBlank { "人物资料" },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+        title = state.character.ifBlank { "人物资料" },
+        topBarStyle = CouiTopBarStyle.Small,
+        contentTopSpacing = 8.dp,
+        subtitle = if (state.hasUnsavedChanges) "有尚未保存的修改" else "",
+        onBack = onBack,
+        wide = isWideWindow(),
+        snackbarHostState = snackbarHostState,
+        actions = {
+            if (!state.isSillyTavernCard) {
+                IconButton(
+                    onClick = onRequestEvolution,
+                    enabled = state.hasLoaded && !state.isBusy,
+                ) {
+                    if (state.isGeneratingEvolution) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
                         )
-                        if (state.hasUnsavedChanges) {
-                            Text(
-                                text = "有尚未保存的修改",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                    } else {
+                        Icon(COUIIcons.Create, contentDescription = "成长提炼")
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (!state.isSillyTavernCard) {
-                        IconButton(
-                            onClick = onRequestEvolution,
-                            enabled = state.hasLoaded && !state.isBusy,
-                        ) {
-                            if (state.isGeneratingEvolution) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Rounded.AutoAwesome, contentDescription = "成长提炼")
-                            }
-                        }
-                    }
-                    IconButton(onClick = onRetry, enabled = !state.isBusy) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "重新载入")
-                    }
-                    IconButton(
-                        onClick = { confirmDelete = true },
-                        enabled = state.hasLoaded && !state.isBusy,
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = "删除人物")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+                }
+            }
+            IconButton(onClick = onRetry, enabled = !state.isBusy) {
+                Icon(COUIIcons.Refresh, contentDescription = "重新载入")
+            }
+            IconButton(
+                onClick = { confirmDelete = true },
+                enabled = state.hasLoaded && !state.isBusy,
+            ) {
+                Icon(COUIIcons.Delete, contentDescription = "删除人物")
+            }
         },
         bottomBar = {
             if (state.hasLoaded) {
                 SaveBar(
+                    label = if (state.isSillyTavernCard) "保存角色卡" else "保存全部人物资料",
                     isSaving = state.isSaving,
                     enabled = !state.isLoading && state.suggestingField == null,
                     onSave = onSave,
                 )
             }
         },
-    ) { innerPadding ->
+    ) { scope ->
+        val contentModifier = Modifier.fillMaxSize().padding(scope.contentPadding)
+        if (confirmDelete) {
+            CouiAlertDialog(
+                onDismissRequest = { if (!state.isDeleting) confirmDelete = false },
+                title = "删除人物“${state.character}”？",
+                confirmText = "删除",
+                onConfirm = {
+                    confirmDelete = false
+                    onDelete()
+                },
+                confirmEnabled = !state.isDeleting,
+                dismissText = "取消",
+                onDismiss = { confirmDelete = false },
+                body = {
+                    Text(
+                        "人物档案、头像和相关关系条目会永久删除；已有聊天记录会保留。此操作无法撤销。",
+                        style = COUITheme.textStyles.bodyM,
+                        color = COUITheme.colorScheme.labelSecondary,
+                    )
+                },
+            )
+        }
         when {
             state.isLoading && !state.hasLoaded -> PersonaLoading(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = contentModifier,
             )
 
             state.loadError.isNotBlank() && !state.hasLoaded -> PersonaLoadError(
                 message = state.loadError,
                 onRetry = onRetry,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = contentModifier,
             )
 
             state.isSillyTavernCard -> SillyTavernCardEditor(
                 state = state,
                 onFieldChange = onFieldChange,
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                modifier = contentModifier,
             )
 
             else -> PersonaEditor(
@@ -240,34 +239,9 @@ fun PersonaContent(
                 onApplyRepair = onApplyRepair,
                 onApplyAllRepairs = onApplyAllRepairs,
                 tts = tts,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = contentModifier,
             )
         }
-    }
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { if (!state.isDeleting) confirmDelete = false },
-            title = { Text("删除人物“${state.character}”？") },
-            text = { Text("人物档案、头像和相关关系条目会永久删除；已有聊天记录会保留。此操作无法撤销。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmDelete = false
-                        onDelete()
-                    },
-                    enabled = !state.isDeleting,
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }, enabled = !state.isDeleting) {
-                    Text("取消")
-                }
-            },
-        )
     }
 }
 
@@ -279,19 +253,23 @@ private fun SillyTavernCardEditor(
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(SILLYTAVERN_CARD_FIELDS, key = { it.key }) { field ->
-            OutlinedTextField(
-                value = state.fields[field.key].orEmpty(),
-                onValueChange = { onFieldChange(field.key, it) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(field.label) },
-                minLines = if (field.key == "description") 5 else 3,
-                maxLines = 12,
-                enabled = !state.isSaving,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(field.label, style = COUITheme.textStyles.bodyXS)
+                TextField(
+                    value = state.fields[field.key].orEmpty(),
+                    onValueChange = { onFieldChange(field.key, it) },
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = field.label },
+                    label = "",
+                    backgroundMode = TextFieldMode.Rectangle,
+                    minLines = if (field.key == "description") 5 else 3,
+                    maxLines = 12,
+                    enabled = !state.isSaving,
+                )
+            }
         }
     }
 }
@@ -311,7 +289,7 @@ private fun PersonaEditor(
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "source") {
@@ -384,13 +362,16 @@ private fun SourceCard(state: PersonaUiState) {
     val hasEditableProfile = state.editableProfilePath.isNotBlank()
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.backgroundWithCard,
+        ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = if (hasEditableProfile) "当前使用校对稿" else "当前使用蒸馏稿",
-                style = MaterialTheme.typography.titleSmall,
+                style = COUITheme.textStyles.headlineXS,
                 fontWeight = FontWeight.SemiBold,
+                color = COUITheme.colorScheme.labelPrimary,
             )
             Spacer(modifier = Modifier.height(5.dp))
             Text(
@@ -399,8 +380,8 @@ private fun SourceCard(state: PersonaUiState) {
                 } else {
                     "这是自动蒸馏生成的初稿。确认关键字段后，保存会生成可编辑校对稿。"
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -411,14 +392,16 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
     var showAllIssues by rememberSaveable { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.cardBackground,
+        ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = "资料质量",
-                style = MaterialTheme.typography.titleMedium,
+                style = COUITheme.textStyles.headlineXS,
                 fontWeight = FontWeight.SemiBold,
+                color = COUITheme.colorScheme.labelPrimary,
             )
             when {
                 report != null -> {
@@ -432,55 +415,53 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
                                     text = report.score.toString(),
-                                    style = MaterialTheme.typography.headlineLarge,
+                                    style = COUITheme.textStyles.displayS,
                                     fontWeight = FontWeight.Bold,
                                     color = qualityColor(report.score),
                                 )
                                 Text(
                                     text = " / ${report.maxScore}",
                                     modifier = Modifier.padding(bottom = 5.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.bodyM,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                 )
                             }
                             Text(
                                 text = qualityGradeLabel(report.grade),
-                                style = MaterialTheme.typography.labelLarge,
+                                style = COUITheme.textStyles.buttonM,
                                 color = qualityColor(report.score),
                             )
                         }
-                        Text(
+                        TagView(
                             text = "${report.issues.size} 项待复核",
-                            modifier = Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.secondaryContainer,
-                                    RoundedCornerShape(999.dp),
-                                )
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            colors = TagViewDefaults.tagViewColors(
+                                containerColor = COUITheme.colorScheme.secondaryContainer,
+                                contentColor = COUITheme.colorScheme.labelPrimary,
+                            ),
                         )
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     LinearProgressIndicator(
-                        progress = { (report.score.toFloat() / report.maxScore.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                        progress = (report.score.toFloat() / report.maxScore.coerceAtLeast(1)).coerceIn(0f, 1f),
                         modifier = Modifier.fillMaxWidth(),
-                        color = qualityColor(report.score),
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = qualityColor(report.score),
+                        ),
                     )
                     if (report.verdict.isNotBlank()) {
                         Spacer(modifier = Modifier.height(9.dp))
                         Text(
                             text = report.verdict,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.bodyM,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                     if (report.evidenceCoverage > 0 || report.confidence > 0) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "问题字段证据覆盖 ${report.evidenceCoverage}% · 修复建议可信度 ${report.confidence}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                     if (report.issues.isNotEmpty()) {
@@ -489,9 +470,10 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
                         val visibleIssues = if (showAllIssues) report.issues else report.issues.take(4)
                         visibleIssues.forEach { issue -> QualityIssueRow(issue) }
                         if (report.issues.size > 4) {
-                            TextButton(onClick = { showAllIssues = !showAllIssues }) {
-                                Text(if (showAllIssues) "收起问题" else "查看全部 ${report.issues.size} 项")
-                            }
+                            TextButton(
+                                text = if (showAllIssues) "收起问题" else "查看全部 ${report.issues.size} 项",
+                                onClick = { showAllIssues = !showAllIssues },
+                            )
                         }
                     }
                 }
@@ -500,8 +482,8 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
+                        style = COUITheme.textStyles.bodyM,
+                        color = COUITheme.colorScheme.error,
                     )
                 }
 
@@ -512,8 +494,8 @@ private fun QualityCard(report: PersonaQualityReportDto?, error: String) {
                         Text(
                             text = "正在生成质量报告…",
                             modifier = Modifier.padding(start = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.bodyM,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                 }
@@ -536,7 +518,9 @@ private fun RepairProposalCard(
     var expanded by rememberSaveable(proposal?.createdAt, error) { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.containerThemeHalftone,
+        ),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -548,25 +532,31 @@ private fun RepairProposalCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("自动修复建议", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "自动修复建议",
+                        style = COUITheme.textStyles.headlineXS,
+                        fontWeight = FontWeight.SemiBold,
+                        color = COUITheme.colorScheme.labelPrimary,
+                    )
                     proposal?.let {
                         Text(
                             "原文证据覆盖 ${it.evidenceCoverage}% · 平均可信度 ${it.confidence}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (expanded && !proposal?.changes.isNullOrEmpty()) {
                         TextButton(
+                            text = "全部应用",
                             onClick = onApplyAll,
                             enabled = enabled && proposal.changes.any { it.field !in appliedFields },
-                        ) { Text("全部应用") }
+                        )
                     }
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
-                            imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            imageVector = if (expanded) COUIIcons.ExpandLess else COUIIcons.ExpandMore,
                             contentDescription = if (expanded) "收起自动修复建议" else "展开自动修复建议",
                         )
                     }
@@ -574,51 +564,69 @@ private fun RepairProposalCard(
             }
             if (expanded) {
                 if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error)
+                    Text(error, color = COUITheme.colorScheme.error)
                 } else if (proposal != null && proposal.changes.isEmpty()) {
                     Text(
                         "检测到 ${proposal.issues.size} 项待完善内容，未生成可安全应用的修改；未知字段将保持为空。",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 } else proposal?.changes.orEmpty().forEach { change ->
                     val applied = change.field in appliedFields
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Card(
+                        colors = CardDefaults.defaultColors(
+                            color = COUITheme.colorScheme.cardBackground,
+                        ),
+                    ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp),
                         ) {
-                            Text(personaFieldLabel(change.field), fontWeight = FontWeight.SemiBold)
+                            Text(
+                                personaFieldLabel(change.field),
+                                style = COUITheme.textStyles.headlineXS,
+                                fontWeight = FontWeight.SemiBold,
+                                color = COUITheme.colorScheme.labelPrimary,
+                            )
                             Text(
                                 "修改前：${change.before.ifBlank { "（空）" }}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
-                            Text("修改后：${change.after}", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "修改后：${change.after}",
+                                style = COUITheme.textStyles.bodyM,
+                                color = COUITheme.colorScheme.labelPrimary,
+                            )
                             if (change.reason.isNotBlank()) {
                                 Text(
                                     "原因：${change.reason} · 可信度 ${change.confidence}%",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.description,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                 )
                             }
                             change.evidence.firstOrNull()?.let { evidence ->
                                 Text(
                                     "证据：${evidence.title}（字符 ${evidence.startChar}–${evidence.endChar}）",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    style = COUITheme.textStyles.description,
+                                    color = COUITheme.colorScheme.primary,
                                 )
                                 Text(
                                     evidence.excerpt,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = COUITheme.textStyles.bodyXS,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            OutlinedButton(
+                            Button(
                                 onClick = { onApply(change) },
                                 enabled = enabled && !applied,
                                 modifier = Modifier.align(Alignment.End),
-                            ) { Text(if (applied) "已应用" else "应用到草稿") }
+                                colors = ButtonDefaults.buttonColors(),
+                            ) {
+                                Text(if (applied) "已应用" else "应用到草稿")
+                            }
                         }
                     }
                 }
@@ -637,20 +645,20 @@ private fun personaFieldLabel(field: String): String = PERSONA_FIELD_GROUPS.asSe
 private fun QualityIssueRow(issue: PersonaIssueDto) {
     Column(modifier = Modifier.padding(top = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
+            val severity = severityColor(issue.severity)
+            TagView(
                 text = severityLabel(issue.severity),
-                modifier = Modifier
-                    .background(severityColor(issue.severity).copy(alpha = 0.14f), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = severityColor(issue.severity),
+                colors = TagViewDefaults.tagViewColors(
+                    containerColor = severity.copy(alpha = 0.14f),
+                    contentColor = severity,
+                ),
             )
             if (issue.fields.isNotEmpty()) {
                 Text(
                     text = issue.fields.map(::fieldLabel).joinToString("、"),
                     modifier = Modifier.padding(start = 8.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -660,15 +668,16 @@ private fun QualityIssueRow(issue: PersonaIssueDto) {
             Text(
                 text = issue.message,
                 modifier = Modifier.padding(top = 5.dp),
-                style = MaterialTheme.typography.bodySmall,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelPrimary,
             )
         }
         if (issue.suggestion.isNotBlank()) {
             Text(
                 text = issue.suggestion,
                 modifier = Modifier.padding(top = 3.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -684,11 +693,11 @@ private fun FieldGroupHeader(
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (expanded) {
-                MaterialTheme.colorScheme.primaryContainer
+        colors = CardDefaults.defaultColors(
+            color = if (expanded) {
+                COUITheme.colorScheme.secondaryContainer
             } else {
-                MaterialTheme.colorScheme.surfaceVariant
+                COUITheme.colorScheme.backgroundWithCard
             },
         ),
     ) {
@@ -703,27 +712,28 @@ private fun FieldGroupHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = group.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = COUITheme.textStyles.headlineXS,
                         fontWeight = FontWeight.SemiBold,
+                        color = COUITheme.colorScheme.labelPrimary,
                     )
                     Text(
                         text = "$completedCount/${group.fields.size}",
                         modifier = Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
                 Text(
                     text = group.description,
                     modifier = Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelSecondary,
                     maxLines = if (expanded) 3 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                imageVector = if (expanded) COUIIcons.ExpandLess else COUIIcons.ExpandMore,
                 contentDescription = if (expanded) "收起" else "展开",
             )
         }
@@ -744,8 +754,9 @@ private fun PersonaFieldEditor(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.cardBackground,
+        ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -756,32 +767,36 @@ private fun PersonaFieldEditor(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = spec.label,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = COUITheme.textStyles.headlineXS,
                         fontWeight = FontWeight.SemiBold,
+                        color = COUITheme.colorScheme.labelPrimary,
                     )
                     Text(
                         text = spec.key,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
                 if (spec.supportsSuggestion) {
-                    TextButton(
-                        onClick = onSuggest,
-                        enabled = suggestionsEnabled && !suggesting,
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         if (suggesting) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
                         } else {
                             Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
+                                imageVector = COUIIcons.Create,
                                 contentDescription = null,
                                 modifier = Modifier.size(17.dp),
+                                tint = COUITheme.colorScheme.primary,
                             )
                         }
-                        Text(
+                        Spacer(Modifier.size(6.dp))
+                        TextButton(
                             text = if (suggesting) "生成中" else "AI 补全",
-                            modifier = Modifier.padding(start = 6.dp),
+                            onClick = onSuggest,
+                            enabled = suggestionsEnabled && !suggesting,
                         )
                     }
                 }
@@ -789,29 +804,31 @@ private fun PersonaFieldEditor(
             Spacer(modifier = Modifier.height(8.dp))
             val helper = feedback?.message?.takeIf(String::isNotBlank)
                 ?: qualityIssue?.suggestion?.takeIf(String::isNotBlank)
-            OutlinedTextField(
+            TextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
+                label = "填写可直接约束人物表现的具体描述",
+                backgroundMode = TextFieldMode.Rectangle,
                 minLines = 2,
                 maxLines = 8,
-                placeholder = { Text("填写可直接约束人物表现的具体描述") },
-                isError = feedback?.kind == PersonaFeedbackKind.Error || qualityIssue?.severity == "high",
-                supportingText = {
-                    helper?.let {
-                        Text(
-                            it,
-                            color = when (feedback?.kind) {
-                                PersonaFeedbackKind.Success -> MaterialTheme.colorScheme.primary
-                                PersonaFeedbackKind.Error -> MaterialTheme.colorScheme.error
-                                PersonaFeedbackKind.Loading -> MaterialTheme.colorScheme.primary
-                                null -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                },
+                isError = feedback?.kind == PersonaFeedbackKind.Error ||
+                    qualityIssue?.severity == "high",
             )
+            helper?.let {
+                Text(
+                    it,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = when (feedback?.kind) {
+                        PersonaFeedbackKind.Success -> COUITheme.colorScheme.primary
+                        PersonaFeedbackKind.Error -> COUITheme.colorScheme.error
+                        PersonaFeedbackKind.Loading -> COUITheme.colorScheme.primary
+                        null -> COUITheme.colorScheme.labelSecondary
+                    },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
     }
 }
@@ -824,28 +841,32 @@ private fun ReviewNoteCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.backgroundWithCard,
+        ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = "本次校对备注",
-                style = MaterialTheme.typography.titleMedium,
+                style = COUITheme.textStyles.headlineXS,
                 fontWeight = FontWeight.SemiBold,
+                color = COUITheme.colorScheme.labelPrimary,
             )
             Text(
                 text = "可记录改动依据、仍存疑的地方，备注会随保存事件写入书卷。",
                 modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
-            OutlinedTextField(
+            TextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
+                label = "例如：根据第三章对白补充口吻与底线",
+                backgroundMode = TextFieldMode.Rectangle,
                 minLines = 2,
                 maxLines = 5,
-                placeholder = { Text("例如：根据第三章对白补充口吻与底线") },
             )
         }
     }
@@ -853,6 +874,7 @@ private fun ReviewNoteCard(
 
 @Composable
 private fun SaveBar(
+    label: String,
     isSaving: Boolean,
     enabled: Boolean,
     onSave: () -> Unit,
@@ -863,18 +885,25 @@ private fun SaveBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
+        colors = ButtonDefaults.buttonColorsPrimary(),
     ) {
         if (isSaving) {
             CircularProgressIndicator(
                 modifier = Modifier.size(18.dp),
                 strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
+                colors = ProgressIndicatorDefaults.loadingViewColors(
+                    foregroundColor = COUITheme.colorScheme.onPrimary,
+                ),
             )
         } else {
-            Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(
+                COUIIcons.Ok,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
         }
         Text(
-            text = if (isSaving) "正在保存…" else "保存全部人物资料",
+            text = if (isSaving) "正在保存…" else label,
             modifier = Modifier.padding(start = 8.dp),
         )
     }
@@ -888,7 +917,8 @@ private fun PersonaLoading(modifier: Modifier = Modifier) {
             Text(
                 text = "正在载入人物资料…",
                 modifier = Modifier.padding(top = 14.dp),
-                style = MaterialTheme.typography.bodyLarge,
+                style = COUITheme.textStyles.bodyL,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -905,23 +935,33 @@ private fun PersonaLoadError(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            colors = CardDefaults.defaultColors(
+                color = COUITheme.colorScheme.containerRed,
+            ),
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
                     text = "人物资料没有载入",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = COUITheme.textStyles.headlineXS,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    color = COUITheme.colorScheme.error,
                 )
                 Text(
                     text = message,
                     modifier = Modifier.padding(top = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = COUITheme.textStyles.bodyM,
+                    color = COUITheme.colorScheme.labelPrimary,
                 )
-                OutlinedButton(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier.padding(top = 16.dp),
+                    colors = ButtonDefaults.buttonColors(),
+                ) {
+                    Icon(
+                        COUIIcons.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
                     Text("重新载入", modifier = Modifier.padding(start = 7.dp))
                 }
             }
@@ -952,16 +992,16 @@ private fun severityLabel(severity: String): String = when (severity) {
 
 @Composable
 private fun qualityColor(score: Int): Color = when {
-    score >= 80 -> MaterialTheme.colorScheme.primary
-    score >= 60 -> MaterialTheme.colorScheme.tertiary
-    else -> MaterialTheme.colorScheme.error
+    score >= 80 -> COUITheme.colorScheme.primary
+    score >= 60 -> COUITheme.colorScheme.tips
+    else -> COUITheme.colorScheme.error
 }
 
 @Composable
 private fun severityColor(severity: String): Color = when (severity) {
-    "high" -> MaterialTheme.colorScheme.error
-    "medium" -> MaterialTheme.colorScheme.tertiary
-    else -> MaterialTheme.colorScheme.primary
+    "high" -> COUITheme.colorScheme.error
+    "medium" -> COUITheme.colorScheme.tips
+    else -> COUITheme.colorScheme.primary
 }
 
 @Composable
@@ -984,8 +1024,8 @@ private fun VoicePreviewCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
         ),
     ) {
         Row(
@@ -998,19 +1038,20 @@ private fun VoicePreviewCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "声线实时试听",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = COUITheme.textStyles.headlineXS,
                     fontWeight = FontWeight.SemiBold,
+                    color = COUITheme.colorScheme.labelPrimary,
                 )
                 Text(
                     text = "试听文案：“$testText”",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            OutlinedButton(
+            Button(
                 onClick = {
                     if (isThisSpeaking) {
                         tts.stop()
@@ -1025,9 +1066,10 @@ private fun VoicePreviewCard(
                     }
                 },
                 modifier = Modifier.padding(start = 12.dp),
+                colors = ButtonDefaults.buttonColors(),
             ) {
                 Icon(
-                    if (isThisSpeaking) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    if (isThisSpeaking) COUIIcons.VolumeOff else COUIIcons.VolumeUp,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )

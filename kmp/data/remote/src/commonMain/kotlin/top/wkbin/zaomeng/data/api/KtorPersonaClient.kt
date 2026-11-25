@@ -5,6 +5,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -23,6 +24,12 @@ class KtorPersonaClient(
 ) {
     suspend fun getReview(runId: String, character: String): PersonaReviewDto = request { endpoint ->
         http.client.get(url(endpoint, runId, character))
+    }.body()
+
+    suspend fun updateCardMetadata(
+        runId: String, character: String, payload: UpdateSillyTavernCardMetadataRequest,
+    ): SillyTavernCardMetadataDto = request { endpoint ->
+        http.client.patch("${url(endpoint, runId, character)}/card-metadata") { setBody(payload) }
     }.body()
 
     suspend fun saveReview(runId: String, character: String, fields: JsonObject): PersonaReviewDto = request { endpoint ->

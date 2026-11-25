@@ -1,54 +1,15 @@
 package top.wkbin.zaomeng.feature.chat
 
-import top.wkbin.zaomeng.data.api.AuthorNoteDto
-import top.wkbin.zaomeng.feature.chat.insights.*
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.FactCheck
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.AccountTree
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.BookmarkAdd
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,22 +20,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Create
+import io.github.suqi8.coui.kmp.icon.extended.Favorites
+import io.github.suqi8.coui.kmp.icon.extended.HorizontalSplit
+import io.github.suqi8.coui.kmp.icon.extended.Recent
+import io.github.suqi8.coui.kmp.icon.extended.Tasks
+import io.github.suqi8.coui.kmp.overlay.OverlayBottomSheet
+import io.github.suqi8.coui.kmp.theme.COUITheme
+import kotlinx.serialization.json.JsonObject
+import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.ReusableCardDto
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlin.math.roundToInt
+import top.wkbin.zaomeng.feature.chat.insights.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatToolsSheet(
     state: ChatUiState,
@@ -100,7 +66,6 @@ fun ChatToolsSheet(
     onRelationLock: (String, Boolean) -> Unit,
     onOpenStoryRecap: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var directorDialog by remember { mutableStateOf(false) }
     var directorGoal by remember { mutableStateOf("") }
     var directorAction by remember { mutableStateOf("advance") }
@@ -224,14 +189,13 @@ fun ChatToolsSheet(
         onDismiss = { branchMetaDialog = false },
     )
 
-    ModalBottomSheet(
+    OverlayBottomSheet(
+        show = true,
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        contentWindowInsets = { WindowInsets.navigationBars },
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            contentPadding = PaddingValues(
                 start = 16.dp,
                 top = 4.dp,
                 end = 16.dp,
@@ -240,28 +204,29 @@ fun ChatToolsSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text("会话工具", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("会话工具", style = COUITheme.textStyles.headlineM, fontWeight = FontWeight.SemiBold)
                 Text(
                     "当前分支 ${state.sessionId}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
             item {
-                OutlinedButton(
+                TextButton(
+                    text = if (readingLayout) "切换到气泡排版" else "切换到阅读排版",
                     onClick = onToggleReadingLayout,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (readingLayout) "切换到气泡排版" else "切换到阅读排版") }
+                )
             }
 
             item {
                 ToolSection("剧情复盘") {
                     ToolButton(
                         label = "查看剧情卡并分享",
-                        icon = { Icon(Icons.Filled.History, contentDescription = null) },
+                        icon = { Icon(COUIIcons.Recent, contentDescription = null) },
                         enabled = toolsEnabled,
                         onClick = onOpenStoryRecap,
                     )
@@ -270,11 +235,12 @@ fun ChatToolsSheet(
 
             if (session != null) {
                 item {
-                    OutlinedButton(
+                    TextButton(
+                        text = "作者注释",
                         onClick = { authorNoteDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = toolsEnabled,
-                    ) { Text("作者注释") }
+                    )
                 }
             }
 
@@ -282,14 +248,14 @@ fun ChatToolsSheet(
                 ToolSection("最新一轮") {
                     ToolButton(
                         label = "生成修正版",
-                        icon = { Icon(Icons.Outlined.AutoAwesome, contentDescription = null) },
+                        icon = { Icon(COUIIcons.Create, contentDescription = null) },
                         busy = state.toolBusy == "correct",
                         enabled = toolsEnabled && state.session?.transcript?.isNotEmpty() == true,
                         onClick = onCorrectLatest,
                     )
                     ToolButton(
                         label = "深度复核",
-                        icon = { Icon(Icons.AutoMirrored.Outlined.FactCheck, contentDescription = null) },
+                        icon = { Icon(COUIIcons.Tasks, contentDescription = null) },
                         busy = state.toolBusy == "review",
                         enabled = toolsEnabled && state.session?.transcript?.isNotEmpty() == true,
                         onClick = onDeepReviewLatest,
@@ -299,12 +265,12 @@ fun ChatToolsSheet(
 
             item {
                 ToolSection("分支") {
-                    OutlinedButton(
+                    Button(
                         onClick = { branchMetaDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = toolsEnabled,
                     ) {
-                        Icon(Icons.Outlined.AccountTree, contentDescription = null)
+                        Icon(COUIIcons.HorizontalSplit, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                         Text("编辑当前分支")
                     }
@@ -346,11 +312,12 @@ fun ChatToolsSheet(
             item {
                 ToolSection("场景") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
+                        TextButton(
+                            text = "载入场景卡",
                             onClick = onLoadScenes,
                             modifier = Modifier.weight(1f),
                             enabled = toolsEnabled,
-                        ) { Text("载入场景卡") }
+                        )
                         Button(
                             onClick = onRecommendScene,
                             modifier = Modifier.weight(1f),
@@ -380,12 +347,12 @@ fun ChatToolsSheet(
 
             item {
                 ToolSection("用户固定记忆") {
-                    OutlinedButton(
+                    Button(
                         onClick = { memoryDraft = DialogueMemoryDto() },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = toolsEnabled,
                     ) {
-                        Icon(Icons.Outlined.BookmarkAdd, contentDescription = null)
+                        Icon(COUIIcons.Favorites, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                         Text("添加记忆")
                     }
@@ -406,38 +373,37 @@ fun ChatToolsSheet(
                 ToolSection("自动记忆质量") {
                     Text(
                         "启用 ${quality.activeCount} · 过期 ${quality.staleCount} · 冲突 ${quality.conflictCount}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                     if (quality.duplicateGroups.isNotEmpty()) {
-                        OutlinedButton(
+                        TextButton(
+                            text = "合并 ${quality.duplicateGroups.size} 组重复记忆",
                             onClick = onMergeDuplicateMemories,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = toolsEnabled,
-                        ) {
-                            Text("合并 ${quality.duplicateGroups.size} 组重复记忆")
-                        }
+                        )
                     }
                     val currentHits = automatic.filter {
                         quality.latestHitTurnId.isNotBlank() && it.lastHitTurnId == quality.latestHitTurnId
                     }
                     if (currentHits.isNotEmpty()) {
-                        Text("本轮命中", style = MaterialTheme.typography.titleSmall)
+                        Text("本轮命中", style = COUITheme.textStyles.buttonM)
                         currentHits.forEach { memory ->
                             AutomaticMemoryRow(memory, toolsEnabled, onUpdateAutomaticMemoryStatus)
                         }
                     }
                     val remaining = automatic.filterNot { it in currentHits }
                     if (remaining.isNotEmpty()) {
-                        Text("全部自动记忆", style = MaterialTheme.typography.titleSmall)
+                        Text("全部自动记忆", style = COUITheme.textStyles.buttonM)
                         remaining.takeLast(40).asReversed().forEach { memory ->
                             AutomaticMemoryRow(memory, toolsEnabled, onUpdateAutomaticMemoryStatus)
                         }
                     } else if (automatic.isEmpty()) {
                         Text(
                             "完成对话后会自动建立带来源轮次的本地记忆。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.bodyXS,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                 }
@@ -497,7 +463,7 @@ internal fun ToolSection(
     action: @Composable (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -506,7 +472,7 @@ internal fun ToolSection(
                 Text(
                     title,
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = COUITheme.textStyles.headlineXS,
                     fontWeight = FontWeight.SemiBold,
                 )
                 action?.invoke()
@@ -524,7 +490,7 @@ internal fun ToolButton(
     busy: Boolean = false,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth(), enabled = enabled) {
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), enabled = enabled) {
         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else icon()
         Spacer(Modifier.size(8.dp))
         Text(label)

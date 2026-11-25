@@ -16,6 +16,8 @@ import top.wkbin.zaomeng.data.api.WorldBookGenerationType
 import top.wkbin.zaomeng.data.api.WorldBookScanSource
 import top.wkbin.zaomeng.data.api.WorldBookTestContext
 import top.wkbin.zaomeng.data.api.UpdateCardGreetingRequest
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
+import top.wkbin.zaomeng.data.api.SillyTavernCharacterNoteDto
 import top.wkbin.zaomeng.data.api.WORLD_BOOK_CONTENT_CHAR_LIMIT
 import top.wkbin.zaomeng.db.DomainStore
 import top.wkbin.zaomeng.db.RoomDocumentStore
@@ -37,6 +39,47 @@ import kotlin.test.*
 
 class SillyTavernImportTest {
     @Test
+    fun `updating card metadata preserves omitted data and clears legacy notes on request`() = runBlocking {
+        val path = File.createTempFile("zaomeng-card-meta-", ".db").apply { deleteOnExit() }.absolutePath.toPath()
+        val db = buildZaomengDatabase(getDatabaseBuilder(path))
+        try {
+            val documents = RoomDocumentStore(db)
+            val storage = StorageService(path, documents, DomainStore(path, db.domainDao(), documents))
+            val importer = RunPackageService(storage)
+            val tags = List(33) { JsonPrimitive("Tag $it") }
+            val source = """{"name":"守夜人","description":"看守渡口。","creator":"旧作者",
+                 "creatorcomment":"旧说明","tags":${JsonArray(tags)},"first_mes":"旧首句"}"""
+            val runId = importer.importPackage(request("metadata.json", source)).getValue("run_id").jsonPrimitive.content
+            val persona = PersonaService(storage, relations = RelationsService(storage))
+            val original = assertNotNull(persona.getReview(runId, "守夜人").cardMetadata)
+            assertTrue(original.tagsTruncated)
+            val saved = persona.updateCardMetadata(runId, "守夜人", UpdateSillyTavernCardMetadataRequest(
+                original.revision, creator = "新作者", creatorNotes = "", characterVersion = "2.0",
+            ))
+            assertEquals("新作者", saved.creator)
+            assertEquals("", saved.creatorNotes)
+            assertTrue(saved.tagsTruncated)
+            assertFailsWith<CardMetadataChangedException> {
+                persona.updateCardMetadata(runId, "守夜人", UpdateSillyTavernCardMetadataRequest(original.revision, creator = "冲突"))
+            }
+            val exported = persona.exportSillyTavernCard(runId, "守夜人").getValue("data").jsonObject
+            assertEquals("新作者", exported.getValue("creator").jsonPrimitive.content)
+            assertEquals("2.0", exported.getValue("character_version").jsonPrimitive.content)
+            assertEquals("", exported.getValue("creator_notes").jsonPrimitive.content)
+            assertEquals(JsonArray(tags), exported.getValue("tags"))
+            assertEquals("旧首句", exported.getValue("first_mes").jsonPrimitive.content)
+
+            val updated = persona.updateCardMetadata(runId, "守夜人", UpdateSillyTavernCardMetadataRequest(
+                saved.revision, tags = listOf(" 港口 ", "港口", "旅行"),
+            ))
+            assertEquals(listOf("港口", "旅行"), updated.tags)
+            assertFalse(updated.tagsTruncated)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `editing card openings preserves slots and existing sessions while updating exports`() = runBlocking {
         val path = File.createTempFile("zaomeng-openings-", ".db").apply { deleteOnExit() }.absolutePath.toPath()
         val db = buildZaomengDatabase(getDatabaseBuilder(path))
@@ -44,8 +87,9 @@ class SillyTavernImportTest {
             val documents = RoomDocumentStore(db)
             val storage = StorageService(path, documents, DomainStore(path, db.domainDao(), documents))
             val packages = RunPackageService(storage)
-            val card = """{"spec":"chara_card_v2","data":{"name":"守夜人",
+            val card = """{"spec":"chara_card_v3","spec_version":"3.0","data":{"name":"守夜人",
                 "first_mes":"旧首句","alternate_greetings":["","旧备用"],
+                "nickname":"阿夜","group_only_greetings":["大家好"],"creator_notes_multilingual":{"en":"Port setting"},
                 "extensions":{"foreign":"保留"},"character_book":{"entries":[{"content":"旧码头","id":1}]}}}"""
             val runId = packages.importPackage(request("opening.json", card)).getValue("run_id").jsonPrimitive.content
             val sessions = SessionManagementService(storage, DialogueService(storage))
@@ -68,8 +112,17 @@ class SillyTavernImportTest {
             assertEquals("新增备用", opening(fresh))
             val oldId = old.getValue("session_id").jsonPrimitive.content
             assertEquals("旧备用", opening(sessions.getDialogueSession(runId, oldId)))
-            val exported = PersonaService(storage, relations = RelationsService(storage))
-                .exportSillyTavernCard(runId, "守夜人").getValue("data").jsonObject
+            val json = PersonaService(storage, relations = RelationsService(storage)).exportSillyTavernCard(runId, "守夜人")
+            assertEquals("chara_card_v3", json.getValue("spec").jsonPrimitive.content)
+            assertEquals("3.0", json.getValue("spec_version").jsonPrimitive.content)
+            val png = SillyTavernPng.writeCard(cardPng("chara" to card), json.toString().encodeToByteArray(), isV3 = true)
+            assertContains(png.toString(Charsets.ISO_8859_1), "tEXtccv3\u0000")
+            assertFalse(png.toString(Charsets.ISO_8859_1).contains("tEXtchara\u0000"))
+            val exported = SillyTavernImport.parseCard(SillyTavernImport.readPngCard(png)).data
+            assertEquals(json.getValue("data").jsonObject, exported)
+            assertEquals("阿夜", exported.getValue("nickname").jsonPrimitive.content)
+            assertEquals("大家好", exported.getValue("group_only_greetings").jsonArray.single().jsonPrimitive.content)
+            assertEquals("Port setting", exported.getValue("creator_notes_multilingual").jsonObject.getValue("en").jsonPrimitive.content)
             assertEquals("新首句", exported.getValue("first_mes").jsonPrimitive.content)
             assertEquals(listOf("新增备用", ""), exported.getValue("alternate_greetings").jsonArray.map { it.jsonPrimitive.content })
             assertEquals("保留", exported.getValue("extensions").jsonObject.getValue("foreign").jsonPrimitive.content)
@@ -683,7 +736,9 @@ class SillyTavernImportTest {
         val payload = mapOf(
             "input" to mapOf("message" to "当前输入"),
             "history" to listOf(mapOf("role" to "character", "speaker" to "林晚", "message" to "先前的回复")),
-            "sillytavern_card" to mapOf("name" to "林晚", "post_history_instructions" to "后置指令"),
+            "sillytavern_card" to mapOf(
+                "name" to "林晚", "post_history_instructions" to "后置指令", "depth_prompt" to "默认角色注记",
+            ),
             "world_book_matches" to matches,
             "memory_context" to mapOf("world_facts" to matches.map {
                 mapOf("category" to "sillytavern_lore", "summary" to it.excerpt, "world_book_position" to it.position)
@@ -693,7 +748,7 @@ class SillyTavernImportTest {
         val prompt = builder.buildDialogueLlmMessages(payload)
         assertEquals(
             listOf(
-                "system" to "默认深度系统条目",
+                "system" to "默认角色注记\n默认深度系统条目",
                 "assistant" to "先前的回复",
                 "user" to "先注入的用户条目\n后注入的用户条目",
                 "user" to "当前输入",
@@ -707,6 +762,7 @@ class SillyTavernImportTest {
             assertEquals(1, prompt.sumOf { it.content.orEmpty().split(entry.excerpt).size - 1 })
         }
         val groupPrompt = builder.buildDialogueLlmMessages(payload - "sillytavern_card")
+        assertTrue(groupPrompt.none { it.content.orEmpty().contains("默认角色注记") })
         assertEquals("林晚：先前的回复", groupPrompt[3].content)
         val sharedBoundary = matches.map {
             if (it.injectionRole == WorldBookInjectionRole.System) it.copy(injectionDepth = 0) else it
@@ -779,6 +835,7 @@ class SillyTavernImportTest {
                  "tags":["客栈","旅行","客栈",3,""],
                  "scenario":"{{user}}来到客栈。","mes_example":"<START>\n{{user}}: 有空房吗？\n{{char}}: 请稍等。",
                  "system_prompt":"{{original}}\n以{{char}}的口吻应答。","post_history_instructions":"让{{user}}自行决定下一步。",
+                 "extensions":{"depth_prompt":{"prompt":"{{char}}等{{user}}提问。","depth":0,"role":"assistant","custom":true},"keep":"扩展原值"},
                  "first_mes":"{{user}}，欢迎进店。","alternate_greetings":["","{{char}}向{{user}}点头。"],"character_book":{"entries":[
                    {"keys":["客栈"],"content":"客栈后院有一口井。","enabled":true,"position":"before_char","extensions":{"position":1}},
                    {"keys":["秘道"],"content":"隐藏的内容","enabled":true,"position":"before_char"}
@@ -864,7 +921,7 @@ class SillyTavernImportTest {
             assertEquals("旅人，欢迎进店。", greeting.getValue("message").jsonPrimitive.content)
             val payload = DialoguePayloadBuilder(storage).buildTurnPayload(manifest, session, "next", "客栈有空房吗？")
             val prompt = DialoguePromptBuilder(PromptLoader(JvmPromptSource())).buildDialogueLlmMessages(payload)
-            assertEquals(listOf("system", "system", "assistant", "user", "system"), prompt.map { it.role })
+            assertEquals(listOf("system", "system", "assistant", "user", "assistant", "system"), prompt.map { it.role })
             assertContains(prompt.first().content.orEmpty(), "以林晚的口吻应答。")
             assertContains(prompt.first().content.orEmpty(), "旅人来到客栈。")
             assertContains(prompt.first().content.orEmpty(), "林晚: 请稍等。")
@@ -879,6 +936,8 @@ class SillyTavernImportTest {
             assertFalse("{{original}}" in prompt.first().content.orEmpty())
             assertEquals("旅人，欢迎进店。", prompt[2].content)
             assertEquals("客栈有空房吗？", prompt[3].content)
+            assertEquals("林晚等旅人提问。", prompt[4].content)
+            assertEquals(1, prompt.count { it.content.orEmpty().contains("林晚等旅人提问。") })
             assertContains(prompt.last().content.orEmpty(), "让旅人自行决定下一步。")
             assertContains(prompt.last().content.orEmpty(), "NDJSON")
             assertEquals(prompt.last(), DialogueService.applyPacingInstruction(prompt, "brief").last())
@@ -938,6 +997,8 @@ class SillyTavernImportTest {
             assertFalse(persona.getQualityReport(runId, "林晚").applicable)
             val review = persona.getReview(runId, "林晚")
             assertEquals("{{char}}是掌柜 --- 也是画师。", review.cardFields?.get("description"))
+            assertEquals("{{original}}\n以{{char}}的口吻应答。", review.cardFields?.get("system_prompt"))
+            assertEquals("让{{user}}自行决定下一步。", review.cardFields?.get("post_history_instructions"))
             val metadata = assertNotNull(review.cardMetadata)
             assertEquals("北港工作室", metadata.creator)
             assertEquals("1.2", metadata.characterVersion)
@@ -946,6 +1007,10 @@ class SillyTavernImportTest {
             assertFalse(metadata.creatorNotesTruncated)
             val unchangedCard = persona.exportSillyTavernCard(runId, "林晚").getValue("data").jsonObject
             assertEquals("{{char}}是掌柜 --- 也是画师。", unchangedCard.getValue("description").jsonPrimitive.content)
+            assertEquals(
+                "{{char}}等{{user}}提问。",
+                unchangedCard.getValue("extensions").jsonObject.getValue("depth_prompt").jsonObject.getValue("prompt").jsonPrimitive.content,
+            )
             persona.saveReview(runId, "林晚", mapOf("temperament_type" to "沉稳"))
             val personalityEdited = persona.exportSillyTavernCard(runId, "林晚").getValue("data").jsonObject
             assertEquals("{{char}}是掌柜 --- 也是画师。", personalityEdited.getValue("description").jsonPrimitive.content)
@@ -973,13 +1038,76 @@ class SillyTavernImportTest {
             assertEquals(metadata.creatorNotes, editedCard.getValue("creator_notes").jsonPrimitive.content)
             assertEquals(metadata.characterVersion, editedCard.getValue("character_version").jsonPrimitive.content)
             assertEquals(listOf("客栈", "旅行", "客栈", ""), editedCard.getValue("tags").jsonArray.map { it.jsonPrimitive.content })
+            val editedSystem = "{{original}}\n\n请用{{char}}的短句。"
+            val editedInstruction = "等{{user}}先开口。"
+            persona.saveReview(runId, "林晚", mapOf("system_prompt" to editedSystem, "post_history_instructions" to editedInstruction))
+            val updatedProfile = requireNotNull(persona.getReview(runId, "林晚").cardFields)
+            assertEquals(editedSystem, updatedProfile["system_prompt"])
+            assertEquals(editedInstruction, updatedProfile["post_history_instructions"])
+            val editedPromptPayload = DialoguePayloadBuilder(storage).buildTurnPayload(manifest, session, "edited-prompt", "有人吗？")
+            val promptBuilder = DialoguePromptBuilder(PromptLoader(JvmPromptSource()))
+            val editedPrompt = promptBuilder.buildDialogueLlmMessages(editedPromptPayload)
+            assertContains(editedPrompt.first().content.orEmpty(), "请用林晚的短句。")
+            assertContains(editedPrompt.last().content.orEmpty(), "等旅人先开口。")
+            val exportedPrompts = persona.exportSillyTavernCard(runId, "林晚").getValue("data").jsonObject
+            assertEquals(editedSystem, exportedPrompts.getValue("system_prompt").jsonPrimitive.content)
+            assertEquals(editedInstruction, exportedPrompts.getValue("post_history_instructions").jsonPrimitive.content)
+
+            persona.saveReview(runId, "林晚", mapOf("post_history_instructions" to ""))
+            val clearedPayload = DialoguePayloadBuilder(storage).buildTurnPayload(manifest, session, "cleared-prompt", "有人吗？")
+            val clearedPrompt = promptBuilder.buildDialogueLlmMessages(clearedPayload)
+            assertContains(clearedPrompt.first().content.orEmpty(), "请用林晚的短句。")
+            assertTrue(clearedPrompt.none { it.content.orEmpty().contains("等旅人先开口。") })
+            assertTrue(clearedPrompt.none { it.content.orEmpty().contains("让旅人自行决定下一步。") })
+            val exportedCleared = persona.exportSillyTavernCard(runId, "林晚").getValue("data").jsonObject
+            assertEquals("", exportedCleared.getValue("post_history_instructions").jsonPrimitive.content)
+            assertEquals(editedSystem, exportedCleared.getValue("system_prompt").jsonPrimitive.content)
+            val note = metadata.characterNote
+            assertEquals(SillyTavernCharacterNoteDto("{{char}}等{{user}}提问。", 0, WorldBookInjectionRole.Assistant), note)
+            val changedNote = SillyTavernCharacterNoteDto("等{{user}}敲门。", 1, WorldBookInjectionRole.User)
+            assertFailsWith<IllegalArgumentException> {
+                persona.updateCardMetadata(runId, "林晚", UpdateSillyTavernCardMetadataRequest(
+                    metadata.revision, characterNote = changedNote.copy(depth = -1),
+                ))
+            }
+            val refreshed = persona.updateCardMetadata(runId, "林晚", UpdateSillyTavernCardMetadataRequest(
+                metadata.revision, characterNote = changedNote,
+            ))
+            assertEquals(changedNote, refreshed.characterNote)
+            assertFailsWith<CardMetadataChangedException> {
+                persona.updateCardMetadata(runId, "林晚", UpdateSillyTavernCardMetadataRequest(
+                    metadata.revision, characterNote = note,
+                ))
+            }
+            suspend fun notePrompt() = promptBuilder.buildDialogueLlmMessages(
+                DialoguePayloadBuilder(storage).buildTurnPayload(
+                    requireNotNull(storage.readRunManifest(runId)), session, "note-edit", "还营业吗？",
+                )
+            )
+            assertEquals(
+                listOf("user" to "等旅人敲门。", "user" to "还营业吗？"),
+                notePrompt().takeLast(2).map { it.role to it.content },
+            )
+            val extensions = persona.exportSillyTavernCard(runId, "林晚").getValue("data").jsonObject
+                .getValue("extensions").jsonObject
+            assertEquals("扩展原值", extensions.getValue("keep").jsonPrimitive.content)
+            val exportedNote = extensions.getValue("depth_prompt").jsonObject
+            assertTrue(exportedNote.getValue("custom").jsonPrimitive.boolean)
+            assertEquals(changedNote.text, exportedNote.getValue("prompt").jsonPrimitive.content)
+            assertEquals(1, exportedNote.getValue("depth").jsonPrimitive.int)
+            assertEquals("user", exportedNote.getValue("role").jsonPrimitive.content)
+            persona.updateCardMetadata(runId, "林晚", UpdateSillyTavernCardMetadataRequest(
+                refreshed.revision, characterNote = changedNote.copy(text = ""),
+            ))
+            assertTrue(notePrompt().none { it.content.orEmpty().contains("等旅人敲门。") })
             val exportedEmbedded = worldBooks.exportWorldBook(runId, "character_book")
             val exportedStandalone = worldBooks.exportWorldBook(runId, "world_book")
             assertTrue(exportedEmbedded.getValue("entries").jsonObject.getValue("0").jsonObject.getValue("disable").jsonPrimitive.boolean)
             assertTrue(exportedStandalone.getValue("entries").jsonObject.getValue("0").jsonObject.getValue("disable").jsonPrimitive.boolean)
             assertEquals("disabled", SillyTavernImport.evaluateBooks(null, exportedEmbedded, listOf("客栈"))
                 .single { it.excerpt == "客栈后院有一口井。" }.status)
-            worldBooks.setEntryEnabled(runId, embedded.source, 0, disabled.revision, true)
+            val latestEmbedded = worldBooks.listWorldBooks(runId).books.single { it.source == embedded.source }
+            worldBooks.setEntryEnabled(runId, embedded.source, 0, latestEmbedded.revision, true)
             // A refresh could replace a book with another book whose first index also exists.
             importer.importPackage(replacement.copy(targetRunId = runId))
             assertFailsWith<WorldBookChangedException> { worldBooks.removeStandaloneBook(runId, standaloneDisabled.revision) }
@@ -1358,6 +1486,7 @@ class SillyTavernImportTest {
 
         val name = card.data.getValue("name").jsonPrimitive.content.trim()
         val edited = SillyTavernExport.characterCard(name, SillyTavernImport.profileFields(card.data), card)
+        assertEquals(card.original.getValue("spec"), edited.getValue("spec"))
         val native = SillyTavernExport.characterCard("沈照", mapOf(
             "card_description" to "{{char}}是书院先生。",
             "card_personality" to "沉静",
@@ -1376,7 +1505,8 @@ class SillyTavernImportTest {
             for await (const chunk of process.stdin) chunks.push(chunk);
             for (const card of JSON.parse(Buffer.concat(chunks).toString('utf8'))) {
                 const checker = new TavernCardValidator(card);
-                if (!checker.validateV2()) throw new Error(card.data.name + ': ' + checker.lastValidationError);
+                const valid = card.spec === 'chara_card_v3' ? checker.validateV3() : checker.validateV2();
+                if (!valid) throw new Error(card.data.name + ': ' + checker.lastValidationError);
             }
         """.trimIndent(), validator).redirectErrorStream(true).start()
         try {

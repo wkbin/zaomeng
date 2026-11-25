@@ -1,7 +1,5 @@
 package top.wkbin.zaomeng.feature.sessions
 
-import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,63 +9,25 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import top.wkbin.zaomeng.platform.rememberDocumentPicker
-import top.wkbin.zaomeng.platform.rememberFileExporter
-import kotlinx.coroutines.CancellationException
-import top.wkbin.zaomeng.data.api.CardGreetingsDto
-import top.wkbin.zaomeng.data.api.expandSillyTavernNames
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,21 +40,67 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
-import androidx.paging.compose.itemKey
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import top.wkbin.zaomeng.platform.PlatformBackHandler
-import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
+import androidx.paging.compose.itemKey
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.Checkbox
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.DropdownItem
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.FloatingActionButton
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.InputField
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.RadioButton
+import io.github.suqi8.coui.kmp.basic.SearchBar
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.TagView
+import io.github.suqi8.coui.kmp.basic.TagViewDefaults
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.Close
+import io.github.suqi8.coui.kmp.icon.extended.Delete
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.icon.extended.Search
+import io.github.suqi8.coui.kmp.icon.extended.SelectAll
+import io.github.suqi8.coui.kmp.icon.extended.Tasks
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import top.wkbin.zaomeng.data.api.CardGreetingsDto
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.ReusableCardDto
 import top.wkbin.zaomeng.data.api.RunManifestDto
+import top.wkbin.zaomeng.data.api.expandSillyTavernNames
+import top.wkbin.zaomeng.platform.PlatformBackHandler
+import top.wkbin.zaomeng.platform.rememberDocumentPicker
+import top.wkbin.zaomeng.platform.rememberFileExporter
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
+import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
+import top.wkbin.zaomeng.ui.roleplay.RoleplayMessageContent
 
 private data class DialogueModeOption(
     val value: String,
@@ -108,7 +114,6 @@ private val dialogueModeOptions = listOf(
     DialogueModeOption("insert", "入场", "以自设身份进入场景"),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(
     viewModel: SessionsViewModel,
@@ -194,8 +199,32 @@ fun SessionsScreen(
     val canImportChat = !runId.isNullOrBlank() && !state.loading &&
         !state.transferringChat && state.exportedChat == null
 
-    Scaffold(
-        topBar = {
+    CouiPageScaffold(
+        title = when {
+            state.selectionMode -> "已选择 ${state.selectedSessionKeys.size} 项"
+            runId.isNullOrBlank() -> "对话"
+            else -> "本书对话"
+        },
+        subtitle = if (!state.selectionMode && !runId.isNullOrBlank()) {
+            state.runs.firstOrNull { it.runId == runId }?.title.orEmpty()
+        } else {
+            ""
+        },
+        onBack = if (showBackButton || state.selectionMode) {
+            {
+                if (!state.deletingSelection) {
+                    if (state.selectionMode) {
+                        viewModel.exitSelectionMode()
+                    } else {
+                        onBack()
+                    }
+                }
+            }
+        } else {
+            null
+        },
+        wide = isWideWindow(),
+        topBarContainer = { topBar ->
             if (searchExpanded) {
                 SessionsSearchTopBar(
                     query = state.searchQuery,
@@ -203,142 +232,122 @@ fun SessionsScreen(
                     onQueryChange = viewModel::updateSearchQuery,
                     onClose = dismissSearch,
                 )
-            } else TopAppBar(
-                title = {
-                    if (state.selectionMode) {
-                        Text("已选择 ${state.selectedSessionKeys.size} 项")
-                    } else {
-                        Column {
-                            Text(
-                                text = if (runId.isNullOrBlank()) "对话" else "本书对话",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (!runId.isNullOrBlank()) {
-                                Text(
-                                    text = state.runs.firstOrNull { it.runId == runId }?.title.orEmpty(),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                },
-                navigationIcon = {
-                    if (showBackButton || state.selectionMode) {
-                        IconButton(
-                            onClick = {
-                                when {
-                                    state.selectionMode -> viewModel.exitSelectionMode()
-                                    else -> onBack()
-                                }
-                            },
-                            enabled = !state.deletingSelection,
-                        ) {
-                            if (state.selectionMode) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "退出多选",
-                                )
-                            } else {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                            }
-                        }
-                    }
-                },
-                actions = {
-                    if (state.selectionMode) {
-                        IconButton(
-                            onClick = { viewModel.toggleAllVisibleSessions(visibleSessionKeys) },
-                            enabled = visibleSessionKeys.isNotEmpty() && !state.deletingSelection,
-                        ) {
-                            Icon(
-                                Icons.Default.SelectAll,
-                                contentDescription = if (allVisibleSelected) "取消全选当前结果" else "全选当前结果",
-                            )
-                        }
-                        IconButton(
-                            onClick = { pendingBatchDeletion = true },
-                            enabled = state.selectedSessionKeys.isNotEmpty() && !state.deletingSelection,
-                        ) {
-                            if (state.deletingSelection) {
-                                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "删除选中会话",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
-                    } else {
-                        IconButton(
-                            onClick = { searchExpanded = true },
-                            enabled = !state.loading && state.deletingSessionKeys.isEmpty(),
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = "搜索会话")
-                        }
-                        Box {
-                            IconButton(onClick = { showSessionActions = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "更多会话操作")
-                            }
-                            DropdownMenu(
-                                expanded = showSessionActions,
-                                onDismissRequest = { showSessionActions = false },
-                            ) {
-                                if (!runId.isNullOrBlank()) {
-                                    DropdownMenuItem(
-                                        text = { Text("导入聊天") },
-                                        enabled = canImportChat,
-                                        onClick = {
-                                            showSessionActions = false
-                                            chatPicker()
-                                        },
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("多选管理会话") },
-                                    leadingIcon = { Icon(Icons.Default.Checklist, contentDescription = null) },
-                                    enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
-                                    onClick = {
-                                        showSessionActions = false
-                                        viewModel.enterSelectionMode()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (state.refreshing) "正在刷新…" else "刷新会话") },
-                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                                    enabled = !state.loading && !state.refreshing && !state.creating &&
-                                        state.deletingSessionKeys.isEmpty(),
-                                    onClick = {
-                                        showSessionActions = false
-                                        viewModel.refresh()
-                                    },
-                                )
-                            }
-                        }
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            if (!state.selectionMode && !(emptySessions && state.searchQuery.isBlank())) {
-                ExtendedFloatingActionButton(
-                    onClick = viewModel::openCreateDialog,
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("新建对话") },
-                )
+            } else {
+                topBar()
             }
         },
-    ) { innerPadding ->
+        actions = {
+            if (state.selectionMode) {
+                IconButton(
+                    onClick = { viewModel.toggleAllVisibleSessions(visibleSessionKeys) },
+                    enabled = visibleSessionKeys.isNotEmpty() && !state.deletingSelection,
+                ) {
+                    Icon(
+                        COUIIcons.SelectAll,
+                        contentDescription = if (allVisibleSelected) "取消全选当前结果" else "全选当前结果",
+                    )
+                }
+                IconButton(
+                    onClick = { pendingBatchDeletion = true },
+                    enabled = state.selectedSessionKeys.isNotEmpty() && !state.deletingSelection,
+                ) {
+                    if (state.deletingSelection) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, size = 22.dp)
+                    } else {
+                        Icon(
+                            COUIIcons.Delete,
+                            contentDescription = "删除选中会话",
+                            tint = COUITheme.colorScheme.error,
+                        )
+                    }
+                }
+            } else {
+                IconButton(
+                    onClick = { searchExpanded = true },
+                    enabled = !state.loading && state.deletingSessionKeys.isEmpty(),
+                ) {
+                    Icon(COUIIcons.Search, contentDescription = "搜索会话")
+                }
+                Box {
+                    IconButton(onClick = { showSessionActions = true }) {
+                        Icon(COUIIcons.More, contentDescription = "更多会话操作")
+                    }
+                    OverlayListPopup(
+                        show = showSessionActions,
+                        onDismissRequest = { showSessionActions = false },
+                    ) {
+                        ListPopupColumn {
+                            val actions = buildList {
+                                if (!runId.isNullOrBlank()) {
+                                    add(
+                                        DropdownItem(
+                                            text = "导入聊天",
+                                            enabled = canImportChat,
+                                            onClick = {
+                                                showSessionActions = false
+                                                chatPicker()
+                                            },
+                                        ),
+                                    )
+                                }
+                                add(
+                                    DropdownItem(
+                                        text = "多选管理会话",
+                                        enabled = lazySessions.itemCount > 0 && state.deletingSessionKeys.isEmpty(),
+                                        onClick = {
+                                            showSessionActions = false
+                                            viewModel.enterSelectionMode()
+                                        },
+                                        icon = { modifier ->
+                                            Icon(COUIIcons.Tasks, contentDescription = null, modifier = modifier)
+                                        },
+                                    ),
+                                )
+                                add(
+                                    DropdownItem(
+                                        text = if (state.refreshing) "正在刷新…" else "刷新会话",
+                                        enabled = !state.loading && !state.refreshing && !state.creating &&
+                                            state.deletingSessionKeys.isEmpty(),
+                                        onClick = {
+                                            showSessionActions = false
+                                            viewModel.refresh()
+                                        },
+                                        icon = { modifier ->
+                                            Icon(COUIIcons.Refresh, contentDescription = null, modifier = modifier)
+                                        },
+                                    ),
+                                )
+                            }
+                            actions.forEachIndexed { index, item ->
+                                DropdownImpl(
+                                    item = item,
+                                    optionSize = actions.size,
+                                    isSelected = false,
+                                    index = index,
+                                    onSelectedIndexChange = { item.onClick?.invoke() },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = viewModel::openCreateDialog,
+                visible = !state.selectionMode && (!emptySessions || state.searchQuery.isNotBlank()),
+            ) {
+                Icon(COUIIcons.Add, contentDescription = "新建对话")
+            }
+        },
+    ) { scope ->
         when {
             state.loading -> LoadingSessions(
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier.padding(scope.contentPadding),
                 error = state.error,
                 onDismissError = viewModel::clearError,
             )
+
             else -> SessionsContent(
                 state = state,
                 lazySessions = lazySessions,
@@ -356,100 +365,88 @@ fun SessionsScreen(
                 onSelectSort = viewModel::selectSort,
                 onDismissError = viewModel::clearError,
                 onRetry = lazySessions::retry,
-                modifier = Modifier.padding(innerPadding),
+                contentPadding = scope.contentPadding,
+                modifier = Modifier.couiPageScroll(scope),
             )
         }
-    }
 
-    if (state.createDialogVisible) {
-        NewSessionDialog(
-            state = state,
-            onDismiss = viewModel::closeCreateDialog,
-            onSelectRun = viewModel::selectRun,
-            onSelectMode = viewModel::selectMode,
-            onToggleParticipant = viewModel::toggleParticipant,
-            onSelectControlled = viewModel::selectControlledCharacter,
-            onSelfNameChange = viewModel::updateSelfName,
-            onSelfIdentityChange = viewModel::updateSelfIdentity,
-            onSelfStyleChange = viewModel::updateSelfStyle,
-            onSelectOpeningPreset = viewModel::selectOpeningPreset,
-            onSelectSceneCard = viewModel::selectSceneCard,
-            onRecommendSceneCard = viewModel::recommendSceneCard,
-            onSelectSelfCard = viewModel::selectSelfCard,
-            loadCardGreetings = viewModel::getCardGreetings,
-            onCreate = viewModel::createSession,
-        )
-    }
+        if (state.createDialogVisible) {
+            NewSessionDialog(
+                state = state,
+                onDismiss = viewModel::closeCreateDialog,
+                onSelectRun = viewModel::selectRun,
+                onSelectMode = viewModel::selectMode,
+                onToggleParticipant = viewModel::toggleParticipant,
+                onSelectControlled = viewModel::selectControlledCharacter,
+                onSelfNameChange = viewModel::updateSelfName,
+                onSelfIdentityChange = viewModel::updateSelfIdentity,
+                onSelfStyleChange = viewModel::updateSelfStyle,
+                onSelectOpeningPreset = viewModel::selectOpeningPreset,
+                onSelectSceneCard = viewModel::selectSceneCard,
+                onRecommendSceneCard = viewModel::recommendSceneCard,
+                onSelectSelfCard = viewModel::selectSelfCard,
+                loadCardGreetings = viewModel::getCardGreetings,
+                onCreate = viewModel::createSession,
+            )
+        }
 
-    pendingDeletion?.let { session ->
-        val deleting = session.key in state.deletingSessionKeys
-        AlertDialog(
-            onDismissRequest = { if (!deleting) pendingDeletion = null },
-            title = { Text("删除这段会话？") },
-            text = { Text("聊天记录会从这台手机上永久删除，人物资料和书卷不会受影响。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteSession(session)
-                    },
-                    enabled = !deleting,
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeletion = null }, enabled = !deleting) { Text("取消") }
-            },
-        )
-    }
+        pendingDeletion?.let { session ->
+            val deleting = session.key in state.deletingSessionKeys
+            CouiAlertDialog(
+                onDismissRequest = { if (!deleting) pendingDeletion = null },
+                title = "删除这段会话？",
+                confirmText = "删除",
+                onConfirm = { viewModel.deleteSession(session) },
+                confirmEnabled = !deleting,
+                dismissText = "取消",
+                onDismiss = { if (!deleting) pendingDeletion = null },
+                body = {
+                    Text("聊天记录会从这台手机上永久删除，人物资料和书卷不会受影响。")
+                },
+            )
+        }
 
-    pendingRename?.let { session ->
-        AlertDialog(
-            onDismissRequest = { pendingRename = null },
-            title = { Text("修改会话标题") },
-            text = {
-                OutlinedTextField(
-                    value = renameTitle,
-                    onValueChange = { renameTitle = it.take(80) },
-                    label = { Text("会话标题") },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.renameSession(session, renameTitle)
-                        pendingRename = null
-                    },
-                    enabled = renameTitle.isNotBlank(),
-                ) { Text("保存") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRename = null }) { Text("取消") }
-            },
-        )
-    }
+        pendingRename?.let { session ->
+            CouiAlertDialog(
+                onDismissRequest = { pendingRename = null },
+                title = "修改会话标题",
+                confirmText = "保存",
+                onConfirm = {
+                    viewModel.renameSession(session, renameTitle)
+                    pendingRename = null
+                },
+                confirmEnabled = renameTitle.isNotBlank(),
+                dismissText = "取消",
+                onDismiss = { pendingRename = null },
+                body = {
+                    CouiTextField(
+                        value = renameTitle,
+                        onValueChange = { renameTitle = it.take(80) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "会话标题",
+                        singleLine = true,
+                    )
+                },
+            )
+        }
 
-    if (pendingBatchDeletion && state.selectedSessionKeys.isNotEmpty()) {
-        val selectedCount = state.selectedSessionKeys.size
-        AlertDialog(
-            onDismissRequest = { pendingBatchDeletion = false },
-            title = { Text("删除选中的 $selectedCount 个会话？") },
-            text = { Text("这些聊天记录会从这台手机上永久删除，人物资料和书卷不会受影响。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingBatchDeletion = false
-                        viewModel.deleteSelectedSessions()
-                    },
-                ) {
-                    Text("删除 $selectedCount 个", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingBatchDeletion = false }) { Text("取消") }
-            },
-        )
+        if (pendingBatchDeletion && state.selectedSessionKeys.isNotEmpty()) {
+            val selectedCount = state.selectedSessionKeys.size
+            CouiAlertDialog(
+                onDismissRequest = { pendingBatchDeletion = false },
+                title = "删除选中的 $selectedCount 个会话？",
+                confirmText = "删除 $selectedCount 个",
+                onConfirm = {
+                    pendingBatchDeletion = false
+                    viewModel.deleteSelectedSessions()
+                },
+                dismissText = "取消",
+                onDismiss = { pendingBatchDeletion = false },
+                body = {
+                    Text("这些聊天记录会从这台手机上永久删除，人物资料和书卷不会受影响。")
+                },
+            )
+        }
     }
 }
 
@@ -468,16 +465,14 @@ private fun LoadingSessions(
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(12.dp))
-            Text("正在整理本机会话…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                CircularProgressIndicator(size = 40.dp)
+                Spacer(Modifier.height(12.dp))
+                Text("正在整理本机会话…", color = COUITheme.colorScheme.labelSecondary)
             }
         }
     }
-
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionsSearchTopBar(
     query: String,
@@ -487,36 +482,27 @@ private fun SessionsSearchTopBar(
 ) {
     SearchBar(
         inputField = {
-            SearchBarDefaults.InputField(
+            InputField(
                 query = query,
                 onQueryChange = onQueryChange,
                 onSearch = {},
                 expanded = false,
                 onExpandedChange = {},
                 modifier = Modifier.focusRequester(searchFocusRequester),
-                placeholder = { Text("搜索会话") },
+                label = "搜索会话",
                 leadingIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "关闭搜索")
+                        Icon(COUIIcons.Close, contentDescription = "关闭搜索")
                     }
-                },
-                trailingIcon = if (query.isNotBlank()) {
-                    {
-                        IconButton(onClick = { onQueryChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "清空搜索")
-                        }
-                    }
-                } else {
-                    null
                 },
             )
         },
         expanded = false,
         onExpandedChange = {},
         modifier = Modifier
+            .windowInsetsPadding(WindowInsets.statusBars)
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .fillMaxWidth(),
-        windowInsets = TopAppBarDefaults.windowInsets,
     ) {}
 }
 
@@ -535,6 +521,7 @@ private fun SessionsContent(
     onSelectSort: (SessionsSort) -> Unit,
     onDismissError: () -> Unit,
     onRetry: () -> Unit,
+    contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
     val runsById = remember(state.runs) { state.runs.associateBy(RunManifestDto::runId) }
@@ -547,7 +534,12 @@ private fun SessionsContent(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 380.dp),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 104.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = contentPadding.calculateTopPadding() + 16.dp,
+            end = 16.dp,
+            bottom = contentPadding.calculateBottomPadding() + 104.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -563,7 +555,7 @@ private fun SessionsContent(
                     modifier = Modifier.fillMaxWidth().height(240.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(size = 40.dp)
                 }
             }
 
@@ -585,35 +577,20 @@ private fun SessionsContent(
             } else {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ),
+                        colors = CardDefaults.defaultColors(color = COUITheme.colorScheme.cardBackground),
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Chat,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp),
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text("还没有聊天记录", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                if (state.scopedRunId != null) {
-                                    "选择参与人物，开启这本书的第一段对话。"
-                                } else {
-                                    "选择一本书卷和参与人物，开始对话。"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = onCreateSession) { Text("新建对话") }
-                        }
+                        EmptyState(
+                            title = "还没有聊天记录",
+                            subtitle = if (state.scopedRunId != null) {
+                                "选择参与人物，开启这本书的第一段对话。"
+                            } else {
+                                "选择一本书卷和参与人物，开始对话。"
+                            },
+                            actionText = "新建对话",
+                            onActionClick = onCreateSession,
+                            sizeType = EmptyStateSizeType.Small,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        )
                     }
                 }
             }
@@ -654,9 +631,10 @@ private fun SessionsContent(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(strokeWidth = 2.dp, size = 22.dp)
                         }
                     }
+
                     appendState is LoadState.Error -> item(span = { GridItemSpan(maxLineSpan) }) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -667,10 +645,14 @@ private fun SessionsContent(
                                 text = appendState.error.message
                                     ?.takeIf(String::isNotBlank)
                                     ?: "加载更多会话失败",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
-                            TextButton(onClick = onRetry) { Text("重试") }
+                            TextButton(
+                                text = "重试",
+                                onClick = onRetry,
+                                colors = ButtonDefaults.textButtonColors(textColor = COUITheme.colorScheme.primary),
+                            )
                         }
                     }
                 }
@@ -696,15 +678,15 @@ private fun SessionListControls(
             Text(
                 text = if (visibleCount == totalCount) "$totalCount 个会话" else "找到 $visibleCount 个",
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
             SessionsSort.values().forEach { option ->
-                FilterChip(
+                Chip(
                     selected = sort == option,
                     onClick = { onSelectSort(option) },
                     enabled = enabled,
-                    label = { Text(option.label) },
+                    label = option.label,
                 )
             }
         }
@@ -714,32 +696,16 @@ private fun SessionListControls(
 @Composable
 private fun NoSessionMatches(onClearSearch: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+        colors = CardDefaults.defaultColors(color = COUITheme.colorScheme.cardBackground),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp),
-            )
-            Spacer(Modifier.height(10.dp))
-            Text("没有找到相关会话", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "可以换个书名、人物名或消息关键词。",
-                modifier = Modifier.padding(top = 4.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onClearSearch) {
-                Text("清空搜索", color = MaterialTheme.colorScheme.error)
-            }
-        }
+        EmptyState(
+            title = "没有找到相关会话",
+            subtitle = "可以换个书名、人物名或消息关键词。",
+            actionText = "清空搜索",
+            onActionClick = onClearSearch,
+            sizeType = EmptyStateSizeType.Small,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+        )
     }
 }
 
@@ -764,11 +730,11 @@ private fun SessionCard(
             .clickable(enabled = !deleting) {
                 if (selectionMode) onToggleSelection() else onOpen()
             },
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.secondaryContainer
+        colors = CardDefaults.defaultColors(
+            color = if (selected) {
+                COUITheme.colorScheme.secondaryContainer
             } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                COUITheme.colorScheme.cardBackground
             },
         ),
     ) {
@@ -780,7 +746,7 @@ private fun SessionCard(
                 Text(
                     text = session.title.ifBlank { session.participants.joinToString("、") },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = COUITheme.textStyles.headlineXS,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -788,8 +754,8 @@ private fun SessionCard(
                 if (selectionMode && selected) {
                     Text(
                         text = "已选择",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.primary,
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
@@ -798,34 +764,51 @@ private fun SessionCard(
                     Box {
                         IconButton(onClick = { menuOpen = true }, enabled = !deleting) {
                             if (deleting) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(strokeWidth = 2.dp, size = 18.dp)
                             } else {
-                                Icon(Icons.Default.MoreVert, contentDescription = "对话选项")
+                                Icon(COUIIcons.More, contentDescription = "对话选项")
                             }
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("重命名") },
-                                onClick = {
-                                    menuOpen = false
-                                    onRename()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("导出聊天记录") },
-                                enabled = exportEnabled,
-                                onClick = {
-                                    menuOpen = false
-                                    onExport()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("删除对话", color = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    menuOpen = false
-                                    onDelete()
-                                },
-                            )
+                        OverlayListPopup(
+                            show = menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                        ) {
+                            ListPopupColumn {
+                                val actions = listOf(
+                                    DropdownItem(
+                                        text = "重命名",
+                                        onClick = {
+                                            menuOpen = false
+                                            onRename()
+                                        },
+                                    ),
+                                    DropdownItem(
+                                        text = "导出聊天记录",
+                                        enabled = exportEnabled,
+                                        onClick = {
+                                            menuOpen = false
+                                            onExport()
+                                        },
+                                    ),
+                                    DropdownItem(
+                                        text = "删除对话",
+                                        alert = true,
+                                        onClick = {
+                                            menuOpen = false
+                                            onDelete()
+                                        },
+                                    ),
+                                )
+                                actions.forEachIndexed { index, item ->
+                                    DropdownImpl(
+                                        item = item,
+                                        optionSize = actions.size,
+                                        isSelected = false,
+                                        index = index,
+                                        onSelectedIndexChange = { item.onClick?.invoke() },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -838,20 +821,15 @@ private fun SessionCard(
                     avatarBytes = avatarBytes,
                     modifier = Modifier.weight(1f),
                 )
-                Surface(
-                    color = if (session.status == "ready") {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    },
-                    shape = MaterialTheme.shapes.extraLarge,
-                ) {
-                    Text(
-                        text = if (session.status == "ready") "可继续" else "待处理",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+                val ready = session.status == "ready"
+                val colors = COUITheme.colorScheme
+                TagView(
+                    text = if (ready) "可继续" else "待处理",
+                    colors = TagViewDefaults.tagViewColors(
+                        containerColor = if (ready) colors.containerBlue else colors.containerViolet,
+                        contentColor = if (ready) colors.blue else colors.violet,
+                    ),
+                )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -859,8 +837,8 @@ private fun SessionCard(
                     text = listOf(bookTitle, session.mode.chineseMode(), session.updatedAt.toLocalDateTimeDisplay())
                         .filter(String::isNotBlank).joinToString(" · "),
                     modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -883,13 +861,13 @@ private fun ParticipantAvatarStack(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (visibleParticipants.isEmpty()) {
-            InitialAvatar(label = "？", color = MaterialTheme.colorScheme.surfaceVariant)
+            InitialAvatar(label = "？", color = COUITheme.colorScheme.containerSolid)
         } else {
             visibleParticipants.forEachIndexed { index, participant ->
                 val color = when (index % 3) {
-                    0 -> MaterialTheme.colorScheme.primaryContainer
-                    1 -> MaterialTheme.colorScheme.secondaryContainer
-                    else -> MaterialTheme.colorScheme.tertiaryContainer
+                    0 -> COUITheme.colorScheme.containerBlue
+                    1 -> COUITheme.colorScheme.secondaryContainer
+                    else -> COUITheme.colorScheme.containerViolet
                 }
                 PersonaAvatar(
                     name = participant,
@@ -899,7 +877,7 @@ private fun ParticipantAvatarStack(
             }
             val remainingCount = participants.count(String::isNotBlank) - visibleParticipants.size
             if (remainingCount > 0) {
-                InitialAvatar(label = "+$remainingCount", color = MaterialTheme.colorScheme.surfaceVariant)
+                InitialAvatar(label = "+$remainingCount", color = COUITheme.colorScheme.containerSolid)
             }
         }
     }
@@ -913,7 +891,7 @@ private fun InitialAvatar(label: String, color: androidx.compose.ui.graphics.Col
         shape = CircleShape,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            Text(label, style = COUITheme.textStyles.bodyXS, maxLines = 1)
         }
     }
 }
@@ -932,7 +910,7 @@ private fun PersonaAvatar(
         val bitmap = remember(bytes) { bytes?.let { decodeImageBitmap(it) } }
         if (bitmap == null) {
             Box(contentAlignment = Alignment.Center) {
-                Text(name.trim().take(1), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                Text(name.trim().take(1), style = COUITheme.textStyles.bodyXS, maxLines = 1)
             }
         } else {
             androidx.compose.foundation.Image(
@@ -948,17 +926,26 @@ private fun PersonaAvatar(
 @Composable
 private fun ErrorCard(message: String, onDismiss: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        colors = CardDefaults.defaultColors(
+            color = COUITheme.colorScheme.containerRed,
+            contentColor = COUITheme.colorScheme.red,
         ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = onDismiss) { Text("知道了") }
+            Text(
+                message,
+                modifier = Modifier.weight(1f),
+                style = COUITheme.textStyles.bodyM,
+                color = COUITheme.colorScheme.red,
+            )
+            TextButton(
+                text = "知道了",
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(textColor = COUITheme.colorScheme.red),
+            )
         }
     }
 }
@@ -1003,16 +990,21 @@ private fun NewSessionDialog(
             greetingLoadError = true
         }
     }
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!state.creating) onDismiss() },
-        title = { Text("开始一段新会话") },
-        text = {
+        title = "开始一段新会话",
+        confirmText = if (state.creating) "创建中" else "进入场景",
+        onConfirm = { onCreate(greetingIndex?.takeIf { index -> greetings?.options?.any { it.index == index } == true }) },
+        confirmEnabled = state.canCreate && !state.creating,
+        dismissText = "取消",
+        onDismiss = { if (!state.creating) onDismiss() },
+        body = {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
-                    Text("选择书卷", style = MaterialTheme.typography.labelLarge)
+                    Text("选择书卷", style = COUITheme.textStyles.bodyM)
                     Spacer(Modifier.height(6.dp))
                     RunPicker(
                         runs = state.runs.filter { it.availableCharacters.isNotEmpty() },
@@ -1037,32 +1029,32 @@ private fun NewSessionDialog(
                 }
 
                 item {
-                    Text("你的身份", style = MaterialTheme.typography.labelLarge)
+                    Text("你的身份", style = COUITheme.textStyles.bodyM)
                     Spacer(Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(dialogueModeOptions, key = DialogueModeOption::value) { option ->
-                            FilterChip(
+                            Chip(
                                 selected = state.draft.mode == option.value,
                                 onClick = { onSelectMode(option.value) },
                                 enabled = !state.creating,
-                                label = { Text(option.label) },
+                                label = option.label,
                             )
                         }
                     }
                     Text(
                         dialogueModeOptions.first { it.value == state.draft.mode }.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
 
                 item {
-                    Text("出场人物", style = MaterialTheme.typography.labelLarge)
+                    Text("出场人物", style = COUITheme.textStyles.bodyM)
                     Spacer(Modifier.height(4.dp))
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         state.availableCharacters.forEach { character ->
                             Row(
@@ -1072,8 +1064,8 @@ private fun NewSessionDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Checkbox(
-                                    checked = character in state.draft.participants,
-                                    onCheckedChange = null,
+                                    state = ToggleableState(character in state.draft.participants),
+                                    onClick = null,
                                     enabled = !state.creating,
                                 )
                                 Text(character, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1084,7 +1076,7 @@ private fun NewSessionDialog(
 
                 if (state.draft.mode == "act") {
                     item {
-                        Text("你要扮演谁", style = MaterialTheme.typography.labelLarge)
+                        Text("你要扮演谁", style = COUITheme.textStyles.bodyM)
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1112,26 +1104,30 @@ private fun NewSessionDialog(
                 if (state.draft.mode == "insert") {
                     val options = greetings?.options.orEmpty()
                     if (greetingLoadError) item {
-                        TextButton(onClick = { greetingReload++ }, enabled = !state.creating) { Text("重试读取角色卡开场") }
+                        TextButton(
+                            text = "重试读取角色卡开场",
+                            onClick = { greetingReload++ },
+                            enabled = !state.creating,
+                        )
                     }
                     if (options.isNotEmpty()) {
                         item {
-                            Text("角色卡开场", style = MaterialTheme.typography.labelLarge)
+                            Text("角色卡开场", style = COUITheme.textStyles.bodyM)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 item {
-                                    FilterChip(
+                                    Chip(
                                         selected = greetingIndex == null,
                                         onClick = { greetingIndex = null },
                                         enabled = !state.creating,
-                                        label = { Text("默认") },
+                                        label = "默认",
                                     )
                                 }
                                 items(options.filter { it.index > 0 }, key = { it.index }) { option ->
-                                    FilterChip(
+                                    Chip(
                                         selected = greetingIndex == option.index,
                                         onClick = { greetingIndex = option.index },
                                         enabled = !state.creating,
-                                        label = { Text("备用开场 ${option.index}") },
+                                        label = "备用开场 ${option.index}",
                                     )
                                 }
                             }
@@ -1141,8 +1137,8 @@ private fun NewSessionDialog(
                                     expandSillyTavernNames(it, greetingCharacter.orEmpty(), state.draft.selfName.trim().ifBlank { "你" })
                                 } ?: "由模型生成开场",
                                 maxProseLines = 8,
-                                style = MaterialTheme.typography.bodySmall,
-                                baseColor = MaterialTheme.colorScheme.onSurface,
+                                style = COUITheme.textStyles.bodyXS,
+                                baseColor = COUITheme.colorScheme.labelPrimary,
                             )
                         }
                     }
@@ -1158,18 +1154,19 @@ private fun NewSessionDialog(
                         enabled = !state.creating,
                         onSelect = onSelectSceneCard,
                     )
-                    OutlinedButton(
+                    Button(
                         onClick = onRecommendSceneCard,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         enabled = !state.creating && !state.recommendingScene &&
                             state.draft.participants.isNotEmpty() && state.sceneCards.isNotEmpty(),
                     ) {
                         if (state.recommendingScene) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(strokeWidth = 2.dp, size = 18.dp)
                         }
                         Text(
                             if (state.recommendingScene) "正在推荐…" else "按人物与模式推荐场景",
                             modifier = Modifier.padding(start = if (state.recommendingScene) 8.dp else 0.dp),
+                            color = COUITheme.colorScheme.labelPrimary,
                         )
                     }
                 }
@@ -1187,34 +1184,33 @@ private fun NewSessionDialog(
                         )
                     }
                     item {
-                        OutlinedTextField(
+                        CouiTextField(
                             value = state.draft.selfName,
                             onValueChange = onSelfNameChange,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.creating,
-                            label = { Text("你的名字") },
-                            placeholder = { Text("例如：沈照") },
+                            label = "你的名字",
                             singleLine = true,
                         )
                         Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
+                        CouiTextField(
                             value = state.draft.selfIdentity,
                             onValueChange = onSelfIdentityChange,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.creating,
-                            label = { Text("场景身份") },
-                            placeholder = { Text("例如：刚到府中的远房客人") },
+                            label = "场景身份",
+                            singleLine = false,
                             minLines = 2,
                             maxLines = 3,
                         )
                         Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
+                        CouiTextField(
                             value = state.draft.selfStyle,
                             onValueChange = onSelfStyleChange,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.creating,
-                            label = { Text("互动风格") },
-                            placeholder = { Text("例如：克制、观察为主，熟悉后更直接") },
+                            label = "互动风格",
+                            singleLine = false,
                             minLines = 2,
                             maxLines = 3,
                         )
@@ -1225,8 +1221,8 @@ private fun NewSessionDialog(
                     item {
                         Text(
                             text = state.error,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+                            color = COUITheme.colorScheme.error,
+                            style = COUITheme.textStyles.bodyXS,
                         )
                     }
                 }
@@ -1234,31 +1230,19 @@ private fun NewSessionDialog(
                 if (state.creating) {
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(strokeWidth = 2.dp, size = 18.dp)
                             Text(
                                 "正在让人物进入场景，模型生成开场可能需要一会儿…",
                                 modifier = Modifier.padding(start = 10.dp),
-                                style = MaterialTheme.typography.bodySmall,
+                                style = COUITheme.textStyles.bodyXS,
                             )
                         }
                     }
                 }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = { onCreate(greetingIndex?.takeIf { index -> greetings?.options?.any { it.index == index } == true }) },
-                enabled = state.canCreate && !state.creating,
-            ) {
-                Text(if (state.creating) "创建中" else "进入场景")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !state.creating) { Text("取消") }
-        },
     )
 }
-
 
 @Composable
 private fun ReusableCardPicker(
@@ -1274,40 +1258,46 @@ private fun ReusableCardPicker(
     val selected = cards.firstOrNull { it.cardId == selectedCardId }
     val selectedTitle = selected?.preview?.get(titleKey)?.jsonPrimitive?.contentOrNull
         ?: selected?.fields?.get(titleKey)?.jsonPrimitive?.contentOrNull
-    Text(label, style = MaterialTheme.typography.labelLarge)
+    Text(label, style = COUITheme.textStyles.bodyM)
     Spacer(Modifier.height(6.dp))
     Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(
+        Button(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
             enabled = enabled,
+            minWidth = 0.dp,
         ) {
             Text(
                 selectedTitle?.takeIf(String::isNotBlank) ?: noneLabel,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = COUITheme.colorScheme.labelPrimary,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(noneLabel) },
-                onClick = {
-                    expanded = false
-                    onSelect("")
-                },
-            )
-            cards.forEach { card ->
-                val title = card.preview[titleKey]?.jsonPrimitive?.contentOrNull
-                    ?: card.fields[titleKey]?.jsonPrimitive?.contentOrNull
-                    ?: card.cardId
-                DropdownMenuItem(
-                    text = { Text(title) },
-                    onClick = {
-                        expanded = false
-                        onSelect(card.cardId)
-                    },
-                )
+        OverlayListPopup(show = expanded, onDismissRequest = { expanded = false }) {
+            ListPopupColumn {
+                val options = buildList {
+                    add(noneLabel to "")
+                    cards.forEach { card ->
+                        val title = card.preview[titleKey]?.jsonPrimitive?.contentOrNull
+                            ?: card.fields[titleKey]?.jsonPrimitive?.contentOrNull
+                            ?: card.cardId
+                        add(title to card.cardId)
+                    }
+                }
+                options.forEachIndexed { index, option ->
+                    DropdownImpl(
+                        text = option.first,
+                        optionSize = options.size,
+                        isSelected = option.second == selectedCardId,
+                        index = index,
+                        onSelectedIndexChange = {
+                            expanded = false
+                            onSelect(option.second)
+                        },
+                    )
+                }
             }
         }
     }
@@ -1323,27 +1313,34 @@ private fun RunPicker(
     var expanded by remember { mutableStateOf(false) }
     val selected = runs.firstOrNull { it.runId == selectedRunId }
     Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(
+        Button(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
             enabled = enabled && runs.isNotEmpty(),
+            minWidth = 0.dp,
         ) {
             Text(
                 text = selected?.title ?: "没有可用书卷",
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = COUITheme.colorScheme.labelPrimary,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            runs.forEach { run ->
-                DropdownMenuItem(
-                    text = { Text("${run.title} · ${run.availableCharacters.size} 人") },
-                    onClick = {
-                        expanded = false
-                        onSelect(run.runId)
-                    },
-                )
+        OverlayListPopup(show = expanded, onDismissRequest = { expanded = false }) {
+            ListPopupColumn {
+                runs.forEachIndexed { index, run ->
+                    DropdownImpl(
+                        text = "${run.title} · ${run.availableCharacters.size} 人",
+                        optionSize = runs.size,
+                        isSelected = run.runId == selectedRunId,
+                        index = index,
+                        onSelectedIndexChange = {
+                            expanded = false
+                            onSelect(run.runId)
+                        },
+                    )
+                }
             }
         }
     }

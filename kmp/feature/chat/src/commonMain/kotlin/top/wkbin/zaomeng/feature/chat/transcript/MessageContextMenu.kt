@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +46,15 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.DropdownItem
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Copy
+import io.github.suqi8.coui.kmp.icon.extended.HorizontalSplit
+import io.github.suqi8.coui.kmp.icon.extended.Reset
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +91,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -159,93 +122,56 @@ internal fun MessageContextMenu(
     onRegenerate: () -> Unit,
     onBranch: () -> Unit,
 ) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.inverseSurface,
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MessageContextAction(
-                label = "复制",
-                enabled = true,
-                onClick = {
-                    onDismiss()
-                    onCopy()
+    val actions: List<Pair<DropdownItem, () -> Unit>> = buildList {
+        add(
+            DropdownItem(
+                text = "复制",
+                icon = { modifier ->
+                    Icon(COUIIcons.Copy, contentDescription = null, modifier = modifier)
                 },
-            ) {
-                Icon(
-                    Icons.Default.ContentCopy,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            if (canRegenerate) {
-                MessageContextAction(
-                    label = "重新生成",
+            ) to onCopy,
+        )
+        if (canRegenerate) {
+            add(
+                DropdownItem(
+                    text = "重新生成",
                     enabled = actionsEnabled,
-                    onClick = {
-                        onDismiss()
-                        onRegenerate()
+                    icon = { modifier ->
+                        Icon(COUIIcons.Reset, contentDescription = null, modifier = modifier)
                     },
-                ) {
-                    Icon(
-                        Icons.Default.Replay,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-            if (canBranch) {
-                MessageContextAction(
-                    label = "从此处分支",
+                ) to onRegenerate,
+            )
+        }
+        if (canBranch) {
+            add(
+                DropdownItem(
+                    text = "从此处分支",
                     enabled = actionsEnabled,
-                    onClick = {
-                        onDismiss()
-                        onBranch()
+                    icon = { modifier ->
+                        Icon(COUIIcons.HorizontalSplit, contentDescription = null, modifier = modifier)
                     },
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.CallSplit,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+                ) to onBranch,
+            )
         }
     }
-}
-
-@Composable
-internal fun MessageContextAction(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit,
-) {
-    val contentColor = MaterialTheme.colorScheme.inverseOnSurface
-    Column(
-        modifier = Modifier
-            .widthIn(min = 56.dp)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    OverlayListPopup(
+        show = expanded,
+        onDismissRequest = onDismiss,
     ) {
-        androidx.compose.runtime.CompositionLocalProvider(
-            androidx.compose.material3.LocalContentColor provides contentColor,
-        ) {
-            icon()
+        ListPopupColumn {
+            actions.forEachIndexed { index, (item, action) ->
+                DropdownImpl(
+                    item = item,
+                    optionSize = actions.size,
+                    isSelected = false,
+                    index = index,
+                    onSelectedIndexChange = {
+                        onDismiss()
+                        action()
+                    },
+                )
+            }
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = contentColor.copy(alpha = if (enabled) 1f else 0.38f),
-            maxLines = 1,
-        )
     }
 }
 

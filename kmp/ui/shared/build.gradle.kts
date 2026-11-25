@@ -39,7 +39,7 @@ kotlin {
             implementation(project(":core:runtime"))
             implementation(project(":data:remote"))
             implementation(libs.bundles.compose.ui)
-            implementation(libs.material.kolor)
+            implementation(libs.coui.nav)
             implementation(libs.bundles.filekit.compose)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.io.okio)

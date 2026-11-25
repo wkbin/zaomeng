@@ -463,11 +463,16 @@ private fun completePersonaFields(source: Map<String, String>): Map<String, Stri
         source.forEach { (key, value) -> if (key !in this) put(key, value) }
     }
 
-internal val SILLYTAVERN_CARD_FIELDS = listOf(
+private val SILLYTAVERN_SETTING_FIELDS = listOf(
     PersonaFieldSpec("description", "角色描述"),
     PersonaFieldSpec("personality", "性格摘要"),
     PersonaFieldSpec("scenario", "场景"),
     PersonaFieldSpec("mes_example", "对话示例"),
+)
+
+internal val SILLYTAVERN_CARD_FIELDS = SILLYTAVERN_SETTING_FIELDS + listOf(
+    PersonaFieldSpec("system_prompt", "系统提示词"),
+    PersonaFieldSpec("post_history_instructions", "聊天历史后置指令"),
 )
 
 val PERSONA_FIELD_GROUPS: List<PersonaFieldGroup> = listOf(
@@ -475,7 +480,7 @@ val PERSONA_FIELD_GROUPS: List<PersonaFieldGroup> = listOf(
         key = "sillytavern",
         title = "SillyTavern 角色卡",
         description = "编辑导出到 SillyTavern 的角色设定和开场。",
-        fields = SILLYTAVERN_CARD_FIELDS.map { it.copy(key = "card_${it.key}") } +
+        fields = SILLYTAVERN_SETTING_FIELDS.map { it.copy(key = "card_${it.key}") } +
             PersonaFieldSpec("card_first_mes", "开场白"),
     ),
     PersonaFieldGroup(

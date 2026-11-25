@@ -45,52 +45,11 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.Scaffold
+import io.github.suqi8.coui.kmp.basic.SnackbarHost
+import io.github.suqi8.coui.kmp.basic.SnackbarHostState
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +86,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -142,6 +100,7 @@ import top.wkbin.zaomeng.platform.rememberClipboardTextWriter
 import top.wkbin.zaomeng.platform.rememberPlatformImage
 import top.wkbin.zaomeng.ui.graphics.decodeImageBitmap
 import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
@@ -160,7 +119,6 @@ internal val messageKindOptions = listOf(
     MessageKindOption("fourth_wall", "第四面墙"),
 )
 
-@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
@@ -172,8 +130,7 @@ fun ChatScreen(
     onSelectSession: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
-    val wideLayout = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    val wideLayout = isWideWindow()
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
     var toolsOpen by rememberSaveable { mutableStateOf(false) }
@@ -238,68 +195,14 @@ fun ChatScreen(
         }
     }
 
-    if (toolsOpen && state.session != null) {
-        ChatToolsSheet(
-            state = state,
-            readingLayout = readingLayout,
-            onToggleReadingLayout = {
-                readingLayoutOverride = !readingLayout
-                toolsOpen = false
-            },
-            onDismiss = { toolsOpen = false },
-            onDirector = viewModel::requestDirectorOptions,
-            onCorrectLatest = viewModel::correctLatest,
-            onDeepReviewLatest = viewModel::deepReviewLatest,
-            onBranchTurn = viewModel::branchFromTurn,
-            onBranchScene = viewModel::branchFromScene,
-            onUpdateBranchMeta = viewModel::updateBranchMeta,
-            onUpdateAuthorNote = viewModel::updateAuthorNote,
-            onToggleMainlineEvent = viewModel::setMainlineEventLocked,
-            onOpenExistingBranch = { branchSessionId ->
-                toolsOpen = false
-                onOpenBranch(runId, branchSessionId)
-            },
-            onLoadScenes = viewModel::loadSceneCards,
-            onRecommendScene = viewModel::recommendNextScene,
-            onSwitchScene = viewModel::switchScene,
-            onSaveMemory = viewModel::saveMemory,
-            onDeleteMemory = viewModel::deleteMemory,
-            onUpdateAutomaticMemoryStatus = viewModel::updateAutomaticMemoryStatus,
-            onMergeDuplicateMemories = viewModel::mergeDuplicateMemories,
-            onRelationLock = viewModel::setRelationLock,
-            onOpenStoryRecap = onOpenStoryRecap,
-        )
-    }
-
-    if (state.toolOptions.isNotEmpty()) {
-        ChatToolOptionsDialog(
-            title = state.toolOptionsTitle,
-            options = state.toolOptions,
-            enabled = state.canUseTools,
-            onChoose = viewModel::chooseToolOption,
-            onDismiss = viewModel::dismissToolOptions,
-        )
-    }
-
-    if (directorOpen) {
-        DirectorDialog(
-            enabled = state.canUseTools,
-            onDismiss = { directorOpen = false },
-            onGenerate = { goal, action ->
-                directorOpen = false
-                viewModel.requestDirectorOptions(goal, action)
-            },
-        )
-    }
-
     val hasChatBackground = state.chatDisplay.backgroundImageUri.isNotBlank()
-    val chromeMaskColor = MaterialTheme.colorScheme.surface.copy(
+    val chromeMaskColor = COUITheme.colorScheme.surface.copy(
         alpha = if (hasChatBackground) 0.82f else 1f,
     )
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(COUITheme.colorScheme.surface),
     ) {
         ChatBackgroundImage(
             imageUri = state.chatDisplay.backgroundImageUri,
@@ -340,7 +243,7 @@ fun ChatScreen(
                 }
             }
         },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { SnackbarHost(state = snackbarHostState) },
         bottomBar = {
             if (state.session != null) {
                 Surface(color = chromeMaskColor) {
@@ -441,6 +344,60 @@ fun ChatScreen(
                     }
                 }
             }
+
+        if (toolsOpen && state.session != null) {
+            ChatToolsSheet(
+                state = state,
+                readingLayout = readingLayout,
+                onToggleReadingLayout = {
+                    readingLayoutOverride = !readingLayout
+                    toolsOpen = false
+                },
+                onDismiss = { toolsOpen = false },
+                onDirector = viewModel::requestDirectorOptions,
+                onCorrectLatest = viewModel::correctLatest,
+                onDeepReviewLatest = viewModel::deepReviewLatest,
+                onBranchTurn = viewModel::branchFromTurn,
+                onBranchScene = viewModel::branchFromScene,
+                onUpdateBranchMeta = viewModel::updateBranchMeta,
+                onUpdateAuthorNote = viewModel::updateAuthorNote,
+                onToggleMainlineEvent = viewModel::setMainlineEventLocked,
+                onOpenExistingBranch = { branchSessionId ->
+                    toolsOpen = false
+                    onOpenBranch(runId, branchSessionId)
+                },
+                onLoadScenes = viewModel::loadSceneCards,
+                onRecommendScene = viewModel::recommendNextScene,
+                onSwitchScene = viewModel::switchScene,
+                onSaveMemory = viewModel::saveMemory,
+                onDeleteMemory = viewModel::deleteMemory,
+                onUpdateAutomaticMemoryStatus = viewModel::updateAutomaticMemoryStatus,
+                onMergeDuplicateMemories = viewModel::mergeDuplicateMemories,
+                onRelationLock = viewModel::setRelationLock,
+                onOpenStoryRecap = onOpenStoryRecap,
+            )
+        }
+
+        if (state.toolOptions.isNotEmpty()) {
+            ChatToolOptionsDialog(
+                title = state.toolOptionsTitle,
+                options = state.toolOptions,
+                enabled = state.canUseTools,
+                onChoose = viewModel::chooseToolOption,
+                onDismiss = viewModel::dismissToolOptions,
+            )
+        }
+
+        if (directorOpen) {
+            DirectorDialog(
+                enabled = state.canUseTools,
+                onDismiss = { directorOpen = false },
+                onGenerate = { goal, action ->
+                    directorOpen = false
+                    viewModel.requestDirectorOptions(goal, action)
+                },
+            )
+        }
         }
             }
         }

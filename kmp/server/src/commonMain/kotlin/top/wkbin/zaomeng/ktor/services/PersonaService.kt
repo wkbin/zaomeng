@@ -21,6 +21,7 @@ import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaReviewDto
 import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import top.wkbin.zaomeng.data.api.StoryRecapDto
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
 import okio.Path
 import okio.Path.Companion.toPath
 import top.wkbin.zaomeng.platform.PlatformLog
@@ -34,6 +35,9 @@ class PersonaService(
     private val prompts: PromptLoader? = null,
     private val relations: RelationsService,
 ) {
+    fun updateCardMetadata(runId: String, character: String, request: UpdateSillyTavernCardMetadataRequest) =
+        SillyTavernImport(storage).updateCardMetadata(runId, character, request)
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; prettyPrint = true }
 
     fun getReview(runId: String, character: String): PersonaReviewDto {
@@ -255,15 +259,17 @@ class PersonaService(
                 applyField(profile, field, value)
             }
         }
-        if (card != null && cardMapping.keys.any(fields::containsKey)) {
+        val editableCardKeys = cardMapping.keys + SillyTavernExport.promptFields
+        if (card != null && editableCardKeys.any(fields::containsKey)) {
             val previous = SillyTavernExport.importedProfileFields(profile, card)
-            val updated = previous + fields.filterKeys(cardMapping::containsKey)
+            val changes = fields.filter { (field, value) -> field in editableCardKeys && value != previous[field] }
+            val updated = previous + changes
             require(updated.values.sumOf { it.encodeToByteArray().size } <= 1024 * 1024) { "角色卡文字总量不能超过 1 MB。" }
             val cardData = JsonObject(card.data + updated.mapValues { JsonPrimitive(it.value) })
             val projection = SillyTavernImport.profileFields(cardData)
-            for ((field, mapped) in cardMapping) {
-                if (field in fields && updated[field] != previous[field]) {
-                    profile[field] = updated.getValue(field)
+            for ((field, value) in changes) {
+                profile[field] = value
+                cardMapping[field]?.let { mapped ->
                     applyField(profile, mapped, projection[mapped].orEmpty())
                 }
             }

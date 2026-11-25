@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +46,28 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.DropdownItem
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.basic.TextField
+import io.github.suqi8.coui.kmp.basic.TextFieldMode
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Create
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
+import io.github.suqi8.coui.kmp.icon.extended.Hide
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Pause
+import io.github.suqi8.coui.kmp.icon.extended.Photos
+import io.github.suqi8.coui.kmp.icon.extended.Play
+import io.github.suqi8.coui.kmp.icon.extended.Send
+import io.github.suqi8.coui.kmp.icon.extended.Show
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +104,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -193,7 +169,7 @@ internal fun ChatComposer(
             !state.sendOutcomeUnknown && state.failedOperationId.isBlank()
     val pluginActionBusy = state.toolBusy.startsWith("plugin:")
     val draftInputEnabled = inputEnabled && state.toolBusy != "suggest" && !pluginActionBusy
-    val mentionColor = MaterialTheme.colorScheme.primary
+    val mentionColor = COUITheme.colorScheme.primary
     val mentionTransformation = remember(participants, mentionColor) {
         MentionVisualTransformation(participants, mentionColor)
     }
@@ -245,7 +221,7 @@ internal fun ChatComposer(
                         Text(
                             text = participant,
                             modifier = Modifier.padding(top = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = COUITheme.textStyles.description,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -259,23 +235,27 @@ internal fun ChatComposer(
         ) {
             if (participants.isNotEmpty()) {
                 item {
-                    OutlinedButton(
+                    Button(
                         onClick = { mentionsOpen = !mentionsOpen },
                         enabled = inputEnabled,
                         modifier = Modifier.size(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(0.dp),
+                        cornerRadius = 10.dp,
+                        minWidth = 36.dp,
+                        minHeight = 36.dp,
+                        insideMargin = PaddingValues(0.dp),
                     ) { Text("@") }
                 }
             }
             item {
                 Box {
-                    OutlinedButton(
+                    Button(
                         onClick = { messageKindMenuOpen = true },
                         enabled = inputEnabled,
                         modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        cornerRadius = 10.dp,
+                        minWidth = ButtonDefaults.MinWidthSmall,
+                        minHeight = 36.dp,
+                        insideMargin = PaddingValues(horizontal = 12.dp),
                     ) {
                         Text(
                             messageKindOptions.firstOrNull { it.value == state.messageKind }
@@ -283,158 +263,204 @@ internal fun ChatComposer(
                         )
                         Spacer(Modifier.size(4.dp))
                         Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
+                            imageVector = COUIIcons.ExpandMore,
                             contentDescription = "切换输入模式",
                             modifier = Modifier.size(16.dp),
                         )
                     }
-                    DropdownMenu(
-                        expanded = messageKindMenuOpen,
+                    OverlayListPopup(
+                        show = messageKindMenuOpen,
                         onDismissRequest = { messageKindMenuOpen = false },
                     ) {
-                        messageKindOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.label) },
-                                onClick = {
-                                    onMessageKindChange(option.value)
-                                    messageKindMenuOpen = false
-                                },
-                            )
+                        ListPopupColumn {
+                            messageKindOptions.forEachIndexed { index, option ->
+                                DropdownImpl(
+                                    text = option.label,
+                                    optionSize = messageKindOptions.size,
+                                    isSelected = false,
+                                    index = index,
+                                    onSelectedIndexChange = {
+                                        messageKindMenuOpen = false
+                                        onMessageKindChange(option.value)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
             }
             item {
+                val toolEntries: List<Pair<DropdownItem, () -> Unit>> = buildList {
+                    add(
+                        DropdownItem(
+                            text = "剧情导演",
+                            enabled = state.canUseTools,
+                            icon = { Icon(COUIIcons.Photos, contentDescription = null) },
+                        ) to {
+                            toolsOpen = false
+                            onOpenDirector()
+                        },
+                    )
+                    add(
+                        DropdownItem(
+                            text = "回复节奏",
+                            enabled = inputEnabled,
+                        ) to {
+                            toolsOpen = false
+                            pacingMenuOpen = true
+                        },
+                    )
+                    if (state.pluginActions.isNotEmpty() || state.generationEnhancers.isNotEmpty()) {
+                        add(
+                            DropdownItem(
+                                text = if (pluginActionBusy) "插件运行中…" else "插件",
+                                enabled = inputEnabled,
+                            ) to {
+                                toolsOpen = false
+                                pluginsOpen = true
+                            },
+                        )
+                    }
+                    if (state.session?.mode == "observe") {
+                        add(
+                            DropdownItem(
+                                text = if (state.continuousObserveEnabled) "暂停旁观" else "开启旁观",
+                                enabled = state.canToggleContinuousObserve,
+                                icon = {
+                                    Icon(
+                                        if (state.continuousObserveEnabled) {
+                                            COUIIcons.Pause
+                                        } else {
+                                            COUIIcons.Play
+                                        },
+                                        contentDescription = null,
+                                    )
+                                },
+                            ) to {
+                                toolsOpen = false
+                                onToggleContinuousObserve()
+                            },
+                        )
+                    }
+                }
+                val pluginEntries: List<Pair<DropdownItem, () -> Unit>> = buildList {
+                    state.generationEnhancers.forEach { enhancer ->
+                        val active = enhancer.isActive(state.session)
+                        val busyKey = "enhancer:${enhancer.stateKey}"
+                        add(
+                            DropdownItem(
+                                text = if (state.toolBusy == busyKey) {
+                                    "${enhancer.title} · 保存中…"
+                                } else {
+                                    enhancer.title
+                                },
+                                enabled = state.canUseTools,
+                                icon = {
+                                    Icon(
+                                        if (active) {
+                                            COUIIcons.Show
+                                        } else {
+                                            COUIIcons.Hide
+                                        },
+                                        contentDescription = if (active) "已开启" else "已关闭",
+                                    )
+                                },
+                            ) to {
+                                pluginsOpen = false
+                                onToggleGenerationEnhancer(enhancer)
+                            },
+                        )
+                    }
+                    state.pluginActions.forEach { action ->
+                        val busyKey = "plugin:${action.pluginId}:${action.actionId}"
+                        add(
+                            DropdownItem(
+                                text = if (state.toolBusy == busyKey) {
+                                    "${action.title} · 运行中…"
+                                } else {
+                                    action.title
+                                },
+                                enabled = state.canUseTools,
+                                icon = { Icon(COUIIcons.Create, contentDescription = null) },
+                            ) to {
+                                pluginsOpen = false
+                                onInvokePluginAction(action)
+                            },
+                        )
+                    }
+                }
                 Box {
-                    OutlinedButton(
+                    Button(
                         onClick = { toolsOpen = true },
                         // 连续旁观期间也要能打开工具菜单（暂停入口在里面）
                         enabled = inputEnabled || state.continuousObserveEnabled,
                         modifier = Modifier.height(36.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        cornerRadius = 10.dp,
+                        minWidth = ButtonDefaults.MinWidthSmall,
+                        minHeight = 36.dp,
+                        insideMargin = PaddingValues(horizontal = 10.dp),
                     ) {
                         Icon(
-                            Icons.Default.MoreVert,
+                            COUIIcons.More,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(2.dp))
                         Text("工具")
                     }
-                    DropdownMenu(
-                        expanded = toolsOpen,
+                    OverlayListPopup(
+                        show = toolsOpen,
                         onDismissRequest = { toolsOpen = false },
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("剧情导演") },
-                            leadingIcon = { Icon(Icons.Outlined.Movie, contentDescription = null) },
-                            enabled = state.canUseTools,
-                            onClick = {
-                                toolsOpen = false
-                                onOpenDirector()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("回复节奏") },
-                            enabled = inputEnabled,
-                            onClick = {
-                                toolsOpen = false
-                                pacingMenuOpen = true
-                            },
-                        )
-                        if (state.pluginActions.isNotEmpty() || state.generationEnhancers.isNotEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text(if (pluginActionBusy) "插件运行中…" else "插件") },
-                                enabled = inputEnabled,
-                                onClick = {
-                                    toolsOpen = false
-                                    pluginsOpen = true
-                                },
-                            )
-                        }
-                        if (state.session?.mode == "observe") {
-                            DropdownMenuItem(
-                                text = { Text(if (state.continuousObserveEnabled) "暂停旁观" else "开启旁观") },
-                                leadingIcon = {
-                                    Icon(
-                                        if (state.continuousObserveEnabled) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                    )
-                                },
-                                enabled = state.canToggleContinuousObserve,
-                                onClick = {
-                                    toolsOpen = false
-                                    onToggleContinuousObserve()
-                                },
-                            )
+                        ListPopupColumn {
+                            toolEntries.forEachIndexed { index, (item, action) ->
+                                DropdownImpl(
+                                    item = item,
+                                    optionSize = toolEntries.size,
+                                    isSelected = false,
+                                    index = index,
+                                    onSelectedIndexChange = { action() },
+                                )
+                            }
                         }
                     }
-                    DropdownMenu(
-                        expanded = pacingMenuOpen,
+                    OverlayListPopup(
+                        show = pacingMenuOpen,
                         onDismissRequest = { pacingMenuOpen = false },
                     ) {
-                        listOf(
-                            "brief" to "简洁 · 每人一两句",
-                            "normal" to "适中 · 默认节奏",
-                            "detailed" to "细腻 · 展开动作环境",
-                        ).forEach { (value, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    onPacingChange(value)
-                                    pacingMenuOpen = false
-                                },
-                            )
+                        ListPopupColumn {
+                            listOf(
+                                "brief" to "简洁 · 每人一两句",
+                                "normal" to "适中 · 默认节奏",
+                                "detailed" to "细腻 · 展开动作环境",
+                            ).forEachIndexed { index, (value, label) ->
+                                DropdownImpl(
+                                    text = label,
+                                    optionSize = 3,
+                                    isSelected = false,
+                                    index = index,
+                                    onSelectedIndexChange = {
+                                        onPacingChange(value)
+                                        pacingMenuOpen = false
+                                    },
+                                )
+                            }
                         }
                     }
-                    DropdownMenu(
-                        expanded = pluginsOpen,
+                    OverlayListPopup(
+                        show = pluginsOpen,
                         onDismissRequest = { pluginsOpen = false },
                     ) {
-                        state.generationEnhancers.forEach { enhancer ->
-                            val active = enhancer.isActive(state.session)
-                            val busyKey = "enhancer:${enhancer.stateKey}"
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (state.toolBusy == busyKey) {
-                                            "${enhancer.title} · 保存中…"
-                                        } else {
-                                            enhancer.title
-                                        },
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        if (active) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = if (active) "已开启" else "已关闭",
-                                    )
-                                },
-                                enabled = state.canUseTools,
-                                onClick = {
-                                    pluginsOpen = false
-                                    onToggleGenerationEnhancer(enhancer)
-                                },
-                            )
-                        }
-                        state.pluginActions.forEach { action ->
-                            val busyKey = "plugin:${action.pluginId}:${action.actionId}"
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (state.toolBusy == busyKey) "${action.title} · 运行中…" else action.title,
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
-                                },
-                                enabled = state.canUseTools,
-                                onClick = {
-                                    pluginsOpen = false
-                                    onInvokePluginAction(action)
-                                },
-                            )
+                        ListPopupColumn {
+                            pluginEntries.forEachIndexed { index, (item, action) ->
+                                DropdownImpl(
+                                    item = item,
+                                    optionSize = pluginEntries.size,
+                                    isSelected = false,
+                                    index = index,
+                                    onSelectedIndexChange = { action() },
+                                )
+                            }
                         }
                     }
                 }
@@ -445,30 +471,30 @@ internal fun ChatComposer(
             Text(
                 "导演指令会引导下一拍，不会写成你的角色台词。",
                 modifier = Modifier.padding(bottom = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.description,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
         if (state.messageKind == "fourth_wall") {
             Text(
                 "角色可以直接回应、违抗或与你谈判。",
                 modifier = Modifier.padding(bottom = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.description,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
         if (state.draftSpeakerOverride.isNotBlank()) {
             TextButton(
+                text = "将以「${state.draftSpeakerOverride}」身份发送 · 取消",
                 onClick = onClearSpeakerOverride,
                 enabled = inputEnabled,
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-            ) {
-                Text("将以「${state.draftSpeakerOverride}」身份发送 · 取消")
-            }
+                minWidth = ButtonDefaults.MinWidthSmall,
+                insideMargin = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            )
         }
 
         Row(verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(
+            TextField(
                 value = draftValue,
                 onValueChange = { next ->
                     val resolved = normalizeMentionDeletion(
@@ -501,19 +527,18 @@ internal fun ChatComposer(
                     },
                 enabled = draftInputEnabled,
                 visualTransformation = mentionTransformation,
-                placeholder = {
-                    Text(
-                        when (state.messageKind) {
-                            "narration" -> "描述一个场景变化…"
-                            "plot" -> "交代希望下一拍怎样发展…"
-                            "fourth_wall" -> "以作者身份直接对角色下令…"
-                            else -> "写下你想说的话…"
-                        },
-                    )
+                label = when (state.messageKind) {
+                    "narration" -> "描述一个场景变化…"
+                    "plot" -> "交代希望下一拍怎样发展…"
+                    "fourth_wall" -> "以作者身份直接对角色下令…"
+                    else -> "写下你想说的话…"
                 },
                 minLines = 1,
                 maxLines = 4,
-                shape = RoundedCornerShape(24.dp),
+                backgroundMode = TextFieldMode.Rectangle,
+                cornerRadius = 24.dp,
+                // Rectangle 模式的默认字重是粗体（COUI HintAnim.Rectangle），聊天草稿要保持常规字重
+                textStyle = COUITheme.textStyles.bodyXL,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (state.canSend) onSend() }),
             )
@@ -523,21 +548,26 @@ internal fun ChatComposer(
                 Button(
                     onClick = onToggleContinuousObserve,
                     modifier = Modifier.height(40.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
+                    cornerRadius = 20.dp,
+                    minWidth = ButtonDefaults.MinWidthSmall,
+                    minHeight = 40.dp,
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                    insideMargin = PaddingValues(horizontal = 14.dp),
                 ) {
-                    Icon(Icons.Default.Pause, contentDescription = null)
+                    Icon(COUIIcons.Pause, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text("暂停")
                 }
             } else {
-                FilledIconButton(
+                IconButton(
                     onClick = onSend,
                     enabled = state.canSend,
+                    backgroundColor = COUITheme.colorScheme.primary,
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        imageVector = COUIIcons.Send,
                         contentDescription = "发送",
+                        tint = COUITheme.colorScheme.onPrimary,
                     )
                 }
             }

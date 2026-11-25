@@ -17,36 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,9 +29,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.TabRow
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.Delete
+import io.github.suqi8.coui.kmp.icon.extended.Edit
+import io.github.suqi8.coui.kmp.icon.extended.Lock
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.icon.extended.Report
+import io.github.suqi8.coui.kmp.icon.extended.Unlock
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.SaveWorldFactRequest
 import top.wkbin.zaomeng.data.api.WorldFactDto
 import top.wkbin.zaomeng.data.api.WorldTimelineItemDto
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 import top.wkbin.zaomeng.ui.format.toLocalDateTimeDisplay
 
 private val factCategories = listOf(
@@ -75,7 +79,6 @@ private val factCategories = listOf(
     "setting" to "设定",
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldTimelineScreen(
     viewModel: WorldTimelineViewModel,
@@ -88,94 +91,78 @@ fun WorldTimelineScreen(
     var creatingFact by rememberSaveable { mutableStateOf(false) }
     var deletingFact by remember { mutableStateOf<WorldFactDto?>(null) }
 
-    if (creatingFact || editingFact != null) {
-        WorldFactEditorDialog(
-            fact = editingFact,
-            saving = state.savingFactId.isNotBlank(),
-            onDismiss = {
-                creatingFact = false
-                editingFact = null
-            },
-            onSave = { request ->
-                viewModel.save(editingFact, request)
-                creatingFact = false
-                editingFact = null
-            },
-        )
-    }
-
-    deletingFact?.let { fact ->
-        AlertDialog(
-            onDismissRequest = { if (state.deletingFactId.isBlank()) deletingFact = null },
-            title = { Text("删除这条事实？") },
-            text = { Text(fact.summary) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        deletingFact = null
-                        viewModel.delete(fact)
-                    },
-                    enabled = state.deletingFactId.isBlank(),
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deletingFact = null }) { Text("取消") }
-            },
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            Column {
-                TopAppBar(
-                    title = { Text("故事时间线") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    actions = {
-                        if (selectedTab == 1) {
-                            IconButton(onClick = { creatingFact = true }) {
-                                Icon(Icons.Default.Add, contentDescription = "添加事实")
-                            }
-                        }
-                        IconButton(onClick = viewModel::load, enabled = !state.refreshing) {
-                            if (state.refreshing) {
-                                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                            }
-                        }
-                    },
-                )
-                PrimaryTabRow(selectedTabIndex = selectedTab) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("时间线") },
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("剧情事实") },
-                    )
+    CouiPageScaffold(
+        title = "故事时间线",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+        actions = {
+            if (selectedTab == 1) {
+                IconButton(onClick = { creatingFact = true }) {
+                    Icon(COUIIcons.Add, contentDescription = "添加事实")
+                }
+            }
+            IconButton(onClick = viewModel::load, enabled = !state.refreshing) {
+                if (state.refreshing) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), size = 22.dp, strokeWidth = 2.dp)
+                } else {
+                    Icon(COUIIcons.Refresh, contentDescription = "刷新")
                 }
             }
         },
-    ) { innerPadding ->
+        topBarBottomContent = {
+            TabRow(
+                tabs = listOf("时间线", "剧情事实"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+            )
+        },
+    ) { scope ->
+        if (creatingFact || editingFact != null) {
+            WorldFactEditorDialog(
+                fact = editingFact,
+                saving = state.savingFactId.isNotBlank(),
+                onDismiss = {
+                    creatingFact = false
+                    editingFact = null
+                },
+                onSave = { request ->
+                    viewModel.save(editingFact, request)
+                    creatingFact = false
+                    editingFact = null
+                },
+            )
+        }
+
+        deletingFact?.let { fact ->
+            CouiAlertDialog(
+                onDismissRequest = { if (state.deletingFactId.isBlank()) deletingFact = null },
+                title = "删除这条事实？",
+                confirmText = "删除",
+                onConfirm = {
+                    deletingFact = null
+                    viewModel.delete(fact)
+                },
+                confirmEnabled = state.deletingFactId.isBlank(),
+                dismissText = "取消",
+                onDismiss = { deletingFact = null },
+                body = { Text(fact.summary) },
+            )
+        }
+
         when {
             state.loading -> Box(
-                Modifier.fillMaxSize().padding(innerPadding),
+                Modifier.fillMaxSize().padding(scope.contentPadding),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
-            state.memory == null -> EmptyState(
+            state.memory == null -> EmptyStatePage(
                 text = state.error.ifBlank { "故事记忆读取失败。" },
                 onRetry = viewModel::load,
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier.padding(scope.contentPadding),
             )
             else -> {
                 val memory = requireNotNull(state.memory)
+                val contentModifier = Modifier.padding(scope.contentPadding).couiPageScroll(scope)
                 if (selectedTab == 0) {
                     TimelineContent(
                         items = memory.timeline,
@@ -183,7 +170,7 @@ fun WorldTimelineScreen(
                         noticeIsError = state.error.isNotBlank(),
                         onDismissNotice = viewModel::dismissNotice,
                         onOpenChat = { sessionId -> onOpenChat(viewModel.runId, sessionId) },
-                        modifier = Modifier.padding(innerPadding),
+                        modifier = contentModifier,
                     )
                 } else {
                     FactsContent(
@@ -197,7 +184,7 @@ fun WorldTimelineScreen(
                         onToggleLock = viewModel::toggleLocked,
                         onDelete = { deletingFact = it },
                         onOpenChat = { sessionId -> onOpenChat(viewModel.runId, sessionId) },
-                        modifier = Modifier.padding(innerPadding),
+                        modifier = contentModifier,
                     )
                 }
             }
@@ -277,16 +264,16 @@ private fun FactsContent(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
+                    Chip(
                         selected = selectedCategory.isBlank(),
                         onClick = { selectedCategory = "" },
-                        label = { Text("全部") },
+                        label = "全部",
                     )
                     factCategories.forEach { (value, label) ->
-                        FilterChip(
+                        Chip(
                             selected = selectedCategory == value,
                             onClick = { selectedCategory = value },
-                            label = { Text(label) },
+                            label = label,
                         )
                     }
                 }
@@ -369,7 +356,11 @@ private fun FilterBar(
             onCharacterChange,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onOrderChange) { Text(if (newestFirst) "最新在前" else "最早在前") }
+        TextButton(
+            text = if (newestFirst) "最新在前" else "最早在前",
+            onClick = onOrderChange,
+            minWidth = 0.dp,
+        )
     }
 }
 
@@ -382,24 +373,43 @@ private fun CharacterFilter(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
-        TextButton(onClick = { expanded = true }) {
+        Button(
+            onClick = { expanded = true },
+            colors = ButtonDefaults.buttonColors(),
+            minWidth = 0.dp,
+        ) {
             Text(
                 if (selected.isBlank()) "全部人物" else selected,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Icon(Icons.Default.MoreVert, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(COUIIcons.More, contentDescription = null, modifier = Modifier.size(18.dp))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("全部人物") },
-                onClick = { onSelected(""); expanded = false },
-            )
-            characters.forEach { name ->
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    onClick = { onSelected(name); expanded = false },
+        OverlayListPopup(show = expanded, onDismissRequest = { expanded = false }) {
+            ListPopupColumn {
+                val optionSize = characters.size + 1
+                DropdownImpl(
+                    text = "全部人物",
+                    optionSize = optionSize,
+                    isSelected = selected.isBlank(),
+                    index = 0,
+                    onSelectedIndexChange = {
+                        expanded = false
+                        onSelected("")
+                    },
                 )
+                characters.forEachIndexed { offset, name ->
+                    DropdownImpl(
+                        text = name,
+                        optionSize = optionSize,
+                        isSelected = name == selected,
+                        index = offset + 1,
+                        onSelectedIndexChange = {
+                            expanded = false
+                            onSelected(name)
+                        },
+                    )
+                }
             }
         }
     }
@@ -409,21 +419,21 @@ private fun CharacterFilter(
 private fun TimelineCard(item: WorldTimelineItemDto, onOpenChat: (String) -> Unit) {
     val warning = item.consistencyStatus !in listOf("", "pass")
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (warning) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow,
+        colors = CardDefaults.defaultColors(
+            color = if (warning) COUITheme.colorScheme.errorTextBg
+            else COUITheme.colorScheme.backgroundWithCard,
         ),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (warning) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Icon(COUIIcons.Report, contentDescription = null, tint = COUITheme.colorScheme.error)
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(
                     item.title.ifBlank { "剧情推进" },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = COUITheme.textStyles.headlineXS,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -431,7 +441,7 @@ private fun TimelineCard(item: WorldTimelineItemDto, onOpenChat: (String) -> Uni
             }
             MetadataLine(item.timeHint, item.location, item.participants.joinToString("、"))
             if (warning) {
-                Text("这一轮存在一致性警告，建议进入来源会话检查。", style = MaterialTheme.typography.bodySmall)
+                Text("这一轮存在一致性警告，建议进入来源会话检查。", style = COUITheme.textStyles.bodyXS)
             }
             SourceAction(item.sourceSessionId, item.updatedAt, onOpenChat)
         }
@@ -448,9 +458,9 @@ private fun FactCard(
     onOpenChat: (String) -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (fact.locked) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow,
+        colors = CardDefaults.defaultColors(
+            color = if (fact.locked) COUITheme.colorScheme.containerThemeHalftone
+            else COUITheme.colorScheme.backgroundWithCard,
         ),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -458,18 +468,18 @@ private fun FactCard(
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         categoryLabel(fact.category) + if (!fact.active) " · 已停用" else "",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = COUITheme.textStyles.buttonS,
+                        color = COUITheme.colorScheme.primary,
                     )
-                    Text(fact.summary, style = MaterialTheme.typography.bodyLarge)
+                    Text(fact.summary, style = COUITheme.textStyles.bodyXL)
                 }
             }
             MetadataLine(fact.timeHint, fact.location, fact.characters.joinToString("、"))
             if (fact.locked) {
                 Text(
                     "已锁定：后续对话会优先遵守这条事实。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelPrimary,
                 )
             }
             Row(
@@ -478,19 +488,19 @@ private fun FactCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (busy) {
-                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), size = 22.dp, strokeWidth = 2.dp)
                 } else {
                     IconButton(onClick = onToggleLock) {
                         Icon(
-                            if (fact.locked) Icons.Default.Lock else Icons.Default.LockOpen,
+                            if (fact.locked) COUIIcons.Lock else COUIIcons.Unlock,
                             contentDescription = if (fact.locked) "取消锁定" else "锁定事实",
                         )
                     }
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑")
+                        Icon(COUIIcons.Edit, contentDescription = "编辑")
                     }
                     IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除")
+                        Icon(COUIIcons.Delete, contentDescription = "删除")
                     }
                 }
             }
@@ -512,11 +522,11 @@ private fun FactTurnGroupCard(
     val facts = group.facts
     val sourceSessionId = facts.first().sourceSessionId
     val updatedAt = facts.maxByOrNull(WorldFactDto::updatedAt)?.updatedAt.orEmpty()
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 "本轮剧情变化",
-                style = MaterialTheme.typography.titleSmall,
+                style = COUITheme.textStyles.bodyM,
                 fontWeight = FontWeight.SemiBold,
             )
             facts.forEachIndexed { index, fact ->
@@ -545,16 +555,16 @@ private fun FactGroupEntry(
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             categoryLabel(fact.category) + if (!fact.active) " · 已停用" else "",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            style = COUITheme.textStyles.buttonS,
+            color = COUITheme.colorScheme.primary,
         )
-        Text(fact.summary, style = MaterialTheme.typography.bodyMedium)
+        Text(fact.summary, style = COUITheme.textStyles.bodyM)
         MetadataLine(fact.timeHint, fact.location, fact.characters.joinToString("、"))
         if (fact.locked) {
             Text(
                 "已锁定",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.primary,
             )
         }
         Row(
@@ -563,19 +573,19 @@ private fun FactGroupEntry(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (busy) {
-                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), size = 22.dp, strokeWidth = 2.dp)
             } else {
                 IconButton(onClick = onToggleLock) {
                     Icon(
-                        if (fact.locked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        if (fact.locked) COUIIcons.Lock else COUIIcons.Unlock,
                         contentDescription = if (fact.locked) "取消锁定" else "锁定事实",
                     )
                 }
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "编辑")
+                    Icon(COUIIcons.Edit, contentDescription = "编辑")
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "删除")
+                    Icon(COUIIcons.Delete, contentDescription = "删除")
                 }
             }
         }
@@ -586,7 +596,7 @@ private fun FactGroupEntry(
 private fun MetadataLine(vararg values: String) {
     val text = values.map(String::trim).filter(String::isNotBlank).joinToString(" · ")
     if (text.isNotBlank()) {
-        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text, style = COUITheme.textStyles.bodyXS, color = COUITheme.colorScheme.labelSecondary)
     }
 }
 
@@ -596,13 +606,13 @@ private fun SourceAction(sessionId: String, updatedAt: String, onOpenChat: (Stri
         Text(
             updatedAt.toLocalDateTimeDisplay().ifBlank { "时间未知" },
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = COUITheme.textStyles.bodyXS,
+            color = COUITheme.colorScheme.labelSecondary,
         )
         if (sessionId.isNotBlank()) {
-            TextButton(onClick = { onOpenChat(sessionId) }) { Text("查看来源") }
+            TextButton(text = "查看来源", onClick = { onOpenChat(sessionId) }, minWidth = 0.dp)
         } else {
-            Text("人工记录", style = MaterialTheme.typography.labelSmall)
+            Text("人工记录", style = COUITheme.textStyles.bodyXS)
         }
     }
 }
@@ -622,10 +632,30 @@ private fun WorldFactEditorDialog(
     var locked by remember(fact) { mutableStateOf(fact?.locked ?: false) }
     var active by remember(fact) { mutableStateOf(fact?.active ?: true) }
     var categoryExpanded by remember { mutableStateOf(false) }
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(if (fact == null) "添加剧情事实" else "编辑剧情事实") },
-        text = {
+        title = if (fact == null) "添加剧情事实" else "编辑剧情事实",
+        confirmText = if (saving) "保存中" else "保存",
+        onConfirm = {
+            onSave(
+                SaveWorldFactRequest(
+                    category = category,
+                    summary = summary.trim(),
+                    characters = characters.split(Regex("[,，、]"))
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .distinct(),
+                    location = location.trim(),
+                    timeHint = timeHint.trim(),
+                    locked = locked,
+                    active = active,
+                )
+            )
+        },
+        confirmEnabled = summary.isNotBlank() && !saving,
+        dismissText = "取消",
+        onDismiss = { if (!saving) onDismiss() },
+        body = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -634,47 +664,55 @@ private fun WorldFactEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box {
-                    TextButton(onClick = { categoryExpanded = true }) {
-                        Text("类别：${categoryLabel(category)}")
-                    }
-                    DropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
-                        factCategories.forEach { (value, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = { category = value; categoryExpanded = false },
-                            )
+                    TextButton(
+                        text = "类别：${categoryLabel(category)}",
+                        onClick = { categoryExpanded = true },
+                        minWidth = 0.dp,
+                    )
+                    OverlayListPopup(show = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
+                        ListPopupColumn {
+                            factCategories.forEachIndexed { index, (value, label) ->
+                                DropdownImpl(
+                                    text = label,
+                                    optionSize = factCategories.size,
+                                    isSelected = value == category,
+                                    index = index,
+                                    onSelectedIndexChange = {
+                                        categoryExpanded = false
+                                        category = value
+                                    },
+                                )
+                            }
                         }
                     }
                 }
-                OutlinedTextField(
+                CouiTextField(
                     value = summary,
                     onValueChange = { summary = it },
-                    label = { Text("事实内容") },
+                    label = "事实内容",
                     modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
                     minLines = 2,
                     maxLines = 5,
                 )
-                OutlinedTextField(
+                CouiTextField(
                     value = characters,
                     onValueChange = { characters = it },
-                    label = { Text("相关人物（用顿号分隔）") },
+                    label = "相关人物（用顿号分隔）",
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
+                    CouiTextField(
                         value = timeHint,
                         onValueChange = { timeHint = it },
-                        label = { Text("时间") },
+                        label = "时间",
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
                     )
-                    OutlinedTextField(
+                    CouiTextField(
                         value = location,
                         onValueChange = { location = it },
-                        label = { Text("地点") },
+                        label = "地点",
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
                     )
                 }
                 HorizontalDivider()
@@ -682,28 +720,6 @@ private fun WorldFactEditorDialog(
                 SettingSwitch("当前有效", active) { active = it }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(
-                        SaveWorldFactRequest(
-                            category = category,
-                            summary = summary.trim(),
-                            characters = characters.split(Regex("[,，、]"))
-                                .map(String::trim)
-                                .filter(String::isNotBlank)
-                                .distinct(),
-                            location = location.trim(),
-                            timeHint = timeHint.trim(),
-                            locked = locked,
-                            active = active,
-                        )
-                    )
-                },
-                enabled = summary.isNotBlank() && !saving,
-            ) { Text(if (saving) "保存中" else "保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") } },
     )
 }
 
@@ -721,35 +737,36 @@ private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boo
 @Composable
 private fun Notice(text: String, error: Boolean, onDismiss: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (error) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.secondaryContainer,
+        colors = CardDefaults.defaultColors(
+            color = if (error) COUITheme.colorScheme.errorTextBg
+            else COUITheme.colorScheme.containerThemeHalftone,
         ),
     ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            Text(text, modifier = Modifier.weight(1f), style = COUITheme.textStyles.bodyXS)
+            TextButton(text = "关闭", onClick = onDismiss, minWidth = 0.dp)
         }
     }
 }
 
 @Composable
 private fun EmptyMessage(text: String) {
-    Text(
-        text,
+    EmptyState(
+        title = text,
+        sizeType = EmptyStateSizeType.Small,
         modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
 @Composable
-private fun EmptyState(text: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onRetry) { Text("重试") }
-        }
-    }
+private fun EmptyStatePage(text: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(
+        title = text,
+        actionText = "重试",
+        onActionClick = onRetry,
+        sizeType = EmptyStateSizeType.Small,
+        modifier = modifier.fillMaxSize(),
+    )
 }
 
 private fun categoryLabel(category: String): String =

@@ -5,20 +5,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Info
+import io.github.suqi8.coui.kmp.icon.extended.Lock
+import io.github.suqi8.coui.kmp.icon.extended.Unlock
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -36,7 +37,7 @@ internal fun RelationLockSection(
         title = "会话关系锁",
         action = {
             IconButton(onClick = onShowHelp) {
-                Icon(Icons.Outlined.Info, contentDescription = "关系锁说明")
+                Icon(COUIIcons.Info, contentDescription = "关系锁说明")
             }
         },
     ) {
@@ -57,16 +58,17 @@ internal fun RelationLockSection(
                         )
                         Text(
                             pairKey,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.bodyXS,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
-                    TextButton(
+                    Button(
                         onClick = { onRequestChange(pairKey, !locked) },
                         enabled = enabled,
+                        minWidth = ButtonDefaults.MinWidthSmall,
                     ) {
                         Icon(
-                            if (locked) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
+                            if (locked) COUIIcons.Lock else COUIIcons.Unlock,
                             contentDescription = if (locked) "解除锁定" else "锁定关系",
                         )
                         Spacer(Modifier.size(4.dp))

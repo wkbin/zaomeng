@@ -36,10 +36,11 @@ object SillyTavernPng {
             ?: throw IllegalArgumentException("PNG 角色卡中的 Base64 数据无效。")
     }
 
-    fun writeCard(image: ByteArray, cardJson: ByteArray): ByteArray {
+    fun writeCard(image: ByteArray, cardJson: ByteArray, isV3: Boolean = false): ByteArray {
         require(cardJson.size in 1..MAX_JSON_BYTES) { "角色卡数据过大，无法生成可重新导入的 PNG。" }
         require(image.size <= MAX_FILE_BYTES) { "带头像的 PNG 角色卡超过 5 MB。" }
-        val text = ("tEXtchara\u0000" + cardJson.toByteString().base64()).encodeToByteArray()
+        val keyword = if (isV3) "ccv3" else "chara"
+        val text = ("tEXt$keyword\u0000" + cardJson.toByteString().base64()).encodeToByteArray()
         val output = Buffer().write(signature)
         forEachChunk(image) { chunk ->
             if (chunk.cardKey(image) != null) return@forEachChunk

@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -22,7 +23,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,52 +45,18 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.Badge
+import io.github.suqi8.coui.kmp.basic.BadgeBox
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.FloatingActionButton
+import io.github.suqi8.coui.kmp.basic.FloatingActionButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -128,7 +94,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -300,17 +265,20 @@ internal fun Transcript(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (loadingEarlier) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                             Text(
                                 "正在加载更早的消息…",
                                 modifier = Modifier.padding(start = 8.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.description,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         } else {
-                            TextButton(onClick = onLoadEarlier) {
-                                Text("加载更早的消息")
-                            }
+                            TextButton(
+                                text = "加载更早的消息",
+                                onClick = onLoadEarlier,
+                                minWidth = 0.dp,
+                                textStyle = COUITheme.textStyles.bodyM,
+                            )
                         }
                     }
                 }
@@ -321,12 +289,11 @@ internal fun Transcript(
                 modelReasoning.isBlank() && pendingUserMessage == null
             ) {
                 item {
-                    Text(
-                        "这一幕还没有留下台词。写下第一句话，让故事继续。",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        title = "这一幕还没有留下台词。",
+                        subtitle = "写下第一句话，让故事继续。",
+                        sizeType = EmptyStateSizeType.Small,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                     )
                 }
             }
@@ -367,9 +334,12 @@ internal fun Transcript(
                     )
                     if (item.worldBookMatches.isNotEmpty()) {
                         var expanded by rememberSaveable { mutableStateOf(false) }
-                        TextButton(onClick = { expanded = !expanded }) {
-                            Text(if (expanded) "收起世界书" else "本轮注入 ${item.worldBookMatches.size} 条世界书设定")
-                        }
+                        TextButton(
+                            text = if (expanded) "收起世界书" else "本轮注入 ${item.worldBookMatches.size} 条世界书设定",
+                            onClick = { expanded = !expanded },
+                            minWidth = 0.dp,
+                            textStyle = COUITheme.textStyles.bodyM,
+                        )
                         if (expanded) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -383,11 +353,11 @@ internal fun Transcript(
                                             match.stickyActive -> "粘滞"
                                             else -> match.keywords.joinToString("、").ifBlank { "常驻" }
                                         }
-                                        Text("${match.title} · $source · $trigger", style = MaterialTheme.typography.labelLarge)
+                                        Text("${match.title} · $source · $trigger", style = COUITheme.textStyles.buttonM)
                                         if (match.recursionDepth > 0) {
-                                            Text("递归触发 · 第 ${match.recursionDepth} 层", style = MaterialTheme.typography.bodySmall)
+                                            Text("递归触发 · 第 ${match.recursionDepth} 层", style = COUITheme.textStyles.bodyXS)
                                         }
-                                        Text(match.excerpt, style = MaterialTheme.typography.bodySmall)
+                                        Text(match.excerpt, style = COUITheme.textStyles.bodyXS)
                                     }
                                 }
                             }
@@ -395,9 +365,12 @@ internal fun Transcript(
                     }
                     val importedIndex = item.sillyTavernMessageIndex
                     if (importedIndex != null && item.sillyTavernSwipeCount != 0) {
-                        TextButton(onClick = { swipeMessageIndex = importedIndex }) {
-                            Text(item.sillyTavernSwipeCount?.let { "查看 $it 个回复版本" } ?: "查看迁移的备用回复")
-                        }
+                        TextButton(
+                            text = item.sillyTavernSwipeCount?.let { "查看 $it 个回复版本" } ?: "查看迁移的备用回复",
+                            onClick = { swipeMessageIndex = importedIndex },
+                            minWidth = 0.dp,
+                            textStyle = COUITheme.textStyles.bodyM,
+                        )
                     }
                     if (!sending && index == latestUserIndex && modelReasoning.isNotBlank()) {
                         ModelReasoningBlock(modelReasoning, streaming = false)
@@ -452,8 +425,12 @@ internal fun Transcript(
 
         }
 
-        if (!isAtBottom || unseenMessages > 0) {
-            ExtendedFloatingActionButton(
+        BadgeBox(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp),
+            badge = { Badge(count = unseenMessages, visible = unseenMessages > 0, stroke = true) },
+        ) {
+            FloatingActionButton(
+                visible = !isAtBottom || unseenMessages > 0,
                 onClick = {
                     followNewMessages = true
                     unseenMessages = 0
@@ -461,20 +438,21 @@ internal fun Transcript(
                         listState.scrollToBottom(lastContentIndex, animated = true)
                     }
                 },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(14.dp),
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                icon = {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
-                },
-                text = {
-                    Text(
-                        if (unseenMessages > 0) "$unseenMessages 条新消息" else "回到底部",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                },
-            )
+                containerColor = FloatingActionButtonDefaults.secondaryContainerColor(),
+                contentColor = COUITheme.colorScheme.labelPrimary,
+                shadowElevation = 0.dp,
+                minWidth = FloatingActionButtonDefaults.TinySize,
+                minHeight = FloatingActionButtonDefaults.TinySize,
+            ) {
+                Icon(
+                    COUIIcons.ExpandMore,
+                    contentDescription = if (unseenMessages > 0) {
+                        "回到底部，$unseenMessages 条新消息"
+                    } else {
+                        "回到底部"
+                    },
+                )
+            }
         }
     }
 }

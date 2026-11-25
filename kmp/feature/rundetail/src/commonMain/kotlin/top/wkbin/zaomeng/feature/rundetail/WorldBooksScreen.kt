@@ -13,29 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,14 +28,38 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.LinearProgressIndicator
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.TabRow
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Play
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
 import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
 import top.wkbin.zaomeng.data.api.ManagedWorldBookEntryDto
 import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
 import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
 import top.wkbin.zaomeng.data.api.WorldBookKeywordMatching
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WorldBooksScreen(
     viewModel: RunDetailViewModel,
@@ -92,83 +93,72 @@ internal fun WorldBooksScreen(
         }
     }
 
-    Scaffold(
+    CouiPageScaffold(
         modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("世界书") },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回书卷")
-                    }
+        title = "世界书",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onClose,
+        wide = isWideWindow(),
+        actions = {
+            IconButton(
+                onClick = {
+                    viewModel.clearWorldBookError()
+                    viewModel.clearWorldBookTest()
+                    showTest = true
                 },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            viewModel.clearWorldBookError()
-                            viewModel.clearWorldBookTest()
-                            showTest = true
-                        },
-                        enabled = !state.busy && books.any { it.entries.isNotEmpty() },
-                    ) { Icon(Icons.Outlined.PlayArrow, "试触发世界书") }
-                    IconButton(
-                        onClick = {
-                            viewModel.clearWorldBookError()
-                            creatingEntrySource = activeBookSource
-                        },
-                        enabled = !state.busy && activeBook != null,
-                    ) { Icon(Icons.Outlined.Add, "新增条目") }
-                    if (activeBook != null) {
-                        key(activeBook.source) {
-                            WorldBookActions(
-                                book = activeBook,
-                                enabled = !state.busy,
-                                exportEnabled = !exportState.exporting,
-                                onRecursionChange = { viewModel.setWorldBookRecursion(activeBook, it) },
-                                onExport = { viewModel.exportWorldBook(activeBook) },
-                                onRemove = { removeBook = activeBook },
-                            )
-                        }
-                    }
+                enabled = !state.busy && books.any { it.entries.isNotEmpty() },
+            ) { Icon(COUIIcons.Play, "试触发世界书") }
+            IconButton(
+                onClick = {
+                    viewModel.clearWorldBookError()
+                    creatingEntrySource = activeBookSource
                 },
-            )
+                enabled = !state.busy && activeBook != null,
+            ) { Icon(COUIIcons.Add, "新增条目") }
+            if (activeBook != null) {
+                key(activeBook.source) {
+                    WorldBookActions(
+                        book = activeBook,
+                        enabled = !state.busy,
+                        exportEnabled = !exportState.exporting,
+                        onRecursionChange = { viewModel.setWorldBookRecursion(activeBook, it) },
+                        onExport = { viewModel.exportWorldBook(activeBook) },
+                        onRemove = { removeBook = activeBook },
+                    )
+                }
+            }
         },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+    ) { scope ->
+        Box(Modifier.fillMaxSize().padding(scope.contentPadding), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 760.dp).fillMaxSize()) {
                 if (state.busy || exportState.exporting) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (books.size > 1 && activeBook != null) {
-                    PrimaryTabRow(selectedTabIndex = books.indexOf(activeBook)) {
-                        books.forEach { book ->
-                            Tab(
-                                selected = book.source == activeBook.source,
-                                onClick = { activeSource = book.source },
-                                text = { Text(book.scopeLabel()) },
-                            )
-                        }
-                    }
+                    TabRow(
+                        tabs = books.map { it.scopeLabel() },
+                        selectedTabIndex = books.indexOf(activeBook),
+                        onTabSelected = { activeSource = books[it].source },
+                    )
                 }
                 if (activeBook != null) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
                         Text(
                             activeBook.displayName(),
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = COUITheme.textStyles.displayXS,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             "${activeBook.scopeLabel()} · 启用 ${activeBook.entries.count { it.enabled }} / ${activeBook.entries.size} 条",
                             modifier = Modifier.padding(top = 4.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
+                            color = COUITheme.colorScheme.labelSecondary,
+                            style = COUITheme.textStyles.bodyM,
                         )
                         if (activeBook.entries.isNotEmpty()) {
-                            OutlinedTextField(
+                            CouiTextField(
                                 value = search,
                                 onValueChange = { search = it },
                                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                                label = { Text("搜索标题或关键词") },
-                                singleLine = true,
+                                label = "搜索标题或关键词",
                             )
                         }
                     }
@@ -176,12 +166,17 @@ internal fun WorldBooksScreen(
                 key(activeBookSource, term) {
                     LazyColumn(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().couiPageScroll(scope),
                     ) {
                         if (state.error.isNotBlank()) {
                             item(key = "load-error") {
-                                Text(state.error, color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = viewModel::loadWorldBooks, enabled = !state.busy) { Text("重新加载") }
+                                Text(state.error, color = COUITheme.colorScheme.error)
+                                TextButton(
+                                    text = "重新加载",
+                                    onClick = viewModel::loadWorldBooks,
+                                    enabled = !state.busy,
+                                    minWidth = 0.dp,
+                                )
                             }
                         }
                         if (exportState.error.isNotBlank() || exportState.message.isNotBlank()) {
@@ -200,11 +195,24 @@ internal fun WorldBooksScreen(
                         if (state.data == null && state.error.isBlank()) {
                             item { Text("正在加载世界书…") }
                         } else if (state.data != null && activeBook == null) {
-                            item { Text("这个书卷没有挂载世界书。可从「导入书卷」添加独立世界书。") }
+                            item {
+                                EmptyState(
+                                    title = "这个书卷没有挂载世界书。",
+                                    subtitle = "可从「导入书卷」添加独立世界书。",
+                                    sizeType = EmptyStateSizeType.Small,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                )
+                            }
                         }
                         if (activeBook != null) {
                             if (entries.isEmpty()) {
-                                item { Text(if (term.isEmpty()) "这本世界书还没有条目。" else "没有匹配的条目。") }
+                                item {
+                                    EmptyState(
+                                        title = if (term.isEmpty()) "这本世界书还没有条目。" else "没有匹配的条目。",
+                                        sizeType = EmptyStateSizeType.Small,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                    )
+                                }
                             }
                             items(entries, key = { "${activeBook.source}/${it.index}" }) { entry ->
                                 WorldBookEntryRow(
@@ -224,168 +232,171 @@ internal fun WorldBooksScreen(
                 }
             }
         }
-    }
 
-    if (showTest) {
-        WorldBookTestDialog(viewModel, state, onClose = {
-            showTest = false
-            viewModel.clearWorldBookTest()
-            viewModel.clearWorldBookError()
-        })
-    }
-
-    val selectedBook = books.firstOrNull { it.source == selectedEntrySource }
-    val entry = selectedBook?.entries?.getOrNull(selectedEntryIndex ?: -1)
-    val createIn = books.firstOrNull { it.source == creatingEntrySource }
-    val deletion = deleteEntry
-    if (deletion != null) {
-        val cancel: () -> Unit = {
-            deleteEntry = null
-            if (state.error.isNotBlank()) selectedEntryIndex = null
+        if (showTest) {
+            WorldBookTestDialog(viewModel, state, onClose = {
+                showTest = false
+                viewModel.clearWorldBookTest()
+                viewModel.clearWorldBookError()
+            })
         }
-        AlertDialog(
-            onDismissRequest = { if (!state.busy) cancel() },
-            title = { Text("删除世界书条目？") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("将从「${deletion.bookName}」删除「${deletion.title}」。删除后无法撤销。")
-                    if (state.error.isNotBlank()) {
-                        Text(state.error, color = MaterialTheme.colorScheme.error)
+
+        val selectedBook = books.firstOrNull { it.source == selectedEntrySource }
+        val entry = selectedBook?.entries?.getOrNull(selectedEntryIndex ?: -1)
+        val createIn = books.firstOrNull { it.source == creatingEntrySource }
+        val deletion = deleteEntry
+        if (deletion != null) {
+            val cancel: () -> Unit = {
+                deleteEntry = null
+                if (state.error.isNotBlank()) selectedEntryIndex = null
+            }
+            CouiAlertDialog(
+                onDismissRequest = { if (!state.busy) cancel() },
+                title = "删除世界书条目？",
+                confirmText = if (state.busy) "删除中…" else "删除",
+                onConfirm = {
+                    viewModel.deleteWorldBookEntry(deletion.source, deletion.index, deletion.revision) {
+                        selectedEntryIndex = null
+                        deleteEntry = null
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteWorldBookEntry(deletion.source, deletion.index, deletion.revision) {
-                            selectedEntryIndex = null
-                            deleteEntry = null
+                },
+                confirmEnabled = !state.busy,
+                dismissText = "取消",
+                onDismiss = { if (!state.busy) cancel() },
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("将从「${deletion.bookName}」删除「${deletion.title}」。删除后无法撤销。")
+                        if (state.error.isNotBlank()) {
+                            Text(state.error, color = COUITheme.colorScheme.error)
                         }
-                    },
-                    enabled = !state.busy,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text(if (state.busy) "删除中…" else "删除") }
-            },
-            dismissButton = { TextButton(onClick = cancel, enabled = !state.busy) { Text("取消") } },
-        )
-    } else if (createIn != null) {
-        WorldBookEntryEditor(
-            book = createIn,
-            entry = null,
-            saving = state.busy,
-            error = state.error,
-            onCancel = { creatingEntrySource = null },
-            onSave = { draft ->
-                val request = CreateWorldBookEntryRequest(
-                    revision = draft.revision,
-                    content = draft.content.orEmpty(),
-                    keywords = draft.keywords.orEmpty(),
-                    comment = draft.comment.orEmpty(),
-                    secondaryKeywords = draft.secondaryKeywords.orEmpty(),
-                    constant = draft.constant == true,
-                    placement = draft.placement,
-                    activationDelay = draft.activationDelay,
-                    sticky = draft.sticky,
-                    cooldown = draft.cooldown,
-                    group = draft.group,
-                    triggers = draft.triggers,
-                    matching = draft.matching,
-                    ignoreBudget = draft.ignoreBudget,
-                )
-                viewModel.createWorldBookEntry(createIn.source, request) {
-                    creatingEntrySource = null
-                    selectedEntrySource = createIn.source
-                    selectedEntryIndex = createIn.entries.size
-                }
-            },
-        )
-    } else if (selectedBook != null && entry != null && editingEntry) {
-        WorldBookEntryEditor(
-            book = selectedBook,
-            entry = entry,
-            saving = state.busy,
-            error = state.error,
-            onCancel = { editingEntry = false },
-            onSave = { request ->
-                viewModel.editWorldBookEntry(selectedBook.source, entry.index, request) { editingEntry = false }
-            },
-        )
-    } else if (selectedBook != null && entry != null) {
-        AlertDialog(
-            onDismissRequest = { selectedEntryIndex = null },
-            title = { Text(entry.title) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 400.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (entry.constant) item { Text("常驻条目") }
-                    if (entry.ignoreBudget) item { Text("忽略普通条目预算") }
-                    if (entry.activationDelay > 0) item { Text("达到 ${entry.activationDelay} 条消息后可触发") }
-                    if (entry.sticky > 0) item { Text("粘滞 ${entry.sticky} 条消息") }
-                    if (entry.cooldown > 0) item { Text("冷却 ${entry.cooldown} 条消息") }
-                    if (entry.triggers.isNotEmpty() || entry.hasUnknownTriggers) {
-                        val labels = entry.triggers.map { it.generationLabel() } +
-                            listOf("未知类型").filter { entry.hasUnknownTriggers }
-                        item { Text("生成类型 · ${labels.joinToString("、")}") }
                     }
-                    entry.group?.takeIf { it.names.isNotBlank() }?.let { group ->
-                        item { Text("互斥分组 · ${group.names}") }
+                },
+            )
+        } else if (createIn != null) {
+            WorldBookEntryEditor(
+                book = createIn,
+                entry = null,
+                saving = state.busy,
+                error = state.error,
+                onCancel = { creatingEntrySource = null },
+                onSave = { draft ->
+                    val request = CreateWorldBookEntryRequest(
+                        revision = draft.revision,
+                        content = draft.content.orEmpty(),
+                        keywords = draft.keywords.orEmpty(),
+                        comment = draft.comment.orEmpty(),
+                        secondaryKeywords = draft.secondaryKeywords.orEmpty(),
+                        constant = draft.constant == true,
+                        placement = draft.placement,
+                        activationDelay = draft.activationDelay,
+                        sticky = draft.sticky,
+                        cooldown = draft.cooldown,
+                        group = draft.group,
+                        triggers = draft.triggers,
+                        matching = draft.matching,
+                        ignoreBudget = draft.ignoreBudget,
+                    )
+                    viewModel.createWorldBookEntry(createIn.source, request) {
+                        creatingEntrySource = null
+                        selectedEntrySource = createIn.source
+                        selectedEntryIndex = createIn.entries.size
                     }
-                    entry.position?.let { position -> item { Text(position.label(entry.injectionDepth, entry.injectionRole, entry.outletName)) } }
-                    if (entry.keywords.isNotEmpty()) item { Text("主关键词：${entry.keywords.joinToString("、")}") }
-                    if (entry.secondaryKeywords.isNotEmpty()) item {
-                        Text("次关键词：${entry.secondaryKeywords.joinToString("、")}")
-                        Text(if (entry.matching.useSecondary) entry.matching.secondaryLogic.label() else "次关键词未启用")
-                    }
-                    entry.matching.scanDepth?.let {
-                        item { Text("扫描最近 ${it.coerceAtMost(WorldBookKeywordMatching.MAX_SCAN_DEPTH)} 条消息") }
-                    }
-                    if (entry.matching.sources.isNotEmpty()) item {
-                        Text("额外扫描 · ${entry.matching.sources.joinToString("、") { it.label() }}")
-                    }
-                    items(entry.content.chunked(2000)) { Text(it) }
-                    item {
-                        TextButton(
-                            onClick = {
-                                viewModel.clearWorldBookError()
-                                deleteEntry = WorldBookEntryDeletion(
-                                    source = selectedBook.source,
-                                    index = entry.index,
-                                    revision = selectedBook.revision,
-                                    bookName = selectedBook.displayName(),
-                                    title = entry.title,
-                                )
-                            },
-                            enabled = !state.busy,
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        ) { Text("删除条目") }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !state.busy, onClick = {
+                },
+            )
+        } else if (selectedBook != null && entry != null && editingEntry) {
+            WorldBookEntryEditor(
+                book = selectedBook,
+                entry = entry,
+                saving = state.busy,
+                error = state.error,
+                onCancel = { editingEntry = false },
+                onSave = { request ->
+                    viewModel.editWorldBookEntry(selectedBook.source, entry.index, request) { editingEntry = false }
+                },
+            )
+        } else if (selectedBook != null && entry != null) {
+            CouiAlertDialog(
+                onDismissRequest = { selectedEntryIndex = null },
+                title = entry.title,
+                confirmText = "编辑",
+                onConfirm = {
                     viewModel.clearWorldBookError()
                     editingEntry = true
-                }) { Text("编辑") }
-            },
-            dismissButton = { TextButton(onClick = { selectedEntryIndex = null }) { Text("返回条目列表") } },
-        )
-    }
-    removeBook?.let { book ->
-        AlertDialog(
-            onDismissRequest = { removeBook = null },
-            title = { Text("移除独立世界书？") },
-            text = { Text("「${book.displayName()}」的 ${book.entries.size} 条设定将从这个书卷解绑。") },
-            confirmButton = {
-                TextButton(onClick = {
+                },
+                confirmEnabled = !state.busy,
+                dismissText = "返回条目列表",
+                onDismiss = { selectedEntryIndex = null },
+                body = {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (entry.constant) item { Text("常驻条目") }
+                        if (entry.ignoreBudget) item { Text("忽略普通条目预算") }
+                        if (entry.activationDelay > 0) item { Text("达到 ${entry.activationDelay} 条消息后可触发") }
+                        if (entry.sticky > 0) item { Text("粘滞 ${entry.sticky} 条消息") }
+                        if (entry.cooldown > 0) item { Text("冷却 ${entry.cooldown} 条消息") }
+                        if (entry.triggers.isNotEmpty() || entry.hasUnknownTriggers) {
+                            val labels = entry.triggers.map { it.generationLabel() } +
+                                listOf("未知类型").filter { entry.hasUnknownTriggers }
+                            item { Text("生成类型 · ${labels.joinToString("、")}") }
+                        }
+                        entry.group?.takeIf { it.names.isNotBlank() }?.let { group ->
+                            item { Text("互斥分组 · ${group.names}") }
+                        }
+                        entry.position?.let { position -> item { Text(position.label(entry.injectionDepth, entry.injectionRole, entry.outletName)) } }
+                        if (entry.keywords.isNotEmpty()) item { Text("主关键词：${entry.keywords.joinToString("、")}") }
+                        if (entry.secondaryKeywords.isNotEmpty()) item {
+                            Text("次关键词：${entry.secondaryKeywords.joinToString("、")}")
+                            Text(if (entry.matching.useSecondary) entry.matching.secondaryLogic.label() else "次关键词未启用")
+                        }
+                        entry.matching.scanDepth?.let {
+                            item { Text("扫描最近 ${it.coerceAtMost(WorldBookKeywordMatching.MAX_SCAN_DEPTH)} 条消息") }
+                        }
+                        if (entry.matching.sources.isNotEmpty()) item {
+                            Text("额外扫描 · ${entry.matching.sources.joinToString("、") { it.label() }}")
+                        }
+                        items(entry.content.chunked(2000)) { Text(it) }
+                        item {
+                            TextButton(
+                                text = "删除条目",
+                                onClick = {
+                                    viewModel.clearWorldBookError()
+                                    deleteEntry = WorldBookEntryDeletion(
+                                        source = selectedBook.source,
+                                        index = entry.index,
+                                        revision = selectedBook.revision,
+                                        bookName = selectedBook.displayName(),
+                                        title = entry.title,
+                                    )
+                                },
+                                enabled = !state.busy,
+                                minWidth = 0.dp,
+                                colors = ButtonDefaults.textButtonColors(textColor = COUITheme.colorScheme.error),
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        removeBook?.let { book ->
+            CouiAlertDialog(
+                onDismissRequest = { removeBook = null },
+                title = "移除独立世界书？",
+                confirmText = "移除",
+                onConfirm = {
                     removeBook = null
                     viewModel.removeWorldBook(book)
-                }) { Text("移除") }
-            },
-            dismissButton = { TextButton(onClick = { removeBook = null }) { Text("取消") } },
-        )
+                },
+                dismissText = "取消",
+                onDismiss = { removeBook = null },
+                body = {
+                    Text("「${book.displayName()}」的 ${book.entries.size} 条设定将从这个书卷解绑。")
+                },
+            )
+        }
     }
+
 }
 
 private data class WorldBookEntryDeletion(
@@ -433,8 +444,8 @@ private fun WorldBookEntryRow(
         ) {
             Text(
                 entry.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (entry.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.headlineXS,
+                color = if (entry.enabled) COUITheme.colorScheme.labelPrimary else COUITheme.colorScheme.labelSecondary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -445,8 +456,8 @@ private fun WorldBookEntryRow(
             }
             Text(
                 subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -472,32 +483,44 @@ private fun WorldBookActions(
     var menuOpen by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menuOpen = true }, enabled = enabled) {
-            Icon(Icons.Filled.MoreVert, "更多世界书操作")
+            Icon(COUIIcons.More, "更多世界书操作")
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(if (book.recursionEnabled) "关闭递归触发" else "开启递归触发") },
-                onClick = {
-                    menuOpen = false
-                    onRecursionChange(!book.recursionEnabled)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("导出世界书 JSON") },
-                enabled = exportEnabled,
-                onClick = {
-                    menuOpen = false
-                    onExport()
-                },
-            )
-            if (book.source == "world_book") {
-                DropdownMenuItem(
-                    text = { Text("移除独立世界书") },
-                    onClick = {
+        OverlayListPopup(show = menuOpen, onDismissRequest = { menuOpen = false }) {
+            ListPopupColumn {
+                val optionSize = if (book.source == "world_book") 3 else 2
+                DropdownImpl(
+                    text = if (book.recursionEnabled) "关闭递归触发" else "开启递归触发",
+                    optionSize = optionSize,
+                    isSelected = false,
+                    index = 0,
+                    onSelectedIndexChange = {
                         menuOpen = false
-                        onRemove()
+                        onRecursionChange(!book.recursionEnabled)
                     },
                 )
+                DropdownImpl(
+                    text = "导出世界书 JSON",
+                    optionSize = optionSize,
+                    isSelected = false,
+                    index = 1,
+                    enabled = exportEnabled,
+                    onSelectedIndexChange = {
+                        menuOpen = false
+                        onExport()
+                    },
+                )
+                if (book.source == "world_book") {
+                    DropdownImpl(
+                        text = "移除独立世界书",
+                        optionSize = optionSize,
+                        isSelected = false,
+                        index = 2,
+                        onSelectedIndexChange = {
+                            menuOpen = false
+                            onRemove()
+                        },
+                    )
+                }
             }
         }
     }

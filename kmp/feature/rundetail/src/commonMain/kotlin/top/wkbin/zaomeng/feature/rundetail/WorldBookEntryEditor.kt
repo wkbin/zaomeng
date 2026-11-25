@@ -9,20 +9,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +20,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
 import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
 import top.wkbin.zaomeng.data.api.ManagedWorldBookEntryDto
@@ -46,6 +45,8 @@ import top.wkbin.zaomeng.data.api.WorldBookEntryPlacement
 import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
 import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
 import top.wkbin.zaomeng.data.api.isValidSillyTavernOutletName
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiTextField
 
 @Composable
 internal fun WorldBookEntryEditor(
@@ -169,28 +170,52 @@ internal fun WorldBookEntryEditor(
     )
         .any { it != null }
     val canSave = valid && !missingPrimary && (if (creating) content.isNotBlank() else changed)
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!saving) onCancel() },
-        title = { Text(if (creating) "新增世界书条目" else "编辑世界书条目") },
-        text = {
+        title = if (creating) "新增世界书条目" else "编辑世界书条目",
+        confirmText = if (saving) "保存中…" else if (creating) "新增" else "保存",
+        onConfirm = { onSave(request) },
+        confirmEnabled = canSave && !saving,
+        dismissText = "取消",
+        body = {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (error.isNotBlank()) {
-                    item { Text(error, color = MaterialTheme.colorScheme.error) }
+                    item { Text(error, color = COUITheme.colorScheme.error) }
                 }
                 item {
-                    OutlinedTextField(comment, { comment = it }, Modifier.fillMaxWidth(), enabled = !saving,
-                        label = { Text("标题") }, placeholder = { Text("留空时自动命名") }, singleLine = true,
-                        isError = invalidTitle,
-                        supportingText = if (invalidTitle) ({ Text("标题不能超过 120 字符。") }) else null)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CouiTextField(
+                            value = comment,
+                            onValueChange = { comment = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = "标题",
+                            enabled = !saving,
+                            isError = invalidTitle,
+                        )
+                        FieldHint(
+                            text = if (invalidTitle) "标题不能超过 120 字符。" else "留空时自动命名",
+                            error = invalidTitle,
+                        )
+                    }
                 }
                 item {
-                    OutlinedTextField(content, { content = it }, Modifier.fillMaxWidth(), enabled = !saving,
-                        label = { Text(if (creating) "正文（必填）" else "正文") }, minLines = 3, maxLines = 8,
-                        isError = invalidContent,
-                        supportingText = if (invalidContent) ({ Text("正文须为 1 至 16000 字符。") }) else null)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CouiTextField(
+                            value = content,
+                            onValueChange = { content = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = if (creating) "正文（必填）" else "正文",
+                            enabled = !saving,
+                            singleLine = false,
+                            minLines = 3,
+                            maxLines = 8,
+                            isError = invalidContent,
+                        )
+                        if (invalidContent) FieldHint("正文须为 1 至 16000 字符。", error = true)
+                    }
                 }
                 item {
                     Row(
@@ -207,7 +232,7 @@ internal fun WorldBookEntryEditor(
                             Text("常驻条目")
                             Text(
                                 if (constant) "不依赖关键词触发" else "命中关键词时触发",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = COUITheme.textStyles.bodyXS,
                             )
                         }
                         Switch(checked = constant, onCheckedChange = null, enabled = !saving)
@@ -228,28 +253,34 @@ internal fun WorldBookEntryEditor(
                     }
                 }
                 item {
-                    OutlinedButton(
+                    Button(
                         onClick = { matchingExpanded = !matchingExpanded },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !saving,
+                        colors = ButtonDefaults.buttonColors(),
                     ) {
                         Text(if (matchingExpanded) "收起关键词匹配" else "关键词匹配", modifier = Modifier.weight(1f))
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                        Icon(COUIIcons.ExpandMore, contentDescription = null)
                     }
                 }
                 if (matchingExpanded) {
                     item {
-                        OutlinedTextField(
-                            scanDepth, { scanDepth = it }, modifier = Modifier.fillMaxWidth(),
-                            label = { Text("扫描深度") }, singleLine = true, enabled = !saving, isError = invalidScanDepth,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            supportingText = {
-                                Text(
-                                    if (invalidScanDepth) "请输入非负整数。"
-                                    else "留空继承默认值，包含本轮输入，最多扫描 32 条。",
-                                )
-                            },
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CouiTextField(
+                                value = scanDepth,
+                                onValueChange = { scanDepth = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = "扫描深度",
+                                enabled = !saving,
+                                isError = invalidScanDepth,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                            FieldHint(
+                                text = if (invalidScanDepth) "请输入非负整数。"
+                                else "留空继承默认值，包含本轮输入，最多扫描 32 条。",
+                                error = invalidScanDepth,
+                            )
+                        }
                     }
                     item {
                         PlacementMenu("大小写", caseSensitive, listOf(null, true, false), !saving, {
@@ -271,7 +302,12 @@ internal fun WorldBookEntryEditor(
                     }
                     if (secondary.isNotBlank()) {
                         item {
-                            FilterChip(useSecondary, { useSecondary = !useSecondary }, { Text("启用次关键词") }, enabled = !saving)
+                            Chip(
+                                selected = useSecondary,
+                                onClick = { useSecondary = !useSecondary },
+                                label = "启用次关键词",
+                                enabled = !saving,
+                            )
                         }
                         if (useSecondary) item {
                             PlacementMenu(
@@ -280,17 +316,17 @@ internal fun WorldBookEntryEditor(
                             ) { secondaryLogic = it }
                         }
                     }
-                    item { Text("额外扫描来源", style = MaterialTheme.typography.labelLarge) }
+                    item { Text("额外扫描来源", style = COUITheme.textStyles.buttonM) }
                     for (row in WorldBookScanSource.entries.chunked(2)) {
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for (source in row) {
-                                    FilterChip(
+                                    Chip(
                                         selected = source in scanSources,
                                         onClick = {
                                             scanSources = if (source in scanSources) scanSources - source else scanSources + source
                                         },
-                                        label = { Text(source.label()) },
+                                        label = source.label(),
                                         enabled = !saving,
                                     )
                                 }
@@ -299,10 +335,11 @@ internal fun WorldBookEntryEditor(
                     }
                 }
                 item {
-                    OutlinedButton(
+                    Button(
                         onClick = { triggersExpanded = !triggersExpanded },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !saving,
+                        colors = ButtonDefaults.buttonColors(),
                     ) {
                         val summary = when {
                             hasUnknownTriggers -> "含未知类型"
@@ -310,28 +347,30 @@ internal fun WorldBookEntryEditor(
                             else -> "已选 ${triggers.size} 种"
                         }
                         Text("生成类型 · $summary", modifier = Modifier.weight(1f))
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                        Icon(COUIIcons.ExpandMore, contentDescription = null)
                     }
                     if (triggersExpanded) {
                         Text(
                             if (hasUnknownTriggers) "修改选项会移除未知类型。" else "全部取消时不限生成类型。",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = COUITheme.textStyles.bodyXS,
                         )
                         if (hasUnknownTriggers) {
-                            TextButton(onClick = { replaceUnknownTriggers = true }, enabled = !saving) {
-                                Text("移除未知类型")
-                            }
+                            TextButton(
+                                text = "移除未知类型",
+                                onClick = { replaceUnknownTriggers = true },
+                                enabled = !saving,
+                            )
                         }
                         for (row in WorldBookGenerationType.entries.chunked(2)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for (type in row) {
-                                    FilterChip(
+                                    Chip(
                                         selected = type in triggers,
                                         onClick = {
                                             replaceUnknownTriggers = entry?.hasUnknownTriggers == true
                                             triggers = if (type in triggers) triggers - type else triggers + type
                                         },
-                                        label = { Text(type.generationLabel()) },
+                                        label = type.generationLabel(),
                                         enabled = !saving,
                                     )
                                 }
@@ -340,17 +379,29 @@ internal fun WorldBookEntryEditor(
                     }
                 }
                 item {
-                    OutlinedTextField(
-                        groupNames, { groupNames = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("互斥分组") }, singleLine = true, enabled = !saving, isError = invalidGroupNames,
-                        supportingText = {
-                            Text(if (invalidGroupNames) "请输入一行且不超过 512 个字符。" else "多个组名用英文逗号分隔。")
-                        },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CouiTextField(
+                            value = groupNames,
+                            onValueChange = { groupNames = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = "互斥分组",
+                            enabled = !saving,
+                            isError = invalidGroupNames,
+                        )
+                        FieldHint(
+                            text = if (invalidGroupNames) "请输入一行且不超过 512 个字符。" else "多个组名用英文逗号分隔。",
+                            error = invalidGroupNames,
+                        )
+                    }
                 }
                 if (hasGroupNames) {
                     item {
-                        FilterChip(groupPriority, { groupPriority = !groupPriority }, { Text("组内优先") }, enabled = !saving)
+                        Chip(
+                            selected = groupPriority,
+                            onClick = { groupPriority = !groupPriority },
+                            label = "组内优先",
+                            enabled = !saving,
+                        )
                         PlacementMenu(
                             "按命中评分", groupScoring, listOf(null, true, false), !saving,
                             { option ->
@@ -361,13 +412,18 @@ internal fun WorldBookEntryEditor(
                                 }
                             },
                         ) { groupScoring = it }
-                        OutlinedTextField(
-                            groupWeight, { groupWeight = it }, modifier = Modifier.fillMaxWidth(),
-                            label = { Text("抽选权重") }, singleLine = true, enabled = !saving, isError = invalidGroupWeight,
+                        CouiTextField(
+                            value = groupWeight,
+                            onValueChange = { groupWeight = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = "抽选权重",
+                            enabled = !saving,
+                            isError = invalidGroupWeight,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            supportingText = {
-                                Text(if (invalidGroupWeight) "请输入 0 至 10000 的整数。" else "默认 100，权重越高越容易抽中。")
-                            },
+                        )
+                        FieldHint(
+                            text = if (invalidGroupWeight) "请输入 0 至 10000 的整数。" else "默认 100，权重越高越容易抽中。",
+                            error = invalidGroupWeight,
                         )
                     }
                 }
@@ -396,7 +452,7 @@ internal fun WorldBookEntryEditor(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("忽略预算")
-                            Text("跳过普通条目配额，仍受总注入上限约束。", style = MaterialTheme.typography.bodySmall)
+                            Text("跳过普通条目配额，仍受总注入上限约束。", style = COUITheme.textStyles.bodyXS)
                         }
                         Switch(checked = ignoreBudget, onCheckedChange = null, enabled = !saving)
                     }
@@ -409,55 +465,58 @@ internal fun WorldBookEntryEditor(
                         if (position == WorldBookInjectionPosition.BeforeExamples || position == WorldBookInjectionPosition.AfterExamples) {
                             Text(
                                 "用 {{char}}: 和 {{user}}: 标记台词，多段示例用 <START> 分隔。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         }
                         if (atDepth) {
-                            OutlinedTextField(
+                            CouiTextField(
                                 value = depth,
                                 onValueChange = { depth = it },
                                 modifier = Modifier.fillMaxWidth(),
+                                label = "聊天深度",
                                 enabled = !saving,
-                                label = { Text("聊天深度") },
-                                singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 isError = invalidDepth,
-                                supportingText = {
-                                    Text(if (invalidDepth) "请输入 0 至 10000 的整数。" else "0 在本轮输入后，1 在本轮输入前")
-                                },
+                            )
+                            FieldHint(
+                                text = if (invalidDepth) "请输入 0 至 10000 的整数。" else "0 在本轮输入后，1 在本轮输入前",
+                                error = invalidDepth,
                             )
                             PlacementMenu(
                                 "注入角色", injectionRole, WorldBookInjectionRole.entries, !saving, WorldBookInjectionRole::roleLabel,
                             ) { injectionRole = it }
                         }
                         if (atOutlet) {
-                            OutlinedTextField(
+                            CouiTextField(
                                 value = outletName,
                                 onValueChange = { outletName = it },
                                 modifier = Modifier.fillMaxWidth(),
+                                label = "出口名称",
                                 enabled = !saving,
-                                label = { Text("出口名称") },
-                                singleLine = true,
                                 isError = invalidOutlet && outletName.isNotEmpty(),
-                                supportingText = {
-                                    Text(
-                                        if (invalidOutlet && outletName.isNotEmpty()) "请输入 1 至 120 个字符，避开花括号。"
-                                        else "在角色卡里用 {{outlet::名称}} 引用",
-                                    )
-                                },
+                            )
+                            FieldHint(
+                                text = if (invalidOutlet && outletName.isNotEmpty()) "请输入 1 至 120 个字符，避开花括号。"
+                                else "在角色卡里用 {{outlet::名称}} 引用",
+                                error = invalidOutlet && outletName.isNotEmpty(),
                             )
                         }
                     }
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onCancel, enabled = !saving) { Text("取消") } },
-        confirmButton = {
-            Button(onClick = { onSave(request) }, enabled = canSave && !saving) {
-                Text(if (saving) "保存中…" else if (creating) "新增" else "保存")
-            }
-        },
+    )
+}
+
+/** 输入框下方的辅助说明（COUI TextField 没有 supportingText）。 */
+@Composable
+private fun FieldHint(text: String, error: Boolean = false) {
+    if (text.isBlank()) return
+    Text(
+        text,
+        style = COUITheme.textStyles.bodyXS,
+        color = if (error) COUITheme.colorScheme.error else COUITheme.colorScheme.labelSecondary,
     )
 }
 
@@ -472,21 +531,31 @@ internal fun <T> PlacementMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), enabled = enabled) {
+        Button(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            colors = ButtonDefaults.buttonColors(),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("$label · ${optionLabel(selected)}")
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                Icon(COUIIcons.ExpandMore, contentDescription = null)
             }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            for (option in options) {
-                DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    onClick = {
-                        onSelect(option)
-                        expanded = false
-                    },
-                )
+        OverlayListPopup(show = expanded, onDismissRequest = { expanded = false }) {
+            ListPopupColumn {
+                options.forEachIndexed { index, option ->
+                    DropdownImpl(
+                        text = optionLabel(option),
+                        optionSize = options.size,
+                        isSelected = option == selected,
+                        index = index,
+                        onSelectedIndexChange = {
+                            expanded = false
+                            onSelect(option)
+                        },
+                    )
+                }
             }
         }
     }
@@ -537,10 +606,19 @@ internal fun WorldBookScanSource.label(): String = when (this) {
 
 @Composable
 private fun KeywordField(label: String, value: String, enabled: Boolean, validation: String?, onChange: (String) -> Unit) {
-    OutlinedTextField(value, onChange, Modifier.fillMaxWidth(), enabled = enabled,
-        label = { Text(label) }, isError = validation != null,
-        supportingText = { Text(validation ?: "每行一个关键词") },
-        maxLines = 4)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        CouiTextField(
+            value = value,
+            onValueChange = onChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = label,
+            enabled = enabled,
+            singleLine = false,
+            maxLines = 4,
+            isError = validation != null,
+        )
+        FieldHint(validation ?: "每行一个关键词", error = validation != null)
+    }
 }
 
 private const val keywordLimitMessage = "每组最多 32 个关键词，每个不能超过 120 字符。"
@@ -549,13 +627,25 @@ private const val keywordLimitMessage = "每组最多 32 个关键词，每个�
 private fun TimingField(
     label: String, value: String, enabled: Boolean, invalid: Boolean, help: String, onChange: (String) -> Unit,
 ) {
-    OutlinedTextField(
-        value, onChange, modifier = Modifier.fillMaxWidth(), enabled = enabled,
-        label = { Text(label) }, suffix = { Text("条消息") }, singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        isError = invalid,
-        supportingText = { Text(if (invalid) "请输入非负整数。" else help) },
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        CouiTextField(
+            value = value,
+            onValueChange = onChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = label,
+            enabled = enabled,
+            isError = invalid,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            trailingIcon = {
+                Text(
+                    "条消息",
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelSecondary,
+                )
+            },
+        )
+        FieldHint(if (invalid) "请输入非负整数。" else help, error = invalid)
+    }
 }
 
 private fun List<String>.exceedLimits(): Boolean = size > 32 || any { it.length > 120 }

@@ -1,6 +1,5 @@
 package top.wkbin.zaomeng.feature.storyrecap
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,39 +10,31 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.SnackbarHostState
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.coroutines.launch
 import top.wkbin.zaomeng.data.api.StoryRecapDto
 import top.wkbin.zaomeng.platform.rememberClipboardTextWriter
 import top.wkbin.zaomeng.platform.rememberShareText
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
 
 enum class RecapExportFormat(val label: String, val iconDesc: String) {
     THEATRE("🎭 剧场剧本", "标准舞台剧本排版"),
@@ -72,20 +63,25 @@ fun RecapExportDialog(
         }
     }
 
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "导出剧情剧场与战报",
-                style = MaterialTheme.typography.titleLarge,
-            )
+        title = "导出剧情剧场与战报",
+        confirmText = "复制内容",
+        onConfirm = {
+            coroutineScope.launch {
+                clipboardWriter(formattedContent)
+                snackbarHostState?.showSnackbar("已复制${selectedFormat.label}到剪贴板")
+                onDismiss()
+            }
         },
-        text = {
+        dismissText = "关闭",
+        onDismiss = onDismiss,
+        body = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "选择导出格式：",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -96,10 +92,10 @@ fun RecapExportDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     RecapExportFormat.entries.forEach { format ->
-                        FilterChip(
+                        Chip(
                             selected = selectedFormat == format,
                             onClick = { selectedFormat = format },
-                            label = { Text(format.label) },
+                            label = format.label,
                         )
                     }
                 }
@@ -108,8 +104,8 @@ fun RecapExportDialog(
 
                 Text(
                     text = "内容预览（${formattedContent.length} 字）：",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -117,8 +113,8 @@ fun RecapExportDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 240.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = SquircleShape(COUIRoundCorner.Normal.S, COUIRoundCorner.Normal.Weight),
+                    color = COUITheme.colorScheme.containerSolid.copy(alpha = 0.6f),
                 ) {
                     Box(
                         modifier = Modifier
@@ -130,42 +126,19 @@ fun RecapExportDialog(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp,
                             lineHeight = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
                 }
-            }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        shareText(formattedContent)
-                    },
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("系统分享")
+                    TextButton(
+                        text = "系统分享",
+                        onClick = { shareText(formattedContent) },
+                    )
                 }
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            clipboardWriter(formattedContent)
-                            snackbarHostState?.showSnackbar("已复制${selectedFormat.label}到剪贴板")
-                            onDismiss()
-                        }
-                    },
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("复制内容")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
             }
         },
     )

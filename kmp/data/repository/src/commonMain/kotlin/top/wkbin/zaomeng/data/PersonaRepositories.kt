@@ -10,6 +10,8 @@ import top.wkbin.zaomeng.data.api.PersonaAvatarDto
 import top.wkbin.zaomeng.data.api.PersonaQualityReportDto
 import top.wkbin.zaomeng.data.api.PersonaRepairProposalDto
 import top.wkbin.zaomeng.data.api.PersonaReviewDto
+import top.wkbin.zaomeng.data.api.SillyTavernCardMetadataDto
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
 import top.wkbin.zaomeng.data.api.RelationDetailsDto
 import top.wkbin.zaomeng.data.api.SuggestPersonaFieldResponse
 import top.wkbin.zaomeng.data.api.WorldMemoryDto
@@ -23,6 +25,10 @@ class PersonaRepositoryImpl(
     override suspend fun getPersona(runId: String, character: String): PersonaReviewDto = repositoryRequest {
         ktorPersona.getReview(runId, character)
     }
+
+    override suspend fun updateCardMetadata(
+        runId: String, character: String, request: UpdateSillyTavernCardMetadataRequest,
+    ): SillyTavernCardMetadataDto = repositoryRequest { ktorPersona.updateCardMetadata(runId, character, request) }
 
     override suspend fun savePersona(
         runId: String,

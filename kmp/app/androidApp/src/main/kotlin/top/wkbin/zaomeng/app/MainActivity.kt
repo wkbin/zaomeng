@@ -5,22 +5,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.lifecycle.lifecycleScope
+import io.github.suqi8.coui.kmp.window.WindowUserStatementDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import androidx.lifecycle.lifecycleScope
 import org.koin.core.context.GlobalContext
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.app.shared.App
@@ -84,26 +82,28 @@ class MainActivity : ComponentActivity() {
                             .setBuiltInBackHandlingEnabled(enabled)
                     }
                 },
+                overlay = {
+                    if (!contentDisclaimerAccepted) {
+                        ContentDisclaimerDialog(
+                            onAccept = {
+                                contentDisclaimerAccepted = true
+                                lifecycleScope.launch { disclaimerPreferences.accept() }
+                            },
+                            onDecline = { finishAndRemoveTask() },
+                        )
+                    } else {
+                        val update = appUpdateState.availableUpdate
+                        if (update != null && dismissedUpdateVersion != update.version) {
+                            AppUpdateDialog(
+                                update = update,
+                                downloadState = appUpdateState.downloadState,
+                                onDismiss = { dismissedUpdateVersion = update.version },
+                                onDownload = ::downloadAppUpdate,
+                            )
+                        }
+                    }
+                },
             )
-            appUpdateState.availableUpdate?.let { update ->
-                if (dismissedUpdateVersion != update.version) {
-                    AppUpdateDialog(
-                        update = update,
-                        downloadState = appUpdateState.downloadState,
-                        onDismiss = { dismissedUpdateVersion = update.version },
-                        onDownload = ::downloadAppUpdate,
-                    )
-                }
-            }
-            if (!contentDisclaimerAccepted) {
-                ContentDisclaimerDialog(
-                    onAccept = {
-                        contentDisclaimerAccepted = true
-                        lifecycleScope.launch { disclaimerPreferences.accept() }
-                    },
-                    onDecline = { finishAndRemoveTask() },
-                )
-            }
         }
         if (!startupUpdateCheckDisabled) checkForAppUpdate(manual = false)
     }
@@ -256,15 +256,14 @@ private fun ContentDisclaimerDialog(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text(stringResource(R.string.content_disclaimer_title)) },
-        text = { Text(stringResource(R.string.content_disclaimer_message)) },
-        confirmButton = {
-            Button(onClick = onAccept) { Text(stringResource(R.string.content_disclaimer_accept)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) { Text(stringResource(R.string.content_disclaimer_decline)) }
-        },
+    WindowUserStatementDialog(
+        show = true,
+        title = stringResource(R.string.content_disclaimer_title),
+        appName = stringResource(R.string.app_name),
+        confirmText = stringResource(R.string.content_disclaimer_accept),
+        onConfirm = onAccept,
+        exitText = stringResource(R.string.content_disclaimer_decline),
+        onExit = onDecline,
+        statement = AnnotatedString(stringResource(R.string.content_disclaimer_message)),
     )
 }

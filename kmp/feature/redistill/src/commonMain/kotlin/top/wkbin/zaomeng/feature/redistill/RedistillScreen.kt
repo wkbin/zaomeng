@@ -7,35 +7,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import top.wkbin.zaomeng.platform.formatOneDecimal
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,16 +21,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import top.wkbin.zaomeng.data.api.RedistillSegmentDto
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.Checkbox
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Create
+import io.github.suqi8.coui.kmp.icon.extended.UploadCloud
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import org.koin.compose.koinInject
+import top.wkbin.zaomeng.data.api.RedistillSegmentDto
 import top.wkbin.zaomeng.platform.DistillationForeground
+import top.wkbin.zaomeng.platform.formatOneDecimal
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberNotificationPermissionRequester
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RedistillScreen(
     viewModel: RedistillViewModel,
@@ -97,81 +97,78 @@ fun RedistillScreen(
         if (state.samplingPlan == null) showEstimateConfirmation = false
     }
 
-    if (showEstimateConfirmation) state.samplingPlan?.let { plan ->
-            AlertDialog(
+    CouiPageScaffold(
+        title = "继续蒸馏",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+    ) { scope ->
+        if (showEstimateConfirmation) state.samplingPlan?.let { plan ->
+            CouiAlertDialog(
                 onDismissRequest = { showEstimateConfirmation = false },
-                title = { Text("确认开始本轮蒸馏") },
-                text = {
+                title = "确认开始本轮蒸馏",
+                confirmText = "确认开始",
+                onConfirm = {
+                    showEstimateConfirmation = false
+                    submitRedistill()
+                },
+                dismissText = "返回调整",
+                onDismiss = { showEstimateConfirmation = false },
+                body = {
                     Text(
                         "本轮预计调用约 ${plan.totalCalls} 次模型，消耗 ${plan.tokenLow.readableCount()}–${plan.tokenHigh.readableCount()} tokens，预计耗时 ${plan.timeLowSeconds.readableDuration()}–${plan.timeHighSeconds.readableDuration()}。",
                     )
                 },
-                dismissButton = {
-                    TextButton(onClick = { showEstimateConfirmation = false }) { Text("返回调整") }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showEstimateConfirmation = false
-                            submitRedistill()
-                        },
-                    ) { Text("确认开始") }
-                },
             )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("继续蒸馏") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
+        }
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(scope.contentPadding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            return@Scaffold
+            return@CouiPageScaffold
         }
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            modifier = Modifier.fillMaxSize().padding(scope.contentPadding).couiPageScroll(scope),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
                 Text(
                     "可以沿用当前正文，换入新的 TXT 书段，或从原文中选择推荐片段。已有资料会作为基线继续补充。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
             }
             item {
-                OutlinedTextField(
-                    value = state.characters,
-                    onValueChange = viewModel::updateCharacters,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("本轮人物") },
-                    supportingText = { Text("可新增人物，用逗号、顿号或换行分隔。") },
-                    minLines = 2,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CouiTextField(
+                        value = state.characters,
+                        onValueChange = viewModel::updateCharacters,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "本轮人物",
+                        singleLine = false,
+                        minLines = 2,
+                    )
+                    Text(
+                        "可新增人物，用逗号、顿号或换行分隔。",
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
+                    )
+                }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("换入新书段", style = MaterialTheme.typography.titleMedium)
-                        OutlinedButton(
+                        Text("换入新书段", style = COUITheme.textStyles.headlineXS)
+                        Button(
                             onClick = { documentPicker() },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.submitting && !state.readingFile,
+                            colors = ButtonDefaults.buttonColors(),
                         ) {
                             if (state.readingFile) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), size = 18.dp, strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Default.UploadFile, contentDescription = null)
+                                Icon(COUIIcons.UploadCloud, contentDescription = null)
                             }
                             Spacer(Modifier.size(8.dp))
                             Text(
@@ -188,9 +185,12 @@ fun RedistillScreen(
                                     "${state.sourceCharCount.readableCount()} 字 · ${state.sourceSentenceCount} 句",
                                     Modifier.weight(1f),
                                 )
-                                TextButton(onClick = viewModel::clearFile) {
-                                    Text("移除", color = MaterialTheme.colorScheme.error)
-                                }
+                                TextButton(
+                                    text = "移除",
+                                    onClick = viewModel::clearFile,
+                                    minWidth = 0.dp,
+                                    colors = ButtonDefaults.textButtonColors(textColor = COUITheme.colorScheme.error),
+                                )
                             }
                         }
                     }
@@ -202,12 +202,12 @@ fun RedistillScreen(
             state.suggestions.forEach { group ->
                 item(key = "recommendation-${group.character}") {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(group.character, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(group.character, style = COUITheme.textStyles.headlineXS, fontWeight = FontWeight.SemiBold)
                         if (group.suggestions.weakFieldLabels.isNotEmpty()) {
                             Text(
                                 "建议优先补充：${group.suggestions.weakFieldLabels.joinToString("、")}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         }
                     }
@@ -228,26 +228,24 @@ fun RedistillScreen(
                 item {
                     Text(
                         "已选择 ${state.selectedSegments.size} 段；使用推荐片段时，本轮每位人物至少需要一段。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
+                    CouiTextField(
                         value = state.maxSentences,
                         onValueChange = viewModel::updateMaxSentences,
                         modifier = Modifier.weight(1f),
-                        label = { Text("每批句数") },
-                        singleLine = true,
+                        label = "每批句数",
                     )
-                    OutlinedTextField(
+                    CouiTextField(
                         value = state.maxChars,
                         onValueChange = viewModel::updateMaxChars,
                         modifier = Modifier.weight(1f),
-                        label = { Text("每批字符") },
-                        singleLine = true,
+                        label = "每批字符",
                     )
                 }
             }
@@ -258,15 +256,16 @@ fun RedistillScreen(
                 )
             }
             if (state.error.isNotBlank()) {
-                item { Text(state.error, color = MaterialTheme.colorScheme.error) }
+                item { Text(state.error, color = COUITheme.colorScheme.error) }
             }
             item {
                 Button(
                     onClick = ::requestRedistill,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.submitting,
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                 ) {
-                    if (state.submitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    if (state.submitting) CircularProgressIndicator(modifier = Modifier.size(20.dp), size = 20.dp, strokeWidth = 2.dp)
                     Spacer(Modifier.size(8.dp))
                     Text(if (state.submitting) "正在启动…" else "开始这一轮蒸馏")
                 }
@@ -285,28 +284,27 @@ private fun RedistillSamplingPlanCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            Text("正在估算本轮蒸馏…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), size = 18.dp, strokeWidth = 2.dp)
+            Text("正在估算本轮蒸馏…", color = COUITheme.colorScheme.labelSecondary)
         }
 
         state.samplingPlan != null -> state.samplingPlan.let { plan ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("本轮蒸馏预估", style = MaterialTheme.typography.titleSmall)
+                    Text("本轮蒸馏预估", style = COUITheme.textStyles.bodyM)
                     Text(
                         "约 ${plan.totalCalls} 次模型调用 · ${plan.tokenLow.readableCount()}–${plan.tokenHigh.readableCount()} tokens",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = COUITheme.textStyles.bodyM,
                     )
                     Text(
                         "预计 ${plan.timeLowSeconds.readableDuration()}–${plan.timeHighSeconds.readableDuration()}；推荐 ${plan.suggestedMaxSentences} 句 / ${plan.suggestedMaxChars.readableCount()} 字取样",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -319,10 +317,10 @@ private fun RedistillSamplingPlanCard(
             Text(
                 state.samplingEstimateError,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.error,
             )
-            TextButton(onClick = onRetry) { Text("重试") }
+            TextButton(text = "重试", onClick = onRetry, minWidth = 0.dp)
         }
     }
 }
@@ -331,41 +329,47 @@ private fun RedistillSamplingPlanCard(
 private fun RecommendationHeader(state: RedistillUiState, viewModel: RedistillViewModel) {
     var expanded by remember { mutableStateOf(false) }
     val characters = parseRedistillCharacters(state.characters)
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("从原文推荐片段", style = MaterialTheme.typography.titleMedium)
+            Text("从原文推荐片段", style = COUITheme.textStyles.headlineXS)
             Box(Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { expanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    minWidth = 0.dp,
+                    colors = ButtonDefaults.buttonColors(),
+                ) {
                     Text(
                         if (state.recommendationCharacters.isEmpty()) "选择人物"
                         else "已选 ${state.recommendationCharacters.size}/${characters.size} 人",
                         Modifier.weight(1f),
                     )
                 }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    characters.forEach { character ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = character in state.recommendationCharacters,
-                                        onCheckedChange = null,
-                                    )
-                                    Text(character)
-                                }
-                            },
-                            onClick = { viewModel.toggleRecommendationCharacter(character) },
-                        )
+                OverlayListPopup(show = expanded, onDismissRequest = { expanded = false }) {
+                    ListPopupColumn {
+                        characters.forEachIndexed { index, character ->
+                            DropdownImpl(
+                                text = character,
+                                optionSize = characters.size,
+                                isSelected = character in state.recommendationCharacters,
+                                index = index,
+                                // 多选：勾选后保持菜单打开。
+                                onSelectedIndexChange = {
+                                    viewModel.toggleRecommendationCharacter(character)
+                                },
+                            )
+                        }
                     }
                 }
             }
-            OutlinedButton(
+            Button(
                 onClick = viewModel::recommendSegments,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = state.recommendationCharacters.isNotEmpty() && !state.recommending,
+                colors = ButtonDefaults.buttonColors(),
             ) {
-                if (state.recommending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
+                if (state.recommending) CircularProgressIndicator(modifier = Modifier.size(18.dp), size = 18.dp, strokeWidth = 2.dp)
+                else Icon(COUIIcons.Create, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
                 Text(if (state.recommending) "正在挑选…" else "为选中人物分别推荐三段")
             }
@@ -377,14 +381,14 @@ private fun RecommendationHeader(state: RedistillUiState, viewModel: RedistillVi
 private fun SegmentCard(segment: RedistillSegmentDto, selected: Boolean, onSelect: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow,
+        colors = CardDefaults.defaultColors(
+            color = if (selected) COUITheme.colorScheme.containerThemeHalftone
+            else COUITheme.colorScheme.backgroundWithCard,
         ),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = selected, onCheckedChange = null)
+                Checkbox(state = ToggleableState(selected), onClick = null)
                 Text(
                     "第 ${segment.startSentence}–${segment.endSentence} 句",
                     fontWeight = FontWeight.SemiBold,
@@ -395,8 +399,8 @@ private fun SegmentCard(segment: RedistillSegmentDto, selected: Boolean, onSelec
                 listOf(segment.reason, segment.estimatedFieldLabels.joinToString("、"))
                     .filter(String::isNotBlank)
                     .joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }

@@ -1,68 +1,19 @@
 package top.wkbin.zaomeng.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import io.github.suqi8.coui.kmp.effect.LocalCOUIMaterialEffectEnabled
+import io.github.suqi8.coui.kmp.theme.COUITheme
+import io.github.suqi8.coui.kmp.theme.COUIThemeColor
+import io.github.suqi8.coui.kmp.theme.ColorSchemeMode
+import io.github.suqi8.coui.kmp.theme.LocalContentColor
+import io.github.suqi8.coui.kmp.theme.ThemeController
+import io.github.suqi8.coui.kmp.theme.ThemePaletteStyle
 import top.wkbin.zaomeng.data.preferences.ThemeMode
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF9ED3C1),
-    onPrimary = Color(0xFF00382C),
-    primaryContainer = Color(0xFF1D5042),
-    onPrimaryContainer = Color(0xFFBAF0DC),
-    secondary = Color(0xFFB4CCBE),
-    onSecondary = Color(0xFF20352B),
-    secondaryContainer = Color(0xFF354C41),
-    onSecondaryContainer = Color(0xFFD0E8DA),
-    tertiary = Color(0xFFE1C68F),
-    onTertiary = Color(0xFF3D2E0A),
-    tertiaryContainer = Color(0xFF554519),
-    onTertiaryContainer = Color(0xFFFEE2A9),
-    background = Color(0xFF111815),
-    onBackground = Color(0xFFDFE4DF),
-    surface = Color(0xFF111815),
-    onSurface = Color(0xFFDFE4DF),
-    onSurfaceVariant = Color(0xFFBEC9C0),
-    surfaceContainerLow = Color(0xFF19221E),
-    surfaceContainer = Color(0xFF1D2822),
-    surfaceContainerHigh = Color(0xFF28332D),
-    surfaceContainerHighest = Color(0xFF334039),
-    surfaceVariant = Color(0xFF3E4942),
-    outline = Color(0xFF89968D),
-    outlineVariant = Color(0xFF3E4942),
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF266554),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFC8E9DB),
-    onPrimaryContainer = Color(0xFF0A392D),
-    secondary = Color(0xFF4A6357),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD6E9DF),
-    onSecondaryContainer = Color(0xFF1C372B),
-    tertiary = Color(0xFF725900),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF5E4B5),
-    onTertiaryContainer = Color(0xFF342700),
-    background = Color(0xFFF7F8F3),
-    onBackground = Color(0xFF1B2420),
-    surface = Color(0xFFF7F8F3),
-    onSurface = Color(0xFF1B2420),
-    onSurfaceVariant = Color(0xFF47534C),
-    surfaceContainerLow = Color(0xFFEEF2EB),
-    surfaceContainer = Color(0xFFE8EEE7),
-    surfaceContainerHigh = Color(0xFFE0E8DF),
-    surfaceContainerHighest = Color(0xFFD8E0D7),
-    surfaceVariant = Color(0xFFDFE8DF),
-    outline = Color(0xFF6E7A72),
-    outlineVariant = Color(0xFFBECBC1),
-)
-
-
+/** 应用外观偏好由 COUI 主题控制器解析，系统栏使用同一套色板。 */
 @Composable
 fun ZaomengTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -70,22 +21,45 @@ fun ZaomengTheme(
     themeSeedColorArgb: Long = 0L,
     content: @Composable () -> Unit,
 ) {
-    val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-    val colorScheme = platformColorScheme(
-        darkTheme = darkTheme,
-        dynamicColor = dynamicColorEnabled,
-        seedColorArgb = themeSeedColorArgb,
-    )
-        ?: if (darkTheme) DarkColorScheme else LightColorScheme
-    applySystemBars(darkTheme, colorScheme.background)
+    val controller = remember(themeMode, dynamicColorEnabled, themeSeedColorArgb) {
+        val keyColor = if (themeSeedColorArgb != 0L) Color(themeSeedColorArgb) else null
+        ThemeController(
+            colorSchemeMode = when {
+                !dynamicColorEnabled -> when (themeMode) {
+                    ThemeMode.SYSTEM -> ColorSchemeMode.System
+                    ThemeMode.LIGHT -> ColorSchemeMode.Light
+                    ThemeMode.DARK -> ColorSchemeMode.Dark
+                }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content,
-    )
+                else -> when (themeMode) {
+                    ThemeMode.SYSTEM -> ColorSchemeMode.MonetSystem
+                    ThemeMode.LIGHT -> ColorSchemeMode.MonetLight
+                    ThemeMode.DARK -> ColorSchemeMode.MonetDark
+                }
+            },
+            keyColor = keyColor,
+            paletteStyle = ThemePaletteStyle.Content,
+            themeColor = keyColor?.takeUnless { dynamicColorEnabled }?.let {
+                ThemeSeedColor.fromArgb(themeSeedColorArgb)?.couiThemeColor
+                    ?: COUIThemeColor.fromColor(it)
+            },
+        )
+    }
+
+    COUITheme(controller = controller) {
+        val colors = COUITheme.colorScheme
+        applySystemBars(colors.isDark, colors.backgroundWithCard)
+        // 打开 COUI 17 的材质层：描边光、内阴影、触摸聚光。
+        //
+        // COUI 组件内部会用 isRuntimeShaderSupported() 自查能力，不支持的平台（Android 13 以下）
+        // 自动退回无材质绘制，因此这里可以直接打开；项目 minSdk 24 不影响。
+        // 背景模糊（backdrop blur）另需 coui-blur（要求 minSdk 33），未引入时 COUI 走不透明填充，
+        // 需要通透感的悬浮层请用半透明底色（COUI 会自动叠加 ColorOS 的明暗混合层）。
+        CompositionLocalProvider(
+            LocalCOUIMaterialEffectEnabled provides true,
+            // 根部补一层内容色，让不在 COUI Surface 内的文字也有正确的默认前景色。
+            LocalContentColor provides colors.labelPrimary,
+            content = content,
+        )
+    }
 }

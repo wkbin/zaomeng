@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +46,14 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.LoadingButton
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Reset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +90,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -174,25 +136,33 @@ internal fun ComposerStatusBar(
                         else ->
                             "本次生成失败。重试会沿用原发送标识，也可以保留输入后修改。"
                     },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.error,
                 )
                 Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     if (state.sendOutcomeUnknown || state.session?.status != "ready") {
                         TextButton(
+                            text = if (state.session?.status == "ready") "核对状态" else "恢复会话",
                             onClick = if (state.session?.status == "ready") onReconcile else onRecover,
                             enabled = !state.recovering,
-                        ) {
-                            Text(if (state.session?.status == "ready") "核对状态" else "恢复会话")
-                        }
+                            minWidth = ButtonDefaults.MinWidthSmall,
+                        )
                     } else {
-                        TextButton(onClick = onDiscardRetry, enabled = !state.recovering) {
-                            Text("编辑消息")
-                        }
+                        TextButton(
+                            text = "编辑消息",
+                            onClick = onDiscardRetry,
+                            enabled = !state.recovering,
+                            minWidth = ButtonDefaults.MinWidthSmall,
+                        )
                     }
-                    Button(onClick = onRetry, enabled = !state.recovering) {
+                    Button(
+                        onClick = onRetry,
+                        enabled = !state.recovering,
+                        minWidth = ButtonDefaults.MinWidthSmall,
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) {
                         Icon(
-                            Icons.Default.Replay,
+                            COUIIcons.Reset,
                             contentDescription = null,
                             modifier = Modifier.size(17.dp),
                         )
@@ -214,19 +184,16 @@ internal fun ComposerStatusBar(
                         "上一次发送仍处于待处理状态，可以放弃这轮并恢复会话。"
                     },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.error,
                 )
-                TextButton(
+                LoadingButton(
+                    text = if (state.session?.status == "ready") "核对结果" else "恢复会话",
                     onClick = if (state.session?.status == "ready") onReconcile else onRecover,
+                    isLoading = state.recovering,
                     enabled = !state.sending && !state.recovering,
-                ) {
-                    if (state.recovering) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text(if (state.session?.status == "ready") "核对结果" else "恢复会话")
-                    }
-                }
+                    minWidth = ButtonDefaults.MinWidthSmall,
+                )
             }
         } else if (state.session?.status != "ready") {
             Row(
@@ -238,19 +205,16 @@ internal fun ComposerStatusBar(
                 Text(
                     "上一次生成没有正常结束，恢复后可以继续发送。",
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.error,
                 )
-                TextButton(
+                LoadingButton(
+                    text = "恢复会话",
                     onClick = onRecover,
+                    isLoading = state.recovering,
                     enabled = !state.sending && !state.recovering,
-                ) {
-                    if (state.recovering) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("恢复会话")
-                    }
-                }
+                    minWidth = ButtonDefaults.MinWidthSmall,
+                )
             }
         }
 }

@@ -2,33 +2,26 @@ package top.wkbin.zaomeng.feature.update
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.app.shared.AppMetadata
 import top.wkbin.zaomeng.data.update.AppUpdateDownloadStatus
 import top.wkbin.zaomeng.data.update.AppUpdateUiState
 import top.wkbin.zaomeng.feature.settings.SettingsRow
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppUpdateScreen(
     state: AppUpdateUiState,
@@ -41,30 +34,26 @@ fun AppUpdateScreen(
     val update = state.availableUpdate
     val downloadStatus = state.downloadState.status.takeIf { state.downloadState.version == update?.version }
         ?: AppUpdateDownloadStatus.Idle
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("检查更新") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
+    CouiPageScaffold(
+        title = "检查更新",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+    ) { scope ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp, vertical = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(scope.contentPadding)
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .couiPageScroll(scope),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             ) {
                 Column {
                     SettingsRow(title = "当前版本", subtitle = AppMetadata.VERSION_NAME, enabled = false)
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(color = COUITheme.colorScheme.divider)
                     SettingsRow(
                         title = "检查更新",
                         subtitle = updateStatusText(state, downloadStatus),
@@ -72,13 +61,13 @@ fun AppUpdateScreen(
                         enabled = !state.checking,
                         onClick = onCheck,
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(color = COUITheme.colorScheme.divider)
                     StartupCheckRow(
                         disabled = startupUpdateCheckDisabled,
                         onDisabledChange = onStartupUpdateCheckDisabledChange,
                     )
                     if (update != null) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        HorizontalDivider(color = COUITheme.colorScheme.divider)
                         SettingsRow(
                             title = if (downloadStatus == AppUpdateDownloadStatus.Downloaded) "安装 ${update.version}" else "下载 ${update.version}",
                             subtitle = downloadActionText(downloadStatus),
@@ -91,8 +80,8 @@ fun AppUpdateScreen(
             if (state.error.isNotBlank()) {
                 Text(
                     text = state.error,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
+                    color = COUITheme.colorScheme.error,
+                    style = COUITheme.textStyles.bodyM,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
@@ -108,11 +97,11 @@ private fun StartupCheckRow(disabled: Boolean, onDisabledChange: (Boolean) -> Un
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("关闭启动时检查更新", style = MaterialTheme.typography.bodyLarge)
+            Text("关闭启动时检查更新", style = COUITheme.textStyles.bodyXL)
             Text(
                 if (disabled) "应用启动时不自动检查，可随时手动检查" else "应用启动时自动检查新版本",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
         Switch(checked = disabled, onCheckedChange = onDisabledChange)

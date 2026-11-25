@@ -2,13 +2,13 @@ package top.wkbin.zaomeng.platform
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import org.jetbrains.compose.resources.painterResource
 import zaomeng.ui.shared.generated.resources.Res
 import zaomeng.ui.shared.generated.resources.ic_provider_anthropic
@@ -35,6 +35,6 @@ fun ProviderLogoMark(catalogId: String) {
     if (drawable != null) {
         Image(painterResource(drawable), null, Modifier.height(24.dp))
     } else {
-        Icon(Icons.Outlined.Tune, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(COUIIcons.Tune, null, tint = COUITheme.colorScheme.labelSecondary)
     }
 }

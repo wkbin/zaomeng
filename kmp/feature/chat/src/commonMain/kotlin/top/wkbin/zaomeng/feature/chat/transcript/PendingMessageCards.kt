@@ -1,5 +1,10 @@
 package top.wkbin.zaomeng.feature.chat
 
+import top.wkbin.zaomeng.ui.theme.chatMessageTint
+
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +50,15 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.ProgressIndicatorDefaults
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Play
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +95,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -185,26 +152,26 @@ internal fun PendingUserMessageBubble(
     ) {
         Surface(
             modifier = Modifier.widthIn(max = 340.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
+            color = COUITheme.colorScheme.chatMessageTint(),
             shape = RoundedCornerShape(
-                topStart = 18.dp,
-                topEnd = 18.dp,
-                bottomStart = 18.dp,
-                bottomEnd = 4.dp,
+                topStart = COUIRoundCorner.XL,
+                topEnd = COUIRoundCorner.XL,
+                bottomStart = COUIRoundCorner.XL,
+                bottomEnd = COUIRoundCorner.XS,
             ),
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text(
                     pending.speakerOverride.takeIf(String::isNotBlank)?.let { "$it · 代发" } ?: "你",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
                     fontWeight = FontWeight.SemiBold,
                 )
                 ParentheticalMessageText(
                     text = pending.message,
                     modifier = Modifier.padding(top = 3.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    baseColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = COUITheme.textStyles.bodyM,
+                    baseColor = COUITheme.colorScheme.labelPrimary,
                 )
                 when (pending.status) {
                     PendingUserMessageStatus.Sending -> Row(
@@ -212,15 +179,18 @@ internal fun PendingUserMessageBubble(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
+                            size = 14.dp,
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            colors = ProgressIndicatorDefaults.loadingViewColors(
+                                foregroundColor = COUITheme.colorScheme.primaryText,
+                                backgroundColor = Color.Transparent,
+                            ),
                         )
                         Text(
                             pending.statusText.ifBlank { "正在发送" },
                             modifier = Modifier.padding(start = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.primaryText.copy(alpha = 0.78f),
                         )
                     }
 
@@ -228,22 +198,35 @@ internal fun PendingUserMessageBubble(
                         Text(
                             pending.statusText.ifBlank { "发送失败" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         if (requiresRecovery) {
                             TextButton(
+                                text = "恢复会话",
                                 onClick = onRecover,
                                 modifier = Modifier.align(Alignment.End),
-                            ) { Text("恢复会话") }
+                                minWidth = 0.dp,
+                                textStyle = COUITheme.textStyles.bodyM,
+                            )
                         } else {
                             Row(
                                 modifier = Modifier.align(Alignment.End),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                TextButton(onClick = onEdit) { Text("编辑") }
+                                TextButton(
+                                    text = "编辑",
+                                    onClick = onEdit,
+                                    minWidth = 0.dp,
+                                    textStyle = COUITheme.textStyles.bodyM,
+                                )
                                 if (pending.retryable) {
-                                    TextButton(onClick = onRetry) { Text("重试") }
+                                    TextButton(
+                                        text = "重试",
+                                        onClick = onRetry,
+                                        minWidth = 0.dp,
+                                        textStyle = COUITheme.textStyles.bodyM,
+                                    )
                                 }
                             }
                         }
@@ -253,13 +236,16 @@ internal fun PendingUserMessageBubble(
                         Text(
                             pending.statusText.ifBlank { "连接中断，正在核对结果" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         TextButton(
+                            text = if (requiresRecovery) "恢复会话" else "核对结果",
                             onClick = if (requiresRecovery) onRecover else onReconcile,
                             modifier = Modifier.align(Alignment.End),
-                        ) { Text(if (requiresRecovery) "恢复会话" else "核对结果") }
+                            minWidth = 0.dp,
+                            textStyle = COUITheme.textStyles.bodyM,
+                        )
                     }
                 }
             }
@@ -278,21 +264,21 @@ internal fun PendingNarrationMessageCard(
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Surface(
             modifier = Modifier.widthIn(max = 520.dp),
-            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-            shape = RoundedCornerShape(8.dp),
+            color = COUITheme.colorScheme.chatMessageTint(),
+            shape = SquircleShape(COUIRoundCorner.Normal.S, COUIRoundCorner.Normal.Weight),
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
                 Text(
                     "旁白",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.primaryText,
                     fontWeight = FontWeight.SemiBold,
                 )
                 ParentheticalMessageText(
                     text = pending.message,
                     modifier = Modifier.padding(top = 3.dp),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                    baseColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    style = COUITheme.textStyles.bodyM.copy(fontStyle = FontStyle.Italic),
+                    baseColor = COUITheme.colorScheme.labelPrimary,
                 )
                 when (pending.status) {
                     PendingUserMessageStatus.Sending -> Row(
@@ -300,15 +286,18 @@ internal fun PendingNarrationMessageCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
+                            size = 14.dp,
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            colors = ProgressIndicatorDefaults.loadingViewColors(
+                                foregroundColor = COUITheme.colorScheme.primaryText,
+                                backgroundColor = Color.Transparent,
+                            ),
                         )
                         Text(
                             pending.statusText.ifBlank { "正在发送旁白" },
                             modifier = Modifier.padding(start = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.78f),
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.primaryText.copy(alpha = 0.78f),
                         )
                     }
 
@@ -316,20 +305,33 @@ internal fun PendingNarrationMessageCard(
                         Text(
                             pending.statusText.ifBlank { "旁白发送失败" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         if (requiresRecovery) {
                             TextButton(
+                                text = "恢复会话",
                                 onClick = onRecover,
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text("恢复会话")
-                            }
+                                modifier = Modifier.align(Alignment.End),
+                                minWidth = 0.dp,
+                                textStyle = COUITheme.textStyles.bodyM,
+                            )
                         } else {
                             Row(modifier = Modifier.align(Alignment.End)) {
-                                TextButton(onClick = onEdit) { Text("编辑") }
-                                if (pending.retryable) TextButton(onClick = onRetry) { Text("重试") }
+                                TextButton(
+                                    text = "编辑",
+                                    onClick = onEdit,
+                                    minWidth = 0.dp,
+                                    textStyle = COUITheme.textStyles.bodyM,
+                                )
+                                if (pending.retryable) {
+                                    TextButton(
+                                        text = "重试",
+                                        onClick = onRetry,
+                                        minWidth = 0.dp,
+                                        textStyle = COUITheme.textStyles.bodyM,
+                                    )
+                                }
                             }
                         }
                     }
@@ -338,13 +340,16 @@ internal fun PendingNarrationMessageCard(
                         Text(
                             pending.statusText.ifBlank { "连接中断，正在核对结果" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         TextButton(
+                            text = if (requiresRecovery) "恢复会话" else "核对结果",
                             onClick = if (requiresRecovery) onRecover else onReconcile,
                             modifier = Modifier.align(Alignment.End),
-                        ) { Text(if (requiresRecovery) "恢复会话" else "核对结果") }
+                            minWidth = 0.dp,
+                            textStyle = COUITheme.textStyles.bodyM,
+                        )
                     }
                 }
             }
@@ -365,25 +370,24 @@ internal fun PendingDirectorInstructionCard(
         Surface(
             modifier = Modifier.widthIn(max = 520.dp),
             color = androidx.compose.ui.graphics.Color.Transparent,
-            shape = RoundedCornerShape(0.dp),
         ) {
             Column(
                 Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                androidx.compose.material3.HorizontalDivider()
+                HorizontalDivider()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Default.PlayArrow,
+                        COUIIcons.Play,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = COUITheme.colorScheme.labelSecondary,
                     )
                     Text(
                         if (pending.messageKind == "fourth_wall") "作者指令" else "导演指令",
                         modifier = Modifier.padding(start = 5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.labelSecondary,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -392,8 +396,8 @@ internal fun PendingDirectorInstructionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    baseColor = MaterialTheme.colorScheme.onSurface,
+                    style = COUITheme.textStyles.bodyM,
+                    baseColor = COUITheme.colorScheme.labelPrimary,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 when (pending.status) {
@@ -402,15 +406,18 @@ internal fun PendingDirectorInstructionCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
+                            size = 14.dp,
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            colors = ProgressIndicatorDefaults.loadingViewColors(
+                                foregroundColor = COUITheme.colorScheme.labelSecondary,
+                                backgroundColor = Color.Transparent,
+                            ),
                         )
                         Text(
                             pending.statusText.ifBlank { "正在安排下一拍" },
                             modifier = Modifier.padding(start = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.labelSecondary,
                         )
                     }
 
@@ -418,20 +425,33 @@ internal fun PendingDirectorInstructionCard(
                         Text(
                             pending.statusText.ifBlank { "指令未生效" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         if (requiresRecovery) {
                             TextButton(
+                                text = "恢复会话",
                                 onClick = onRecover,
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text("恢复会话")
-                            }
+                                modifier = Modifier.align(Alignment.End),
+                                minWidth = 0.dp,
+                                textStyle = COUITheme.textStyles.bodyM,
+                            )
                         } else {
                             Row(modifier = Modifier.align(Alignment.End)) {
-                                TextButton(onClick = onEdit) { Text("编辑") }
-                                if (pending.retryable) TextButton(onClick = onRetry) { Text("重试") }
+                                TextButton(
+                                    text = "编辑",
+                                    onClick = onEdit,
+                                    minWidth = 0.dp,
+                                    textStyle = COUITheme.textStyles.bodyM,
+                                )
+                                if (pending.retryable) {
+                                    TextButton(
+                                        text = "重试",
+                                        onClick = onRetry,
+                                        minWidth = 0.dp,
+                                        textStyle = COUITheme.textStyles.bodyM,
+                                    )
+                                }
                             }
                         }
                     }
@@ -440,13 +460,16 @@ internal fun PendingDirectorInstructionCard(
                         Text(
                             pending.statusText.ifBlank { "连接中断，正在核对结果" },
                             modifier = Modifier.padding(top = 7.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.error,
                         )
                         TextButton(
+                            text = if (requiresRecovery) "恢复会话" else "核对结果",
                             onClick = if (requiresRecovery) onRecover else onReconcile,
                             modifier = Modifier.align(Alignment.End),
-                        ) { Text(if (requiresRecovery) "恢复会话" else "核对结果") }
+                            minWidth = 0.dp,
+                            textStyle = COUITheme.textStyles.bodyM,
+                        )
                     }
                 }
             }

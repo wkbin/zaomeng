@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +46,17 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.HorizontalSplit
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +93,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -162,12 +127,11 @@ internal fun ChatSearchResults(
             CircularProgressIndicator()
         }
 
-        results.isEmpty() -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "没有找到相关聊天记录",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        results.isEmpty() -> EmptyState(
+            title = "没有找到相关聊天记录",
+            sizeType = EmptyStateSizeType.Small,
+            modifier = modifier.fillMaxSize(),
+        )
 
         else -> LazyColumn(
             modifier = modifier.fillMaxWidth(),
@@ -177,8 +141,8 @@ internal fun ChatSearchResults(
             item {
                 Text(
                     "找到 ${results.size} 条结果",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
             }
             itemsIndexed(
@@ -188,45 +152,48 @@ internal fun ChatSearchResults(
                 },
             ) { _, result ->
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    colors = CardDefaults.defaultColors(
+                        color = COUITheme.colorScheme.backgroundWithCard,
                     ),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 11.dp),
                 ) {
                     Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 result.speaker.ifBlank { "人物" },
                                 modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
+                                style = COUITheme.textStyles.description,
+                                color = COUITheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             if (result.archived) {
                                 Text(
                                     "较早记录",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.description,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                 )
                             }
                         }
                         HighlightedSearchText(result.message, query)
                         if (result.turnId.isNotBlank()) {
-                            TextButton(
-                                onClick = { onBranch(result.turnId) },
-                                enabled = actionsEnabled,
+                            Row(
                                 modifier = Modifier.align(Alignment.End),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.CallSplit,
+                                    COUIIcons.HorizontalSplit,
                                     contentDescription = null,
                                     modifier = Modifier.size(17.dp),
                                 )
-                                Text("从此处分支", modifier = Modifier.padding(start = 5.dp))
+                                TextButton(
+                                    text = "从此处分支",
+                                    onClick = { onBranch(result.turnId) },
+                                    enabled = actionsEnabled,
+                                    minWidth = ButtonDefaults.MinWidthSmall,
+                                )
                             }
                         }
                     }
@@ -237,7 +204,7 @@ internal fun ChatSearchResults(
 }
 @Composable
 internal fun HighlightedSearchText(text: String, query: String) {
-    val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
+    val highlightColor = COUITheme.colorScheme.textColorHighlight
     val annotated = remember(text, query, highlightColor) {
         buildAnnotatedString {
             var cursor = 0
@@ -251,5 +218,5 @@ internal fun HighlightedSearchText(text: String, query: String) {
             append(text.substring(cursor))
         }
     }
-    Text(annotated, style = MaterialTheme.typography.bodyMedium)
+    Text(annotated, style = COUITheme.textStyles.bodyM)
 }

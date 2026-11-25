@@ -1,5 +1,6 @@
 package top.wkbin.zaomeng.feature.chat
 
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.ui.components.ChatBackgroundImage
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -45,52 +46,11 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +87,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
-import androidx.window.core.layout.WindowSizeClass
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -160,22 +119,21 @@ internal fun ChatSessionPane(
     }
     Surface(
         modifier = modifier.width(280.dp).fillMaxHeight(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = COUITheme.colorScheme.backgroundWithCard,
     ) {
         Column(Modifier.fillMaxSize()) {
             Text(
                 text = "本卷会话",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                style = MaterialTheme.typography.titleSmall,
+                style = COUITheme.textStyles.buttonM,
                 fontWeight = FontWeight.SemiBold,
             )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(color = COUITheme.colorScheme.divider)
             if (sorted.isEmpty()) {
-                Text(
-                    text = "暂无会话",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                EmptyState(
+                    title = "暂无会话",
+                    sizeType = EmptyStateSizeType.Small,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                 )
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
@@ -187,9 +145,9 @@ internal fun ChatSessionPane(
                                 .clickable(enabled = !selected) { onSelect(session.sessionId) }
                                 .background(
                                     if (selected) {
-                                        MaterialTheme.colorScheme.primaryContainer
+                                        COUITheme.colorScheme.containerThemeHalftone
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                        COUITheme.colorScheme.backgroundWithCard
                                     },
                                 )
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -200,26 +158,26 @@ internal fun ChatSessionPane(
                                     text = session.title.ifBlank {
                                         session.lastEntryPreview.trim().ifBlank { "未命名会话" }
                                     },
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = COUITheme.textStyles.bodyM,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
                                     text = "${chatSessionModeLabel(session.mode)} · ${session.updatedAt.toLocalDateTimeDisplay()}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = COUITheme.textStyles.description,
+                                    color = COUITheme.colorScheme.labelSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
                             Text(
                                 text = if (session.status == "ready") "可继续" else "待处理",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = COUITheme.textStyles.description,
                                 color = if (session.status == "ready") {
-                                    MaterialTheme.colorScheme.primary
+                                    COUITheme.colorScheme.primary
                                 } else {
-                                    MaterialTheme.colorScheme.tertiary
+                                    COUITheme.colorScheme.primaryText
                                 },
                             )
                         }

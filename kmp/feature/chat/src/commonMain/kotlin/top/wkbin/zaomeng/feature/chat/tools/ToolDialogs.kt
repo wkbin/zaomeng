@@ -4,27 +4,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Checkbox
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
-
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.ui.text.font.FontWeight
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiTextField
 
 private data class DirectorAction(val value: String, val label: String)
 
@@ -66,10 +63,13 @@ internal fun DirectorToolDialog(
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (action == "fourth_wall") "第四面墙" else "剧情导演") },
-        text = {
+        title = if (action == "fourth_wall") "第四面墙" else "剧情导演",
+        confirmText = "生成方案",
+        onConfirm = onConfirm,
+        confirmEnabled = goal.isNotBlank() && enabled,
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 directorActions.chunked(2).forEach { actions ->
                     Row(
@@ -77,10 +77,10 @@ internal fun DirectorToolDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         actions.forEach { item ->
-                            FilterChip(
+                            Chip(
                                 selected = action == item.value,
                                 onClick = { onActionChange(item.value) },
-                                label = { Text(item.label) },
+                                label = item.label,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -89,41 +89,32 @@ internal fun DirectorToolDialog(
 
                 Text(
                     text = "🎲 突发意外与灵感节拍：",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = COUITheme.textStyles.description,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = COUITheme.colorScheme.primary,
                 )
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(presetEvents) { item ->
-                        SuggestionChip(
+                        Chip(
+                            selected = false,
                             onClick = {
                                 onActionChange(item.action)
                                 onGoalChange(item.description)
                             },
-                            label = { Text("${item.icon} ${item.title}") },
+                            label = "${item.icon} ${item.title}",
                         )
                     }
                 }
 
-                OutlinedTextField(
+                CouiTextField(
                     value = goal,
                     onValueChange = onGoalChange,
                     modifier = Modifier.fillMaxWidth(),
-                    label = {
-                        Text(if (action == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展")
-                    },
-                    placeholder = {
-                        Text(
-                            if (action == "fourth_wall") {
-                                "例如：让他们和好，否则我删掉这段记忆"
-                            } else {
-                                "例如：让两人因为旧事发生正面冲突"
-                            },
-                        )
-                    },
+                    label = if (action == "fourth_wall") "以作者身份对角色下什么指令" else "这一幕希望怎样发展",
+                    singleLine = false,
                     minLines = 3,
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -131,31 +122,36 @@ internal fun DirectorToolDialog(
                         onDone = { if (goal.isNotBlank() && enabled) onConfirm() },
                     ),
                 )
+                Text(
+                    if (action == "fourth_wall") {
+                        "例如：让他们和好，否则我删掉这段记忆"
+                    } else {
+                        "例如：让两人因为旧事发生正面冲突"
+                    },
+                    style = COUITheme.textStyles.description,
+                    color = COUITheme.colorScheme.labelSecondary,
+                )
             }
         },
-        confirmButton = {
-            Button(onClick = onConfirm, enabled = goal.isNotBlank() && enabled) {
-                Text("生成方案")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
 @Composable
 internal fun RelationLockHelpDialog(visible: Boolean, onDismiss: () -> Unit) {
     if (!visible) return
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("会话关系锁") },
-        text = {
+        title = "会话关系锁",
+        confirmText = "知道了",
+        onConfirm = onDismiss,
+        dismissText = null,
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("锁定后，这对人物在当前会话中的信任、好感、敌意、暧昧及相关关系事件，不会再随后续对话自动变化。")
                 Text("人物仍会继续对话，剧情和人物状态也会正常推进。它不会改写书卷的基础关系资料。")
                 Text("关系锁只作用于当前会话；从这里创建的分支会继承锁定状态。解除后从下一轮起恢复自动演化，锁定期间的变化不会补算。")
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
     )
 }
 
@@ -166,16 +162,13 @@ internal fun MemoryDeletionDialog(
     onDismiss: () -> Unit,
 ) {
     memory ?: return
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("删除这条记忆？") },
-        text = { Text(memory.text) },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(memory.memoryId) }) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        title = "删除这条记忆？",
+        confirmText = "删除",
+        onConfirm = { onConfirm(memory.memoryId) },
+        onDismiss = onDismiss,
+        body = { Text(memory.text) },
     )
 }
 
@@ -186,10 +179,13 @@ internal fun RelationLockConfirmationDialog(
     onDismiss: () -> Unit,
 ) {
     val (pairKey, shouldLock) = change ?: return
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (shouldLock) "锁定人物关系？" else "解除人物关系锁定？") },
-        text = {
+        title = if (shouldLock) "锁定人物关系？" else "解除人物关系锁定？",
+        confirmText = if (shouldLock) "锁定" else "解除锁定",
+        onConfirm = { onConfirm(pairKey, shouldLock) },
+        onDismiss = onDismiss,
+        body = {
             Text(
                 if (shouldLock) {
                     "锁定后，后续剧情不会自动改写这组关系：$pairKey"
@@ -198,12 +194,6 @@ internal fun RelationLockConfirmationDialog(
                 },
             )
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(pairKey, shouldLock) }) {
-                Text(if (shouldLock) "锁定" else "解除锁定")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -219,27 +209,30 @@ internal fun BranchMetaDialog(
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("分支信息") },
-        text = {
+        title = "分支信息",
+        confirmText = "保存",
+        onConfirm = onConfirm,
+        confirmEnabled = enabled,
+        onDismiss = onDismiss,
+        body = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
+                CouiTextField(
                     value = label,
                     onValueChange = onLabelChange,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("分支名称") },
+                    label = "分支名称",
                     singleLine = true,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = mainline, onCheckedChange = onMainlineChange)
+                    Checkbox(
+                        state = ToggleableState(mainline),
+                        onClick = { onMainlineChange(!mainline) },
+                    )
                     Text("设为主线分支")
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = onConfirm, enabled = enabled) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }

@@ -1,6 +1,5 @@
 package top.wkbin.zaomeng.app.shared
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -16,6 +15,7 @@ import top.wkbin.zaomeng.navigation.ZaomengNavHost
 import top.wkbin.zaomeng.ui.theme.ZaomengTheme
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import io.github.suqi8.coui.kmp.theme.COUITheme
 
 /**
  * 跨平台共享 UI 入口：androidApp / desktopApp / iosApp 都渲染这个组合。
@@ -43,6 +43,12 @@ fun App(
     onBuiltInBackHandlingEnabledChange: (Boolean) -> Unit = {},
     /** 平台入口在启动时同步读取的内置导航返回处理开关。 */
     initialBuiltInBackHandlingEnabled: Boolean = true,
+    /**
+     * 渲染在主题作用域内、导航之外的全屏弹层（启动免责声明、更新提示等）。
+     *
+     * 使用 `CouiWindowAlertDialog` 渲染到独立窗口。
+     */
+    overlay: @Composable () -> Unit = {},
 ) {
     val preferencesRepository: AppPreferencesRepository = koinInject()
     val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
@@ -60,18 +66,12 @@ fun App(
     val builtInBackHandlingEnabled by preferencesRepository.builtInBackHandlingEnabled.collectAsStateWithLifecycle(
         initialValue = initialBuiltInBackHandlingEnabled,
     )
-    val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-    SideEffect { onThemeChanged(darkTheme) }
-    // 全局界面缩放（参考 KernelSU pageScale）：覆盖 Density，仅缩放本应用 UI，不影响系统设置。
+    // Density 同时影响 dp 和 sp，保留系统字体缩放比例。
     val baseDensity = LocalDensity.current
     val scaledDensity = remember(baseDensity, uiScale) {
         Density(
             density = baseDensity.density * uiScale,
-            fontScale = baseDensity.fontScale * uiScale,
+            fontScale = baseDensity.fontScale,
         )
     }
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
@@ -80,6 +80,8 @@ fun App(
             dynamicColorEnabled = dynamicColorEnabled,
             themeSeedColorArgb = themeSeedColorArgb,
         ) {
+            val darkTheme = COUITheme.isDark
+            SideEffect { onThemeChanged(darkTheme) }
             ZaomengNavHost(
                 appUpdateState = appUpdateState,
                 onCheckForAppUpdate = onCheckForAppUpdate,
@@ -91,6 +93,7 @@ fun App(
                 onBuiltInBackHandlingEnabledChange = onBuiltInBackHandlingEnabledChange,
                 builtInBackHandlingEnabled = builtInBackHandlingEnabled,
             )
+            overlay()
         }
     }
 }

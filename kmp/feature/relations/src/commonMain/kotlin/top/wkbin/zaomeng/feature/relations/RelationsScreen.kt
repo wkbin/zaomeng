@@ -17,26 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,11 +30,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import top.wkbin.zaomeng.data.api.RelationItemDto
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.EmptyState
+import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.IconButton
+import io.github.suqi8.coui.kmp.basic.Slider
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Ok
+import io.github.suqi8.coui.kmp.icon.extended.Refresh
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlin.math.cos
 import kotlin.math.sin
+import top.wkbin.zaomeng.data.api.RelationItemDto
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RelationsScreen(
     viewModel: RelationsViewModel,
@@ -62,36 +63,30 @@ fun RelationsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var graphExpanded by remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("人物关系校对") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::load, enabled = !state.loading && !state.refreshing) {
-                        if (state.refreshing) {
-                            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新关系")
-                        }
-                    }
-                },
-            )
+    CouiPageScaffold(
+        title = "人物关系校对",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+        actions = {
+            IconButton(onClick = viewModel::load, enabled = !state.loading && !state.refreshing) {
+                if (state.refreshing) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), size = 22.dp, strokeWidth = 2.dp)
+                } else {
+                    Icon(COUIIcons.Refresh, contentDescription = "刷新关系")
+                }
+            }
         },
-    ) { innerPadding ->
+    ) { scope ->
         when {
-            state.loading -> LoadingRelations(Modifier.padding(innerPadding))
+            state.loading -> LoadingRelations(Modifier.padding(scope.contentPadding))
             state.details == null -> MissingRelations(
                 message = state.error.ifBlank { "暂时没有找到关系资料。" },
                 onRetry = viewModel::load,
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier.padding(scope.contentPadding),
             )
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                modifier = Modifier.fillMaxSize().padding(scope.contentPadding).couiPageScroll(scope),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -116,10 +111,11 @@ fun RelationsScreen(
                 }
                 if (state.details?.items.isNullOrEmpty()) {
                     item {
-                        Text(
-                            "这份书卷还没有关系明细。完成关系抽取后会显示在这里。",
-                            modifier = Modifier.padding(vertical = 32.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        EmptyState(
+                            title = "这份书卷还没有关系明细。",
+                            subtitle = "完成关系抽取后会显示在这里。",
+                            sizeType = EmptyStateSizeType.Small,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                         )
                     }
                 } else {
@@ -152,30 +148,35 @@ private fun RelationGraphSection(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("关系图谱", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("关系图谱", style = COUITheme.textStyles.headlineXS, fontWeight = FontWeight.SemiBold)
                     Text(
                         "共 $relationCount 组关系${if (conflictCount > 0) "，$conflictCount 组需要留意" else ""}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
-                TextButton(onClick = { onExpandedChange(!expanded) }) {
-                    Text(if (expanded) "收起" else "查看图谱")
-                }
+                TextButton(
+                    text = if (expanded) "收起" else "查看图谱",
+                    onClick = { onExpandedChange(!expanded) },
+                )
             }
             if (expanded) {
                 if (items.isEmpty()) {
-                    Text("暂无可展示的关系数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    EmptyState(
+                        title = "暂无可展示的关系数据。",
+                        sizeType = EmptyStateSizeType.Small,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    )
                 } else {
                     RelationGraph(items)
                     Text(
                         "绿色代表高信任，红色代表高敌意，紫色代表高情感。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -186,7 +187,7 @@ private fun RelationGraphSection(
 @Composable
 private fun RelationGraph(items: List<RelationItemDto>) {
     val nodes = remember(items) { relationGraphNodes(items) }
-    val colors = MaterialTheme.colorScheme
+    val colors = COUITheme.colorScheme
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -202,7 +203,7 @@ private fun RelationGraph(items: List<RelationItemDto>) {
                 val right = positions[pair.getOrNull(1)] ?: return@forEach
                 val color = when {
                     relation.hostility >= 6 -> colors.error
-                    relation.affection >= 7 -> colors.tertiary
+                    relation.affection >= 7 -> colors.violet
                     relation.trust >= 7 -> colors.primary
                     else -> colors.outline
                 }
@@ -214,7 +215,7 @@ private fun RelationGraph(items: List<RelationItemDto>) {
                 )
             }
             positions.values.forEach { point ->
-                drawCircle(colors.surfaceContainerHighest, radius = 31.dp.toPx(), center = point)
+                drawCircle(colors.containerSolid, radius = 31.dp.toPx(), center = point)
                 drawCircle(colors.primary, radius = 31.dp.toPx(), center = point, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
             }
         }
@@ -229,7 +230,7 @@ private fun RelationGraph(items: List<RelationItemDto>) {
                 Text(
                     node.name,
                     modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = COUITheme.textStyles.bodyXS,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     maxLines = 1,
@@ -264,22 +265,22 @@ private fun RelationEditor(
     onChange: ((RelationItemDto) -> RelationItemDto) -> Unit,
     onSave: () -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         item.characters.joinToString("、").ifBlank { item.pairKey },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = COUITheme.textStyles.headlineXS,
                         fontWeight = FontWeight.SemiBold,
                     )
                     if (item.relationshipType.isNotBlank()) {
-                        Text(item.relationshipType, color = MaterialTheme.colorScheme.primary)
+                        Text(item.relationshipType, color = COUITheme.colorScheme.primary)
                     }
                 }
                 Button(onClick = onSave, enabled = enabled) {
-                    if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Outlined.Save, contentDescription = null)
+                    if (saving) CircularProgressIndicator(modifier = Modifier.size(18.dp), size = 18.dp, strokeWidth = 2.dp)
+                    else Icon(COUIIcons.Ok, contentDescription = null)
                     Spacer(Modifier.size(6.dp))
                     Text("保存")
                 }
@@ -312,9 +313,9 @@ private fun RelationEditor(
             }
 
             if (item.evidenceLines.isNotEmpty()) {
-                Text("证据句", style = MaterialTheme.typography.labelLarge)
+                Text("证据句", style = COUITheme.textStyles.buttonM)
                 item.evidenceLines.take(6).forEach { line ->
-                    Text("• $line", style = MaterialTheme.typography.bodySmall)
+                    Text("• $line", style = COUITheme.textStyles.bodyXS)
                 }
             }
         }
@@ -325,7 +326,7 @@ private fun RelationEditor(
 private fun RelationMetric(label: String, value: Int, enabled: Boolean, onChange: (Int) -> Unit) {
     Column {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text(label, style = COUITheme.textStyles.buttonM)
             Text(value.toString(), fontWeight = FontWeight.SemiBold)
         }
         Slider(
@@ -340,12 +341,13 @@ private fun RelationMetric(label: String, value: Int, enabled: Boolean, onChange
 
 @Composable
 private fun RelationField(label: String, value: String, enabled: Boolean, onChange: (String) -> Unit) {
-    OutlinedTextField(
+    CouiTextField(
         value = value,
         onValueChange = onChange,
         modifier = Modifier.fillMaxWidth(),
-        label = { Text(label) },
+        label = label,
         enabled = enabled,
+        singleLine = label == "关系类型",
         minLines = if (label == "关系类型") 1 else 2,
         maxLines = if (label == "关系类型") 1 else 4,
     )
@@ -354,12 +356,12 @@ private fun RelationField(label: String, value: String, enabled: Boolean, onChan
 @Composable
 private fun Notice(text: String, isError: Boolean, onDismiss: () -> Unit) {
     Surface(
-        color = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
-        shape = MaterialTheme.shapes.medium,
+        color = if (isError) COUITheme.colorScheme.errorTextBg else COUITheme.colorScheme.containerThemeHalftone,
+        shape = SquircleShape(COUIRoundCorner.Normal.M, COUIRoundCorner.Normal.Weight),
     ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(text, modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text("知道了") }
+            TextButton(text = "知道了", onClick = onDismiss)
         }
     }
 }
@@ -371,10 +373,11 @@ private fun LoadingRelations(modifier: Modifier = Modifier) {
 
 @Composable
 private fun MissingRelations(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(message, color = MaterialTheme.colorScheme.error)
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 12.dp)) { Text("重试") }
-        }
-    }
+    EmptyState(
+        title = message,
+        actionText = "重试",
+        onActionClick = onRetry,
+        sizeType = EmptyStateSizeType.Small,
+        modifier = modifier.fillMaxSize().padding(24.dp),
+    )
 }

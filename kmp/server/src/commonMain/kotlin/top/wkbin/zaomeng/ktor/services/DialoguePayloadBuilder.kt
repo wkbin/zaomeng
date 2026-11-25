@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okio.Path
 import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 import top.wkbin.zaomeng.data.api.AuthorNoteDto
+import top.wkbin.zaomeng.data.api.CARD_CHARACTER_NOTE_LIMIT
 import top.wkbin.zaomeng.data.api.WorldBookGenerationType
 import top.wkbin.zaomeng.data.api.WorldBookInjectionPosition
 import top.wkbin.zaomeng.data.api.referencedSillyTavernOutlets
@@ -397,9 +398,9 @@ class DialoguePayloadBuilder(
             ) + if (card != null && (card.data["name"] as? JsonPrimitive)?.contentOrNull?.trim() == name) {
                 val fields = SillyTavernExport.importedProfileFields(profile, card)
                 fun text(field: String, limit: Int): String {
-                    val value = fields[field] ?: (card.data[field] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
-                    return SillyTavernImport.cardText(value, name, limit, cardUser).trim()
+                    return SillyTavernImport.cardText(fields.getValue(field), name, limit, cardUser).trim()
                 }
+                val note = SillyTavernImport.characterNote(card.data)
                 mapOf("sillytavern_card" to mapOf(
                     "name" to name,
                     "description" to text("description", 4000),
@@ -409,6 +410,11 @@ class DialoguePayloadBuilder(
                     "user_persona" to SillyTavernImport.cardText(cardUserPersona, name, 1200, cardUser).trim(),
                     "system_prompt" to text("system_prompt", 1600),
                     "post_history_instructions" to text("post_history_instructions", 1600),
+                    "depth_prompt" to SillyTavernImport.cardText(
+                        SillyTavernImport.characterNoteText(note), name, CARD_CHARACTER_NOTE_LIMIT, cardUser,
+                    ).trim(),
+                    "depth_prompt_depth" to SillyTavernImport.characterNoteDepth(note),
+                    "depth_prompt_role" to sillyTavernInjectionRole(note?.get("role")),
                 ))
             } else emptyMap()
         }

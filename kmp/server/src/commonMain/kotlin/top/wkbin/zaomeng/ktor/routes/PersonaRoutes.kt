@@ -17,6 +17,8 @@ import top.wkbin.zaomeng.platform.platformIoDispatcher
 import kotlinx.serialization.json.jsonPrimitive
 import top.wkbin.zaomeng.ktor.models.SuggestPersonaFieldRequest
 import top.wkbin.zaomeng.ktor.services.PersonaService
+import top.wkbin.zaomeng.ktor.services.CardMetadataChangedException
+import top.wkbin.zaomeng.data.api.UpdateSillyTavernCardMetadataRequest
 
 fun Route.personaRoutes(service: PersonaService) {
     route("/api/web/runs/{run_id}/personas/{character}") {
@@ -30,6 +32,12 @@ fun Route.personaRoutes(service: PersonaService) {
                 val card = withContext(platformIoDispatcher) { service.exportSillyTavernCard(runId, character) }
                 call.response.headers.append(HttpHeaders.ContentDisposition, "attachment; filename=character-card.json")
                 call.respond(card)
+            }
+        }
+        patch("/card-metadata") {
+            personaCall { runId, character ->
+                val request = call.receive<UpdateSillyTavernCardMetadataRequest>()
+                call.respond(withContext(platformIoDispatcher) { service.updateCardMetadata(runId, character, request) })
             }
         }
         put {
@@ -91,6 +99,8 @@ private suspend fun RoutingContext.personaCall(block: suspend (String, String) -
     val character = call.parameters["character"] ?: return call.respondError(HttpStatusCode.BadRequest, "Missing character")
     try {
         block(runId, character)
+    } catch (error: CardMetadataChangedException) {
+        call.respondError(HttpStatusCode.Conflict, error.message.orEmpty())
     } catch (error: NoSuchElementException) {
         call.respondError(HttpStatusCode.NotFound, (error.message ?: "Not found"))
     } catch (error: IllegalArgumentException) {

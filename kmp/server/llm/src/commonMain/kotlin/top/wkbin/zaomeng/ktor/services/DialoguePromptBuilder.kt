@@ -457,6 +457,13 @@ class DialoguePromptBuilder(
             note, positionedLore, cardName.ifBlank { participants.singleOrNull() ?: "{{char}}" }, cardUser,
         )
         val inChatNote = authorNote?.takeIf { note.position == AuthorNotePosition.InChat }
+        val characterNote = (card?.get("depth_prompt") as? String)?.takeIf(String::isNotBlank)?.let {
+            InChatPrompt(
+                depth = ((card["depth_prompt_depth"] as? Int) ?: 4).coerceIn(0, 10_000),
+                role = card["depth_prompt_role"] as? WorldBookInjectionRole ?: WorldBookInjectionRole.System,
+                text = it,
+            )
+        }
         val rawPersonas = payload["persona_contexts"] as? List<*> ?: emptyList<Any?>()
         val personaMap = linkedMapOf<String, Map<String, Any?>>()
         for (item in rawPersonas) {
@@ -712,7 +719,7 @@ class DialoguePromptBuilder(
             return buildList {
                 add(LlmClient.ChatMessage(role = "system", content = stableSystemPrompt))
                 add(LlmClient.ChatMessage(role = "system", content = "$turnSystemPrompt\nTURN_CONTEXT\n" + compactJson(turnContext)))
-                addAll(insertDepthLore(dialogueHistory, depthLore, inChatNote))
+                addAll(insertDepthLore(dialogueHistory, depthLore, listOfNotNull(inChatNote, characterNote)))
                 if (postHistory.isNotEmpty()) {
                     val contract = listOf(
                         hostAction["output_rule"]?.toString().orEmpty(),
@@ -752,33 +759,34 @@ class DialoguePromptBuilder(
             .joinToString("\n\n") { "<START>\n$it" }
     }
 
-    private data class AuthorNoteInjection(val depth: Int, val role: WorldBookInjectionRole, val text: String)
+    private data class InChatPrompt(val depth: Int, val role: WorldBookInjectionRole, val text: String)
 
     private fun buildAuthorNote(
         note: AuthorNoteDto,
         lore: List<WorldBookMatchDto>,
         character: String,
         user: String,
-    ): AuthorNoteInjection? {
+    ): InChatPrompt? {
         if (!note.enabled) return null
         val ordered = lore.filter { it.position?.isAuthorNote == true }.sortedByDescending { it.insertionOrder }.asReversed()
         val parts = ordered.filter { it.position == WorldBookInjectionPosition.BeforeAuthorNote }.map { it.excerpt } +
             note.text.trim().take(AuthorNoteDto.MAX_TEXT_LENGTH) +
             ordered.filter { it.position == WorldBookInjectionPosition.AfterAuthorNote }.map { it.excerpt }
         val text = expandSillyTavernNames(parts.filter(String::isNotBlank).joinToString("\n"), character, user)
-        return text.takeIf(String::isNotBlank)?.let { AuthorNoteInjection(note.depth.coerceIn(0, 10_000), note.role, it) }
+        return text.takeIf(String::isNotBlank)?.let { InChatPrompt(note.depth.coerceIn(0, 10_000), note.role, it) }
     }
 
     private fun insertDepthLore(
         dialogue: List<LlmClient.ChatMessage>,
         lore: List<WorldBookMatchDto>,
-        authorNote: AuthorNoteInjection?,
+        notes: List<InChatPrompt>,
     ): List<LlmClient.ChatMessage> {
-        if (lore.isEmpty() && authorNote == null) return dialogue
+        if (lore.isEmpty() && notes.isEmpty()) return dialogue
         // SillyTavern places depth prompts into newest-first history, then sends it in reverse.
         val roleOrder = listOf(WorldBookInjectionRole.Assistant, WorldBookInjectionRole.User, WorldBookInjectionRole.System)
         val byDepth = lore.groupBy { it.injectionDepth ?: 4 }
-        val pending = (byDepth.keys + listOfNotNull(authorNote?.depth)).sortedDescending()
+        val notesByDepth = notes.groupBy { it.depth }
+        val pending = (byDepth.keys + notesByDepth.keys).sortedDescending()
             .groupBy { (dialogue.size - it).coerceIn(0, dialogue.size) }
         return buildList {
             for (index in 0..dialogue.size) {
@@ -786,8 +794,8 @@ class DialoguePromptBuilder(
                     val byRole = byDepth[depth].orEmpty().sortedByDescending { it.insertionOrder }.asReversed()
                         .groupBy { it.injectionRole ?: WorldBookInjectionRole.System }
                     for (role in roleOrder) {
-                        val note = authorNote?.takeIf { it.depth == depth && it.role == role }
-                        val text = (listOfNotNull(note?.text) + byRole[role].orEmpty().map { it.excerpt }).joinToString("\n")
+                        val noteTexts = notesByDepth[depth].orEmpty().filter { it.role == role }.map { it.text }
+                        val text = (noteTexts + byRole[role].orEmpty().map { it.excerpt }).joinToString("\n")
                         if (text.isNotBlank()) add(LlmClient.ChatMessage(role = role.chatRole, content = text))
                     }
                 }

@@ -1,48 +1,18 @@
 package top.wkbin.zaomeng.feature.importbook
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.Badge
-import androidx.compose.material.icons.outlined.CloudDownload
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,17 +23,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.BasicComponent
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.ButtonDefaults
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.RadioButton
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Contacts
+import io.github.suqi8.coui.kmp.icon.extended.Download
+import io.github.suqi8.coui.kmp.icon.extended.Folder
+import io.github.suqi8.coui.kmp.icon.extended.Layers
+import io.github.suqi8.coui.kmp.icon.extended.Notes
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.platform.DistillationForeground
 import top.wkbin.zaomeng.platform.formatOneDecimal
 import top.wkbin.zaomeng.platform.rememberDocumentPicker
 import top.wkbin.zaomeng.platform.rememberNotificationPermissionRequester
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiPageScaffold
+import top.wkbin.zaomeng.ui.coui.CouiTextField
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.couiPageScroll
+import top.wkbin.zaomeng.ui.coui.isWideWindow
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImportBookScreen(
     viewModel: ImportBookViewModel,
@@ -142,55 +137,6 @@ fun ImportBookScreen(
         if (state.samplingPlan == null) showEstimateConfirmation = false
     }
 
-    if (showEstimateConfirmation) state.samplingPlan?.let { plan ->
-            AlertDialog(
-                onDismissRequest = { showEstimateConfirmation = false },
-                title = { Text("确认开始蒸馏") },
-                text = {
-                    Text(
-                        "本次预计调用约 ${plan.totalCalls} 次模型，消耗 ${plan.tokenLow.readableCount()}–${plan.tokenHigh.readableCount()} tokens，预计耗时 ${plan.timeLowSeconds.readableDuration()}–${plan.timeHighSeconds.readableDuration()}。",
-                    )
-                },
-                dismissButton = {
-                    TextButton(onClick = { showEstimateConfirmation = false }) { Text("再检查一下") }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showEstimateConfirmation = false
-                            submitImport()
-                        },
-                    ) { Text("确认开始") }
-                },
-            )
-    }
-
-    if (showReplacementConfirmation && replacingWorldBook && preview != null) {
-        val target = state.worldBookTargets.firstOrNull { it.runId == state.targetRunId }?.title.orEmpty()
-        val previousName = preview.previousBookName.orEmpty().ifBlank { "未命名世界书" }
-        val incomingName = preview.bookName.ifBlank { "未命名世界书" }
-        AlertDialog(
-            onDismissRequest = { showReplacementConfirmation = false },
-            title = { Text("替换独立世界书？") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("目标书卷「$target」")
-                    Text("当前挂载「$previousName」 · ${preview.previousEntryCount} 条")
-                    Text("替换为「$incomingName」 · ${preview.entryCount} 条")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReplacementConfirmation = false }) { Text("取消") }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    showReplacementConfirmation = false
-                    submitImport()
-                }) { Text("确认替换") }
-            },
-        )
-    }
-
     val hasDocument = state.fileName.isNotBlank()
     val worldBook = state.documentKind == ImportDocumentKind.WorldBook
     val needsPreview = state.documentKind == ImportDocumentKind.CharacterCard || worldBook
@@ -199,50 +145,52 @@ fun ImportBookScreen(
         (!needsPreview || (!state.previewBusy && state.sillyTavernPreview != null)) &&
         (!worldBook || state.targetRunId.isNotBlank())
 
-    Scaffold(
+    CouiPageScaffold(
+        title = "导入",
+        topBarStyle = CouiTopBarStyle.Small,
         modifier = Modifier.imePadding(),
-        topBar = {
-            TopAppBar(
-                title = { Text("导入") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (hasDocument) {
-                        TextButton(
-                            onClick = viewModel::clearDocument,
-                            enabled = !state.submitting && !state.readingFile,
-                        ) { Text("更换来源") }
-                    }
-                },
-            )
+        onBack = onBack,
+        wide = isWideWindow(),
+        actions = {
+            if (hasDocument) {
+                TextButton(
+                    text = "更换来源",
+                    onClick = viewModel::clearDocument,
+                    enabled = !state.submitting && !state.readingFile,
+                    minWidth = 0.dp,
+                    textStyle = COUITheme.textStyles.bodyM,
+                )
+            }
         },
         bottomBar = {
             if (hasDocument) {
-                Surface(tonalElevation = 3.dp) {
+                Surface(shadowElevation = 3.dp) {
                     Column(
                         modifier = Modifier.fillMaxWidth().navigationBarsPadding()
                             .padding(horizontal = 20.dp, vertical = 8.dp),
                     ) {
                         if (state.error.isNotBlank()) {
-                            Text(state.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                state.error,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.error,
+                            )
                         }
                         if (worldBook && state.targetRunId.isBlank() && state.worldBookTargets.isNotEmpty()) {
                             Text(
                                 "请先选择目标书卷",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         }
                         Button(
                             onClick = ::requestImport,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = canSubmit,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
                         ) {
                             if (state.submitting) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
                             }
                             Text(
                                 when {
@@ -254,6 +202,7 @@ fun ImportBookScreen(
                                     state.autoDistill -> "导入并开始蒸馏"
                                     else -> "导入到书架"
                                 },
+                                style = COUITheme.textStyles.buttonM,
                                 modifier = if (state.submitting) Modifier.padding(start = 10.dp) else Modifier,
                             )
                         }
@@ -261,33 +210,77 @@ fun ImportBookScreen(
                 }
             }
         },
-    ) { innerPadding ->
+    ) { scope ->
+        if (showEstimateConfirmation) state.samplingPlan?.let { plan ->
+            CouiAlertDialog(
+                onDismissRequest = { showEstimateConfirmation = false },
+                title = "确认开始蒸馏",
+                confirmText = "确认开始",
+                onConfirm = {
+                    showEstimateConfirmation = false
+                    submitImport()
+                },
+                dismissText = "再检查一下",
+                onDismiss = { showEstimateConfirmation = false },
+                body = {
+                    Text(
+                        "本次预计调用约 ${plan.totalCalls} 次模型，消耗 ${plan.tokenLow.readableCount()}–${plan.tokenHigh.readableCount()} tokens，预计耗时 ${plan.timeLowSeconds.readableDuration()}–${plan.timeHighSeconds.readableDuration()}。",
+                        style = COUITheme.textStyles.bodyM,
+                    )
+                },
+            )
+        }
+
+        if (showReplacementConfirmation && replacingWorldBook && preview != null) {
+            val target = state.worldBookTargets.firstOrNull { it.runId == state.targetRunId }?.title.orEmpty()
+            val previousName = preview.previousBookName.orEmpty().ifBlank { "未命名世界书" }
+            val incomingName = preview.bookName.ifBlank { "未命名世界书" }
+            CouiAlertDialog(
+                onDismissRequest = { showReplacementConfirmation = false },
+                title = "替换独立世界书？",
+                confirmText = "确认替换",
+                onConfirm = {
+                    showReplacementConfirmation = false
+                    submitImport()
+                },
+                dismissText = "取消",
+                onDismiss = { showReplacementConfirmation = false },
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("目标书卷「$target」", style = COUITheme.textStyles.bodyM)
+                        Text("当前挂载「$previousName」 · ${preview.previousEntryCount} 条", style = COUITheme.textStyles.bodyM)
+                        Text("替换为「$incomingName」 · ${preview.entryCount} 条", style = COUITheme.textStyles.bodyM)
+                    }
+                },
+            )
+        }
+
         val listState = rememberLazyListState()
         LaunchedEffect(state.documentKind, state.fileName) { listState.scrollToItem(0) }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(innerPadding).selectableGroup(),
-            contentPadding = PaddingValues(20.dp),
+            modifier = Modifier.couiPageScroll(scope).padding(horizontal = 20.dp).selectableGroup(),
+            contentPadding = scope.contentPadding,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             val canChooseSource = !state.readingFile
             if (!hasDocument) {
                 item {
                     Column {
-                        ImportSourceRow("小说", "TXT / EPUB", Icons.Outlined.Description, canChooseSource) {
+                        ImportSourceRow("小说", "TXT / EPUB", COUIIcons.Notes, canChooseSource) {
                             chooseDocument(ImportDocumentKind.NovelText)
                         }
-                        ImportSourceRow("造梦书卷包", ".zaomeng-run.zip", Icons.Outlined.Archive, canChooseSource) {
+                        ImportSourceRow("造梦书卷包", ".zaomeng-run.zip", COUIIcons.Folder, canChooseSource) {
                             chooseDocument(ImportDocumentKind.RunPackage)
                         }
-                        ImportSourceRow("SillyTavern 角色卡", "JSON / PNG", Icons.Outlined.Badge, canChooseSource) {
+                        ImportSourceRow("SillyTavern 角色卡", "JSON / PNG", COUIIcons.Contacts, canChooseSource) {
                             chooseDocument(ImportDocumentKind.CharacterCard)
                         }
-                        ImportSourceRow("SillyTavern 世界书", "JSON · 挂载到已有书卷", Icons.AutoMirrored.Outlined.MenuBook, canChooseSource) {
+                        ImportSourceRow("SillyTavern 世界书", "JSON · 挂载到已有书卷", COUIIcons.Layers, canChooseSource) {
                             chooseDocument(ImportDocumentKind.WorldBook)
                         }
                         ImportSourceRow(
-                            "在线书卷包", "浏览并下载已蒸馏的书卷", Icons.Outlined.CloudDownload,
+                            "在线书卷包", "浏览并下载已蒸馏的书卷", COUIIcons.Download,
                             canChooseSource, onOpenOnlineLibrary,
                         )
                     }
@@ -299,8 +292,8 @@ fun ImportBookScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Text("正在读取文件…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
+                        Text("正在读取文件…", style = COUITheme.textStyles.bodyM, color = COUITheme.colorScheme.labelSecondary)
                     }
                 }
             }
@@ -308,7 +301,7 @@ fun ImportBookScreen(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
-                            Text(state.fileName, style = MaterialTheme.typography.titleSmall)
+                            Text(state.fileName, style = COUITheme.textStyles.headlineXS)
                             Text(
                                 when (state.documentKind) {
                                     ImportDocumentKind.RunPackage -> "造梦书卷包 · ${state.fileSize.readableFileSize()}"
@@ -316,14 +309,15 @@ fun ImportBookScreen(
                                     ImportDocumentKind.WorldBook -> "SillyTavern 世界书 · ${state.fileSize.readableFileSize()}"
                                     else -> "正文 · ${state.charCount.readableCount()} 字 · ${state.sentenceCount} 句 · ${state.sourceEncoding}"
                                 },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyM,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         }
                     }
                 }
             }
             if (state.documentKind == ImportDocumentKind.WorldBook && state.worldBookTargets.isNotEmpty()) {
-                item { Text("选择目标书卷") }
+                item { Text("选择目标书卷", style = COUITheme.textStyles.bodyM) }
                 items(state.worldBookTargets, key = { it.runId }) { run ->
                     val selected = state.targetRunId == run.runId
                     Row(
@@ -337,7 +331,7 @@ fun ImportBookScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         RadioButton(selected = selected, onClick = null, enabled = !state.submitting)
-                        Text(run.title.ifBlank { run.runId })
+                        Text(run.title.ifBlank { run.runId }, style = COUITheme.textStyles.bodyM)
                     }
                 }
             }
@@ -364,15 +358,19 @@ fun ImportBookScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("导入后立即蒸馏", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "导入后立即蒸馏",
+                                style = COUITheme.textStyles.bodyM,
+                                fontWeight = FontWeight.Medium,
+                            )
                             Text(
                                 if (state.autoDistill) {
                                     "建立书卷后立即在后台处理，并显示进度通知。"
                                 } else {
                                     "先保存到书架，之后再从书卷详情开始蒸馏。"
                                 },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = COUITheme.textStyles.bodyXS,
+                                color = COUITheme.colorScheme.labelSecondary,
                             )
                         }
                         Switch(
@@ -383,15 +381,20 @@ fun ImportBookScreen(
                     }
                 }
                 item {
-                    OutlinedTextField(
-                        value = state.characters,
-                        onValueChange = viewModel::updateCharacters,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("要蒸馏的人物") },
-                        placeholder = { Text("例如：林黛玉，贾宝玉") },
-                        supportingText = { Text("可用逗号、分号或换行分隔；会记住到下次导入。") },
-                        minLines = 2,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CouiTextField(
+                            value = state.characters,
+                            onValueChange = viewModel::updateCharacters,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = "要蒸馏的人物（例如：林黛玉，贾宝玉）",
+                            minLines = 2,
+                        )
+                        Text(
+                            "可用逗号、分号或换行分隔；会记住到下次导入。",
+                            style = COUITheme.textStyles.bodyXS,
+                            color = COUITheme.colorScheme.labelSecondary,
+                        )
+                    }
                 }
                 item {
                     SamplingPlanCard(
@@ -400,32 +403,33 @@ fun ImportBookScreen(
                     )
                 }
                 item {
-                    OutlinedButton(
+                    Button(
                         onClick = viewModel::toggleAdvancedSampling,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !state.submitting,
                     ) {
-                        Text(if (state.advancedSamplingVisible) "收起高级取样" else "高级取样")
+                        Text(
+                            if (state.advancedSamplingVisible) "收起高级取样" else "高级取样",
+                            style = COUITheme.textStyles.buttonM,
+                        )
                     }
                 }
                 if (state.advancedSamplingVisible) {
                     item {
-                        OutlinedTextField(
+                        CouiTextField(
                             value = state.maxSentences,
                             onValueChange = viewModel::updateMaxSentences,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("每批最多句数") },
-                            supportingText = { Text("20–300") },
+                            label = "每批最多句数（20–300）",
                             singleLine = true,
                         )
                     }
                     item {
-                        OutlinedTextField(
+                        CouiTextField(
                             value = state.maxChars,
                             onValueChange = viewModel::updateMaxChars,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("每批最多字符") },
-                            supportingText = { Text("2000–200000") },
+                            label = "每批最多字符（2000–200000）",
                             singleLine = true,
                         )
                     }
@@ -437,13 +441,13 @@ fun ImportBookScreen(
                         } else {
                             "本次只建立书卷，不会立即调用模型。"
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
             if (!hasDocument && state.error.isNotBlank()) {
-                item { Text(state.error, color = MaterialTheme.colorScheme.error) }
+                item { Text(state.error, style = COUITheme.textStyles.bodyM, color = COUITheme.colorScheme.error) }
             }
         }
     }
@@ -457,11 +461,18 @@ private fun ImportSourceRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(description) },
-        leadingContent = { Icon(icon, contentDescription = null) },
-        modifier = Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+    BasicComponent(
+        title = title,
+        summary = description,
+        startAction = {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = COUITheme.colorScheme.primary,
+            )
+        },
+        onClick = onClick,
+        enabled = enabled,
     )
 }
 
@@ -477,33 +488,44 @@ private fun ModelConfigurationNotice(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            Text("正在检查模型配置…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+            Text("正在检查模型配置…", style = COUITheme.textStyles.bodyM, color = COUITheme.colorScheme.labelSecondary)
         }
 
         true -> Text(
             "模型已配置，可以在手机内开始蒸馏。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
+            style = COUITheme.textStyles.bodyXS,
+            color = COUITheme.colorScheme.primary,
         )
 
         false -> Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            colors = CardDefaults.defaultColors(
+                color = COUITheme.colorScheme.secondaryContainer,
+                contentColor = COUITheme.colorScheme.labelPrimary,
+            ),
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("开始蒸馏前需要配置模型", style = MaterialTheme.typography.titleSmall)
+                Text("开始蒸馏前需要配置模型", style = COUITheme.textStyles.bodyM, fontWeight = FontWeight.Medium)
                 Text(
                     error.ifBlank { "书卷包可以直接恢复；TXT 或 EPUB 正文需要模型生成角色资料。" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = COUITheme.textStyles.bodyXS,
+                    color = COUITheme.colorScheme.labelPrimary,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onOpenSettings) { Text("配置模型") }
+                    Button(
+                        onClick = onOpenSettings,
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                        minWidth = 0.dp,
+                    ) {
+                        Text("配置模型", style = COUITheme.textStyles.buttonM)
+                    }
                     if (error.isNotBlank()) {
-                        OutlinedButton(onClick = onRetry) { Text("重新检查") }
+                        Button(onClick = onRetry, minWidth = 0.dp) {
+                            Text("重新检查", style = COUITheme.textStyles.buttonM)
+                        }
                     }
                 }
             }
@@ -521,23 +543,20 @@ private fun SamplingPlanCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            Text("正在估算本次蒸馏…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+            Text("正在估算本次蒸馏…", style = COUITheme.textStyles.bodyM, color = COUITheme.colorScheme.labelSecondary)
         }
 
         state.samplingPlan != null -> state.samplingPlan.let { plan ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            ) {
+            Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("本次蒸馏预估", style = MaterialTheme.typography.titleSmall)
+                    Text("本次蒸馏预估", style = COUITheme.textStyles.bodyM, fontWeight = FontWeight.Medium)
                     Text(
                         "推荐取样 ${plan.suggestedMaxSentences} 句 / ${plan.suggestedMaxChars.readableCount()} 字",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = COUITheme.textStyles.bodyM,
                     )
                     Text(
                         if (plan.distillChunkCount > 1) {
@@ -545,13 +564,13 @@ private fun SamplingPlanCard(
                         } else {
                             "每位人物约 1 轮"
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                     Text(
                         "共约 ${plan.totalCalls} 次模型调用 · ${plan.tokenLow.readableCount()}–${plan.tokenHigh.readableCount()} tokens · ${plan.timeLowSeconds.readableDuration()}–${plan.timeHighSeconds.readableDuration()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -564,10 +583,15 @@ private fun SamplingPlanCard(
             Text(
                 state.samplingEstimateError,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.error,
             )
-            TextButton(onClick = onRetry) { Text("重试") }
+            TextButton(
+                text = "重试",
+                onClick = onRetry,
+                minWidth = 0.dp,
+                textStyle = COUITheme.textStyles.bodyM,
+            )
         }
     }
 }

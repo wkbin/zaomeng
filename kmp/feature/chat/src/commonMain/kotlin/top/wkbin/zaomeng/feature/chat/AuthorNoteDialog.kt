@@ -10,20 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,9 +21,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Button
+import io.github.suqi8.coui.kmp.basic.Chip
+import io.github.suqi8.coui.kmp.basic.DropdownImpl
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.ListPopupColumn
+import io.github.suqi8.coui.kmp.basic.Switch
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
+import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.data.api.AuthorNotePosition
 import top.wkbin.zaomeng.data.api.WorldBookInjectionRole
+import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
+import top.wkbin.zaomeng.ui.coui.CouiTextField
 
 @Composable
 internal fun AuthorNoteDialog(
@@ -67,10 +66,14 @@ internal fun AuthorNoteDialog(
         interval = intervalNumber ?: current.interval,
         position = position,
     )
-    AlertDialog(
+    CouiAlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("作者注释") },
-        text = {
+        title = "作者注释",
+        confirmText = if (saving) "保存中…" else "保存",
+        onConfirm = { onSave(draft) },
+        confirmEnabled = valid && draft != current && !saving,
+        onDismiss = { if (!saving) onDismiss() },
+        body = {
             Column(
                 modifier = Modifier.heightIn(max = 550.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -89,56 +92,103 @@ internal fun AuthorNoteDialog(
                     Switch(enabled, onCheckedChange = null, enabled = !saving)
                 }
                 if (enabled) {
-                    OutlinedTextField(
-                        interval, { interval = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("注入间隔") }, singleLine = true, suffix = { Text("条用户消息") },
-                        enabled = !saving, isError = intervalNumber == null,
+                    CouiTextField(
+                        value = interval,
+                        onValueChange = { interval = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "注入间隔",
+                        singleLine = true,
+                        enabled = !saving,
+                        isError = intervalNumber == null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        supportingText = { Text(if (intervalNumber == null) "请输入正整数。" else "1 表示每轮注入。") },
+                    )
+                    Text(
+                        if (intervalNumber == null) {
+                            "请输入正整数，单位是条用户消息。"
+                        } else {
+                            "单位为条用户消息，1 表示每轮注入。"
+                        },
+                        style = COUITheme.textStyles.description,
+                        color = if (intervalNumber == null) {
+                            COUITheme.colorScheme.error
+                        } else {
+                            COUITheme.colorScheme.labelSecondary
+                        },
                     )
                 }
-                OutlinedTextField(
-                    text, { text = it }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("注释内容") }, minLines = 3, maxLines = 8,
-                    enabled = !saving, isError = textTooLong,
-                    supportingText = { if (textTooLong) Text("最多 ${AuthorNoteDto.MAX_TEXT_LENGTH} 个字符。") },
+                CouiTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "注释内容",
+                    singleLine = false,
+                    minLines = 3,
+                    maxLines = 8,
+                    enabled = !saving,
+                    isError = textTooLong,
                 )
+                if (textTooLong) {
+                    Text(
+                        "最多 ${AuthorNoteDto.MAX_TEXT_LENGTH} 个字符。",
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.error,
+                    )
+                }
                 Column {
-                    Text("注入位置", style = MaterialTheme.typography.labelLarge)
+                    Text("注入位置", style = COUITheme.textStyles.buttonM)
                     Box {
-                        OutlinedButton(
+                        Button(
                             onClick = { positionMenuVisible = true },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !saving,
                         ) {
                             Text(position.label, modifier = Modifier.weight(1f))
-                            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                            Icon(COUIIcons.ExpandMore, contentDescription = null)
                         }
-                        DropdownMenu(positionMenuVisible, { positionMenuVisible = false }) {
-                            AuthorNotePosition.entries.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.label) },
-                                    onClick = {
-                                        position = option
-                                        positionMenuVisible = false
-                                    },
-                                )
+                        OverlayListPopup(
+                            show = positionMenuVisible,
+                            onDismissRequest = { positionMenuVisible = false },
+                        ) {
+                            ListPopupColumn {
+                                val options = AuthorNotePosition.entries
+                                options.forEachIndexed { index, option ->
+                                    DropdownImpl(
+                                        text = option.label,
+                                        optionSize = options.size,
+                                        isSelected = position == option,
+                                        index = index,
+                                        onSelectedIndexChange = {
+                                            position = option
+                                            positionMenuVisible = false
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 if (inChat) {
-                    OutlinedTextField(
-                        depth, { depth = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("聊天深度") }, singleLine = true,
+                    CouiTextField(
+                        value = depth,
+                        onValueChange = { depth = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "聊天深度",
+                        singleLine = true,
                         isError = depthNumber == null,
-                        enabled = !saving, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        supportingText = {
-                            Text(if (depthNumber == null) "请输入 0 至 10000 的整数。" else "0 在本轮输入后，1 在本轮输入前")
+                        enabled = !saving,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Text(
+                        if (depthNumber == null) "请输入 0 至 10000 的整数。" else "0 在本轮输入后，1 在本轮输入前",
+                        style = COUITheme.textStyles.description,
+                        color = if (depthNumber == null) {
+                            COUITheme.colorScheme.error
+                        } else {
+                            COUITheme.colorScheme.labelSecondary
                         },
                     )
                     Column {
-                        Text("注入角色", style = MaterialTheme.typography.labelLarge)
+                        Text("注入角色", style = COUITheme.textStyles.buttonM)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             WorldBookInjectionRole.entries.forEach { option ->
                                 val label = when (option) {
@@ -146,20 +196,19 @@ internal fun AuthorNoteDialog(
                                     WorldBookInjectionRole.User -> "用户"
                                     WorldBookInjectionRole.Assistant -> "助手"
                                 }
-                                FilterChip(role == option, { role = option }, { Text(label) }, enabled = !saving)
+                                Chip(
+                                    selected = role == option,
+                                    onClick = { role = option },
+                                    label = label,
+                                    enabled = !saving,
+                                )
                             }
                         }
                     }
                 }
-                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+                if (error.isNotBlank()) Text(error, color = COUITheme.colorScheme.error)
             }
         },
-        confirmButton = {
-            Button(onClick = { onSave(draft) }, enabled = valid && draft != current && !saving) {
-                Text(if (saving) "保存中…" else "保存")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") } },
     )
 }
 

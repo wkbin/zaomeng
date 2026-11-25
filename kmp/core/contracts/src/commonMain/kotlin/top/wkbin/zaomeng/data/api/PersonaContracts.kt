@@ -95,6 +95,36 @@ data class SillyTavernCardMetadataDto(
     @SerialName("character_version") val characterVersion: String = "",
     val tags: List<String> = emptyList(),
     @SerialName("creator_notes_truncated") val creatorNotesTruncated: Boolean = false,
+    @SerialName("tags_truncated") val tagsTruncated: Boolean = false,
+    val revision: String = "",
+    @SerialName("character_note") val characterNote: SillyTavernCharacterNoteDto =
+        SillyTavernCharacterNoteDto("", 4, WorldBookInjectionRole.System),
+    @SerialName("character_note_truncated") val characterNoteTruncated: Boolean = false,
+)
+
+@Serializable
+data class SillyTavernCharacterNoteDto(
+    val text: String,
+    val depth: Int,
+    val role: WorldBookInjectionRole,
+)
+
+const val CARD_CHARACTER_NOTE_LIMIT = 4000
+const val CARD_CHARACTER_NOTE_MAX_DEPTH = 10_000
+
+const val CARD_METADATA_LABEL_LIMIT = 120
+const val CARD_CREATOR_NOTES_LIMIT = 16_000
+const val CARD_TAG_LIMIT = 32
+const val CARD_TAG_CHAR_LIMIT = 64
+
+@Serializable
+data class UpdateSillyTavernCardMetadataRequest(
+    val revision: String,
+    val creator: String? = null,
+    @SerialName("creator_notes") val creatorNotes: String? = null,
+    @SerialName("character_version") val characterVersion: String? = null,
+    val tags: List<String>? = null,
+    @SerialName("character_note") val characterNote: SillyTavernCharacterNoteDto? = null,
 )
 
 @Serializable

@@ -2,40 +2,40 @@ package top.wkbin.zaomeng.navigation
 
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Forum
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
+import io.github.suqi8.coui.kmp.basic.FloatingNavigationBar
+import io.github.suqi8.coui.kmp.basic.FloatingNavigationBarDefaults
+import io.github.suqi8.coui.kmp.basic.FloatingNavigationBarItem
+import io.github.suqi8.coui.kmp.basic.NavigationRail
+import io.github.suqi8.coui.kmp.basic.NavigationRailItem
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Messages
+import io.github.suqi8.coui.kmp.icon.extended.More
+import io.github.suqi8.coui.kmp.icon.extended.Notes
+import io.github.suqi8.coui.kmp.theme.COUITheme
 
 private data class MainDestination(val key: NavKey, val label: String, val icon: ImageVector)
 
 private val mainDestinations = listOf(
-    MainDestination(BookshelfDestination, "书架", Icons.AutoMirrored.Outlined.MenuBook),
-    MainDestination(SessionsDestination(), "对话", Icons.Outlined.Forum),
-    MainDestination(MoreDestination, "更多", Icons.Outlined.MoreHoriz),
+    MainDestination(BookshelfDestination, "书架", COUIIcons.Notes),
+    MainDestination(SessionsDestination(), "对话", COUIIcons.Messages),
+    MainDestination(MoreDestination, "更多", COUIIcons.More),
 )
 
 @Composable
 internal fun AppTopLevelRail(selected: NavKey?, onSelect: (NavKey) -> Unit) {
     NavigationRail(
         modifier = Modifier.fillMaxHeight(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         header = {
             Text(
-                "造梦",
-                style = MaterialTheme.typography.titleMedium,
+                text = "造梦",
+                style = COUITheme.textStyles.headlineXS.copy(fontWeight = FontWeight.SemiBold),
                 modifier = Modifier.padding(vertical = 16.dp),
             )
         },
@@ -44,8 +44,8 @@ internal fun AppTopLevelRail(selected: NavKey?, onSelect: (NavKey) -> Unit) {
             NavigationRailItem(
                 selected = selected == item.key,
                 onClick = { onSelect(item.key) },
-                icon = { Icon(item.icon, contentDescription = null) },
-                label = { Text(item.label) },
+                icon = item.icon,
+                label = item.label,
             )
         }
     }
@@ -53,13 +53,13 @@ internal fun AppTopLevelRail(selected: NavKey?, onSelect: (NavKey) -> Unit) {
 
 @Composable
 internal fun AppTopLevelBar(selected: NavKey?, onSelect: (NavKey) -> Unit) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+    FloatingNavigationBar(color = FloatingNavigationBarDefaults.color().copy(alpha = 0.86f)) {
         mainDestinations.forEach { item ->
-            NavigationBarItem(
+            FloatingNavigationBarItem(
                 selected = selected == item.key,
                 onClick = { onSelect(item.key) },
-                icon = { Icon(item.icon, contentDescription = null) },
-                label = { Text(item.label) },
+                icon = item.icon,
+                label = item.label,
             )
         }
     }

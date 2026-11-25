@@ -4,10 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +19,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.squircle.SquircleShape
+import io.github.suqi8.coui.kmp.theme.COUIRoundCorner
+import io.github.suqi8.coui.kmp.theme.COUITheme
 
 @Composable
 fun RoleplayMessageContent(
@@ -69,8 +71,8 @@ private fun RoleplayProseText(
         return
     }
 
-    val aside = MaterialTheme.colorScheme.onSurfaceVariant
-    val dialogue = MaterialTheme.colorScheme.primary
+    val aside = COUITheme.colorScheme.labelSecondary
+    val dialogue = COUITheme.colorScheme.primary
     val formatted = remember(spans, readingLayout, aside, dialogue) {
         buildAnnotatedString {
             for (span in spans) {
@@ -93,23 +95,22 @@ private fun RoleplayProseText(
 private fun RoleplayStatus(block: RoleplayBlock.Status, style: TextStyle) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = MaterialTheme.shapes.small,
+        color = COUITheme.colorScheme.backgroundWithCard,
+        shape = SquircleShape(COUIRoundCorner.Normal.S, COUIRoundCorner.Normal.Weight),
     ) {
         Column {
-            TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = if (expanded) "收起 · ${block.title}" else "展开 · ${block.title}",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            TextButton(
+                text = if (expanded) "收起 · ${block.title}" else "展开 · ${block.title}",
+                onClick = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 1,
+            )
             if (expanded) {
                 Text(
                     text = block.text,
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
                     style = style,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = COUITheme.colorScheme.labelSecondary,
                 )
             }
         }

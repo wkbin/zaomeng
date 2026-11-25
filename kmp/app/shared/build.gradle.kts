@@ -77,8 +77,11 @@ kotlin {
             implementation(libs.bundles.compose.ui)
             implementation(libs.compose.lifecycle.runtime)
             api(libs.compose.lifecycle.viewmodel)
-            implementation(libs.compose.lifecycle.viewmodel.navigation3)
-            implementation(libs.jetbrains.navigation3.ui)
+            implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+            implementation(libs.androidx.navigation3.runtime)
+            // COUI 的 Navigation3 集成：同包名提供 androidx.navigation3.ui.NavDisplay，
+            // 默认翻页即 COUI 17 的页面转场（350ms，被覆盖页平移 30%）。
+            implementation(libs.coui.navigation3.ui)
             implementation(libs.androidx.navigationevent.compose)
             api(libs.paging.common)
             implementation(libs.paging.compose)
@@ -89,7 +92,6 @@ kotlin {
             implementation(libs.okio)
             implementation(libs.bundles.filekit.compose)
             implementation(libs.kotlinx.io.okio)
-            implementation(libs.material.kolor)
             implementation(libs.bundles.androidx.datastore)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)

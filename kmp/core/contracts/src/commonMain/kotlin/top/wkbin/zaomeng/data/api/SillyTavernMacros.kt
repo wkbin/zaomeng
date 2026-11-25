@@ -12,7 +12,7 @@ fun expandSillyTavernNames(text: String, character: String, user: String): Strin
 private val outletMacro = Regex("""\{\{outlet::([^{}\r\n]+?)\}\}""", RegexOption.IGNORE_CASE)
 
 val sillyTavernOutletCardFields = setOf(
-    "description", "personality", "scenario", "mes_example", "system_prompt", "post_history_instructions",
+    "description", "personality", "scenario", "mes_example", "system_prompt", "post_history_instructions", "depth_prompt",
 )
 
 fun referencedSillyTavernOutlets(card: Map<*, *>?): Set<String> = sillyTavernOutletCardFields

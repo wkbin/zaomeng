@@ -115,19 +115,20 @@ fun main() {
                 initialDynamicColorEnabled = initialPreferences.dynamicColorEnabled,
                 initialUiScale = initialPreferences.uiScale,
                 onThemeChanged = { dark -> applyNativeTitleBarTheme(window, dark) },
+                overlay = {
+                    appUpdateState.availableUpdate?.let { update ->
+                        if (dismissedUpdateVersion != update.version) {
+                            AppUpdateDialog(
+                                update = update,
+                                downloadState = appUpdateState.downloadState,
+                                onDismiss = { dismissedUpdateVersion = update.version },
+                                onDownload = { openUrl(update.downloadUrl) },
+                                downloadLabel = "去下载",
+                            )
+                        }
+                    }
+                },
             )
-
-            appUpdateState.availableUpdate?.let { update ->
-                if (dismissedUpdateVersion != update.version) {
-                    AppUpdateDialog(
-                        update = update,
-                        downloadState = appUpdateState.downloadState,
-                        onDismiss = { dismissedUpdateVersion = update.version },
-                        onDownload = { openUrl(update.downloadUrl) },
-                        downloadLabel = "去下载",
-                    )
-                }
-            }
         }
     }
 }

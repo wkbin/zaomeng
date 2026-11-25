@@ -33,6 +33,7 @@ kotlin {
             implementation(project(":core:contracts"))
             implementation(project(":data:remote"))
             implementation(project(":data:repository"))
+            implementation(project(":ui:shared"))
             implementation(libs.bundles.compose.ui)
             implementation(libs.compose.lifecycle.runtime)
             api(libs.compose.lifecycle.viewmodel)

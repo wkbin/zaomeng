@@ -1,76 +1,24 @@
 package top.wkbin.zaomeng.feature.chat
-import top.wkbin.zaomeng.feature.chat.insights.*
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.FactCheck
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.AccountTree
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.BookmarkAdd
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import top.wkbin.zaomeng.data.api.DialogueMemoryDto
-import top.wkbin.zaomeng.data.api.ReusableCardDto
-import kotlinx.serialization.json.JsonElement
+import io.github.suqi8.coui.kmp.basic.HorizontalDivider
+import io.github.suqi8.coui.kmp.basic.Icon
+import io.github.suqi8.coui.kmp.basic.Text
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Lock
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlin.math.roundToInt
+import top.wkbin.zaomeng.feature.chat.insights.*
 
 @Composable
 internal fun ConsistencyInsights(insight: ConsistencyInsight) {
@@ -87,20 +35,20 @@ internal fun ConsistencyInsights(insight: ConsistencyInsight) {
                 .filter(String::isNotBlank)
                 .joinToString(" · "),
             color = if (insight.issueCount > 0) {
-                MaterialTheme.colorScheme.error
+                COUITheme.colorScheme.error
             } else {
-                MaterialTheme.colorScheme.primary
+                COUITheme.colorScheme.primary
             },
             fontWeight = FontWeight.Medium,
         )
         if (insight.summary.isNotBlank()) {
-            Text(insight.summary, style = MaterialTheme.typography.bodyMedium)
+            Text(insight.summary, style = COUITheme.textStyles.bodyM)
         }
         insight.latestIssues.forEach { issue ->
             Text(
                 "• $issue",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -116,26 +64,26 @@ internal fun CharacterArcInsights(arcs: List<CharacterArcInsight>) {
                     if (arc.changeCount > 0) {
                         Text(
                             "${arc.changeCount} 次变化",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = COUITheme.textStyles.description,
+                            color = COUITheme.colorScheme.primary,
                         )
                     }
                 }
                 if (arc.stateSummary.isNotBlank()) {
-                    Text(arc.stateSummary, style = MaterialTheme.typography.bodySmall)
+                    Text(arc.stateSummary, style = COUITheme.textStyles.bodyXS)
                 }
                 if (arc.growthSummary.isNotBlank()) {
                     Text(
                         arc.growthSummary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
                 if (arc.latestReason.isNotBlank() && arc.latestReason != arc.growthSummary) {
                     Text(
                         "最近：${arc.latestReason}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -150,15 +98,15 @@ internal fun SpeakerInsights(insight: SpeakerInsight) {
         if (insight.recommendedSpeakers.isNotEmpty()) {
             Text(
                 "建议下一轮：${insight.recommendedSpeakers.joinToString("、")}",
-                color = MaterialTheme.colorScheme.primary,
+                color = COUITheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium,
             )
             insight.recommendedSpeakers.forEach { name ->
                 insight.reasons[name]?.takeIf(String::isNotBlank)?.let { reason ->
                     Text(
                         "$name：$reason",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -170,17 +118,17 @@ internal fun SpeakerInsights(insight: SpeakerInsight) {
                     Text(activity.name, fontWeight = FontWeight.Medium)
                     Text(
                         activity.detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
                 Text(
                     activity.statusLabel,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = COUITheme.textStyles.description,
                     color = if (activity.needsAttention) {
-                        MaterialTheme.colorScheme.error
+                        COUITheme.colorScheme.error
                     } else {
-                        MaterialTheme.colorScheme.primary
+                        COUITheme.colorScheme.primary
                     },
                 )
             }
@@ -198,30 +146,30 @@ internal fun RelationTimelineInsights(relations: List<RelationTimelineInsight>) 
                     Text(relation.label, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                     if (relation.locked) {
                         Icon(
-                            Icons.Outlined.Lock,
+                            COUIIcons.Lock,
                             contentDescription = "关系已锁定",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = COUITheme.colorScheme.primary,
                         )
                     }
                 }
                 if (relation.currentSummary.isNotBlank()) {
-                    Text(relation.currentSummary, style = MaterialTheme.typography.bodySmall)
+                    Text(relation.currentSummary, style = COUITheme.textStyles.bodyXS)
                 }
                 if (relation.changeSummary.isNotBlank()) {
                     Text(
                         relation.changeSummary,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = COUITheme.textStyles.description,
+                        color = COUITheme.colorScheme.primary,
                     )
                 }
                 if (relation.reason.isNotBlank()) {
-                    Text(relation.reason, style = MaterialTheme.typography.bodySmall)
+                    Text(relation.reason, style = COUITheme.textStyles.bodyXS)
                 }
                 if (relation.evidence.isNotBlank()) {
                     Text(
                         "依据：${relation.evidence}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -235,13 +183,13 @@ internal fun EventSignalInsights(events: List<EventSignalInsight>) {
     ToolSection("近期事件信号") {
         events.forEachIndexed { index, event ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(event.kindLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
-                Text(event.cue, style = MaterialTheme.typography.bodyMedium)
+                Text(event.kindLabel, color = COUITheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                Text(event.cue, style = COUITheme.textStyles.bodyM)
                 if (event.context.isNotBlank()) {
                     Text(
                         event.context,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
             }
@@ -262,7 +210,7 @@ internal fun SessionInsights(overview: JsonObject) {
     ToolSection("当前场景状态") {
         rows.forEach { (label, value) ->
             Row(Modifier.fillMaxWidth()) {
-                Text(label, modifier = Modifier.padding(end = 12.dp), color = MaterialTheme.colorScheme.primary)
+                Text(label, modifier = Modifier.padding(end = 12.dp), color = COUITheme.colorScheme.primary)
                 Text(value, modifier = Modifier.weight(1f))
             }
         }
@@ -276,7 +224,7 @@ internal fun GenerationInsights(insight: GenerationInsight) {
             .filter(String::isNotBlank)
             .joinToString(" · ")
         if (modelLabel.isNotBlank()) {
-            Text(modelLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            Text(modelLabel, color = COUITheme.colorScheme.primary, fontWeight = FontWeight.Medium)
         }
         val latestMetrics = buildList {
             if (insight.promptTokens > 0) add("输入 ${insight.promptTokens.compactCount()}")
@@ -286,14 +234,14 @@ internal fun GenerationInsights(insight: GenerationInsight) {
             if (insight.attemptCount > 1) add("${insight.attemptCount} 次尝试")
         }
         if (latestMetrics.isNotEmpty()) {
-            Text("本轮：${latestMetrics.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+            Text("本轮：${latestMetrics.joinToString(" · ")}", style = COUITheme.textStyles.bodyXS)
         }
         val cacheText = insight.cacheDescription()
         if (cacheText.isNotBlank()) {
             Text(
                 cacheText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
         val sessionMetrics = buildList {
@@ -305,8 +253,8 @@ internal fun GenerationInsights(insight: GenerationInsight) {
         if (sessionMetrics.isNotEmpty()) {
             Text(
                 "本会话：${sessionMetrics.joinToString(" · ")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = COUITheme.textStyles.bodyXS,
+                color = COUITheme.colorScheme.labelSecondary,
             )
         }
     }
@@ -316,7 +264,7 @@ internal fun GenerationInsights(insight: GenerationInsight) {
 internal fun ContextUsageInsights(insight: ContextUsageInsight) {
     ToolSection("本轮上下文") {
         insight.speaker.takeIf(String::isNotBlank)?.let { speaker ->
-            Text("由 $speaker 发起", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            Text("由 $speaker 发起", color = COUITheme.colorScheme.primary, fontWeight = FontWeight.Medium)
         }
         insight.sources.forEachIndexed { index, source ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -324,8 +272,8 @@ internal fun ContextUsageInsights(insight: ContextUsageInsight) {
                 if (source.items.isNotEmpty()) {
                     Text(
                         source.items.joinToString("；"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = COUITheme.textStyles.bodyXS,
+                        color = COUITheme.colorScheme.labelSecondary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

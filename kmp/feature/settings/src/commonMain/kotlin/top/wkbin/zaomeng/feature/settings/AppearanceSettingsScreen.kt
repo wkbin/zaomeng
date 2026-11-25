@@ -1,39 +1,10 @@
 package top.wkbin.zaomeng.feature.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,23 +12,33 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.Card
+import io.github.suqi8.coui.kmp.basic.CardListGroup
+import io.github.suqi8.coui.kmp.preference.ListPreference
+import io.github.suqi8.coui.kmp.preference.ListPreferenceEntry
+import io.github.suqi8.coui.kmp.preference.MarkPreference
+import io.github.suqi8.coui.kmp.preference.PreferenceCategory
+import io.github.suqi8.coui.kmp.preference.SliderPreference
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
+import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.data.preferences.AppPreferencesRepository
 import top.wkbin.zaomeng.data.preferences.ThemeMode
-import top.wkbin.zaomeng.ui.theme.ThemeSeedColor
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_DEFAULT
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MAX
 import top.wkbin.zaomeng.data.preferences.UI_SCALE_MIN
 import top.wkbin.zaomeng.platform.backHandlingToggleSupported
+import top.wkbin.zaomeng.ui.coui.CouiPage
+import top.wkbin.zaomeng.ui.coui.CouiTopBarStyle
+import top.wkbin.zaomeng.ui.coui.isWideWindow
+import top.wkbin.zaomeng.ui.theme.ThemeSeedColor
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private val themeColorEntries = ThemeSeedColor.entries.map { ListPreferenceEntry(text = it.displayName) }
+
 @Composable
 fun AppearanceSettingsScreen(
     onBack: () -> Unit,
@@ -73,257 +54,89 @@ fun AppearanceSettingsScreen(
     var uiScaleDraft by remember { mutableFloatStateOf(uiScale) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(uiScale) { uiScaleDraft = uiScale }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("外观") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(bottom = 28.dp),
-        ) {
-            item {
-                Text(
-                    "主题模式",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
-                )
-            }
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                ) {
-                    Column {
-                        ThemeMode.values().forEachIndexed { index, mode ->
-                            if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                            ThemeModeRow(
-                                mode = mode,
-                                selected = themeMode == mode,
+
+    CouiPage(
+        title = "外观",
+        topBarStyle = CouiTopBarStyle.Small,
+        onBack = onBack,
+        wide = isWideWindow(),
+    ) {
+        item(key = "theme_mode") {
+            PreferenceCategory(title = "主题模式")
+            Card(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+                CardListGroup {
+                    ThemeMode.entries.forEach { mode ->
+                        item(key = mode.name) {
+                            MarkPreference(
+                                title = mode.displayName,
+                                summary = when (mode) {
+                                    ThemeMode.SYSTEM -> "根据设备当前的系统外观自动切换。"
+                                    ThemeMode.LIGHT -> "始终使用浅色界面。"
+                                    ThemeMode.DARK -> "始终使用深色界面。"
+                                },
+                                checked = themeMode == mode,
                                 onClick = { scope.launch { preferencesRepository.setThemeMode(mode) } },
                             )
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("动态取色", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "开启后界面颜色随系统壁纸或下方主题色生成。",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Switch(
-                                checked = dynamicColorEnabled,
-                                onCheckedChange = { enabled ->
-                                    scope.launch { preferencesRepository.setDynamicColorEnabled(enabled) }
-                                },
-                            )
-                        }
                     }
-                }
-            }
-            item {
-                AnimatedVisibility(visible = dynamicColorEnabled) {
-                    Column {
-                        Text(
-                            "主题色",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
+                    item(key = "dynamic_color") {
+                        SwitchPreference(
+                            title = "动态取色",
+                            summary = "使用主题色生成整套色板。选择默认色时，支持的设备会使用系统色板。",
+                            checked = dynamicColorEnabled,
+                            onCheckedChange = { enabled ->
+                                scope.launch { preferencesRepository.setDynamicColorEnabled(enabled) }
+                            },
                         )
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        ) {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                ThemeSeedColor.entries.forEach { seed ->
-                                    SeedColorDot(
-                                        seed = seed,
-                                        selected = themeSeedColorArgb == seed.argb,
-                                        onClick = { scope.launch { preferencesRepository.setThemeSeedColor(seed.argb) } },
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
-            item {
-                Column {
-                    Text(
-                        "界面缩放",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
+        }
+        item(key = "seed_color") {
+            PreferenceCategory(title = "配色")
+            Card(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+                ListPreference(
+                    title = "主题色",
+                    entries = themeColorEntries,
+                    selectedIndex = ThemeSeedColor.entries.indexOfFirst { it.argb == themeSeedColorArgb },
+                    cancelButtonText = "取消",
+                    startAction = {
+                        Box(Modifier.size(20.dp).background(COUITheme.colorScheme.primary, CircleShape))
+                    },
+                    onSelectedIndexChange = { index ->
+                        scope.launch { preferencesRepository.setThemeSeedColor(ThemeSeedColor.entries[index].argb) }
+                    },
+                )
+            }
+        }
+        item(key = "ui_scale") {
+            PreferenceCategory(title = "界面缩放")
+            Card(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+                SliderPreference(
+                    title = "界面大小",
+                    summary = "拖动滑杆调整整个应用的界面大小，不影响系统设置。",
+                    value = uiScaleDraft,
+                    onValueChange = { uiScaleDraft = it },
+                    onValueChangeFinished = {
+                        scope.launch { preferencesRepository.setUiScale(uiScaleDraft) }
+                    },
+                    valueText = "${(uiScaleDraft * 100).toInt()}%",
+                    valueRange = UI_SCALE_MIN..UI_SCALE_MAX,
+                )
+            }
+        }
+        if (backHandlingToggleSupported()) {
+            item(key = "system") {
+                PreferenceCategory(title = "系统")
+                Card(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+                    SwitchPreference(
+                        title = "内置返回处理",
+                        summary = "开启后由 Navigation3 处理应用内返回并使用内置返回动画。",
+                        checked = builtInBackHandlingEnabled,
+                        onCheckedChange = onBuiltInBackHandlingEnabledChange,
                     )
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                "拖动滑杆调整整个应用的界面大小，不影响系统设置。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                "${(uiScaleDraft * 100).toInt()}%",
-                                modifier = Modifier.align(Alignment.End),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Slider(
-                                value = uiScaleDraft,
-                                onValueChange = { uiScaleDraft = it },
-                                onValueChangeFinished = {
-                                    scope.launch { preferencesRepository.setUiScale(uiScaleDraft) }
-                                },
-                                valueRange = UI_SCALE_MIN..UI_SCALE_MAX,
-                            )
-                        }
-                    }
-                }
-            }
-            if (backHandlingToggleSupported()) {
-                item {
-                    Column {
-                        Text(
-                            "系统",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 8.dp, end = 32.dp),
-                        )
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(
-                                    Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                                ) {
-                                    Text("内置返回处理", style = MaterialTheme.typography.bodyLarge)
-                                    Text(
-                                        "开启后由 Navigation3 处理应用内返回并使用内置返回动画。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(
-                                    checked = builtInBackHandlingEnabled,
-                                    onCheckedChange = onBuiltInBackHandlingEnabledChange,
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ThemeModeRow(mode: ThemeMode, selected: Boolean, onClick: () -> Unit) {
-    val subtitle = when (mode) {
-        ThemeMode.SYSTEM -> "根据设备当前的系统外观自动切换。"
-        ThemeMode.LIGHT -> "始终使用浅色界面。"
-        ThemeMode.DARK -> "始终使用深色界面。"
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(mode.displayName, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (selected) Icon(Icons.Default.CheckCircle, contentDescription = "已选中", tint = MaterialTheme.colorScheme.primary)
-    }
-}
-
-@Composable
-private fun SeedColorDot(
-    seed: ThemeSeedColor,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(
-                    if (seed == ThemeSeedColor.DEFAULT) {
-                        MaterialTheme.colorScheme.surfaceContainerHighest
-                    } else {
-                        seed.color
-                    }
-                )
-                .border(
-                    width = if (selected) 2.dp else 1.dp,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
-                    },
-                    shape = CircleShape,
-                )
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = null,
-                    tint = if (seed == ThemeSeedColor.DEFAULT) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.White
-                    },
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        Text(
-            seed.displayName,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
