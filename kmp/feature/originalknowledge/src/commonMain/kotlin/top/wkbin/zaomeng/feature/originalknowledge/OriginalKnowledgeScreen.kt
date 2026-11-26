@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.feature.originalknowledge
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +33,6 @@ import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
 import io.github.suqi8.coui.kmp.basic.HorizontalDivider
 import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.IconButton
-import io.github.suqi8.coui.kmp.basic.Switch
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.basic.TextButton
 import io.github.suqi8.coui.kmp.basic.TextField
@@ -40,6 +40,7 @@ import io.github.suqi8.coui.kmp.basic.TextFieldMode
 import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.Refresh
 import io.github.suqi8.coui.kmp.icon.extended.Search
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.OriginalKnowledgeEntryDto
 import top.wkbin.zaomeng.ui.coui.CouiAlertDialog
@@ -126,18 +127,12 @@ fun OriginalKnowledgeScreen(
                             Text("搜索")
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "只看固定证据",
-                            modifier = Modifier.weight(1f),
-                            style = COUITheme.textStyles.bodyM,
-                            color = COUITheme.colorScheme.labelPrimary,
-                        )
-                        Switch(
-                            checked = state.pinnedOnly,
-                            onCheckedChange = viewModel::setPinnedOnly,
-                        )
-                    }
+                    SwitchPreference(
+                        title = "只看固定证据",
+                        checked = state.pinnedOnly,
+                        onCheckedChange = viewModel::setPinnedOnly,
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                    )
                 }
             }
         }

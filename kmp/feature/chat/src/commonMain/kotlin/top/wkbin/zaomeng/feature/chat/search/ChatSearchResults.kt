@@ -123,6 +123,14 @@ internal fun ChatSearchResults(
     modifier: Modifier = Modifier,
 ) {
     when {
+        query.isBlank() -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "输入关键词，搜索这段会话里的台词、动作和人物。",
+                style = COUITheme.textStyles.bodyS,
+                color = COUITheme.colorScheme.labelSecondary,
+            )
+        }
+
         searching -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }

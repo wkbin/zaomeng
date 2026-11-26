@@ -117,4 +117,63 @@ class DialogueResponseParserTest {
         assertEquals("潘金莲", parsed.single().speaker)
         assertEquals("（指尖把衣襟攥得发皱，声音细得几乎听不见）奴家都依你。", parsed.single().message)
     }
+
+    @Test
+    fun `literal newlines inside message are tolerated`() {
+        val content = "{\"speaker\":\"潘金莲\",\"message\":\"第一段。\n第二段。\"}"
+        val parsed = DialogueResponseParser.parse(
+            content,
+            allowedSpeakers = listOf("潘金莲"),
+        )
+
+        assertEquals("潘金莲", parsed.single().speaker)
+        assertEquals("第一段。\n第二段。", parsed.single().message)
+    }
+
+    @Test
+    fun `ndjson keeps objects whose message spans physical lines`() {
+        val content = "{\"speaker\":\"潘金莲\",\"message\":\"第一段。\n第二段。\"}\n" +
+            "{\"speaker\":\"旁白\",\"message\":\"帘外风起。\"}"
+        val parsed = DialogueResponseParser.parse(
+            content,
+            allowedSpeakers = listOf("潘金莲", "旁白"),
+        )
+
+        assertEquals(listOf("潘金莲", "旁白"), parsed.map { it.speaker })
+        assertEquals("第一段。\n第二段。", parsed.first().message)
+        assertEquals("帘外风起。", parsed.last().message)
+    }
+
+    @Test
+    fun `decorated speaker names are canonicalized`() {
+        listOf("潘金莲（掩唇）", "潘金莲：", "潘金莲，").forEach { speaker ->
+            val parsed = DialogueResponseParser.parse(
+                """{"speaker":"$speaker","message":"公子请讲。"}""",
+                allowedSpeakers = listOf("潘金莲"),
+            )
+            assertEquals("潘金莲", parsed.single().speaker, "speaker: $speaker")
+        }
+    }
+
+    @Test
+    fun `ndjson tolerates trailing commas between objects`() {
+        val parsed = DialogueResponseParser.parse(
+            """{"speaker":"潘金莲","message":"第一句。"},
+{"speaker":"旁白","message":"帘外风起。"}
+""",
+            allowedSpeakers = listOf("潘金莲", "旁白"),
+        )
+
+        assertEquals(listOf("潘金莲", "旁白"), parsed.map { it.speaker })
+    }
+
+    @Test
+    fun `leading BOM is ignored`() {
+        val parsed = DialogueResponseParser.parse(
+            "\uFEFF{\"speaker\":\"潘金莲\",\"message\":\"公子请讲。\"}",
+            allowedSpeakers = listOf("潘金莲"),
+        )
+
+        assertEquals("潘金莲", parsed.single().speaker)
+    }
 }

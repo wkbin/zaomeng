@@ -3,11 +3,11 @@ package top.wkbin.zaomeng.feature.rundetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,7 +17,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.suqi8.coui.kmp.basic.Button
@@ -26,12 +25,12 @@ import io.github.suqi8.coui.kmp.basic.Chip
 import io.github.suqi8.coui.kmp.basic.DropdownImpl
 import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.ListPopupColumn
-import io.github.suqi8.coui.kmp.basic.Switch
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.basic.TextButton
 import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
 import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.EditWorldBookEntryRequest
 import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
@@ -218,25 +217,14 @@ internal fun WorldBookEntryEditor(
                     }
                 }
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
-                            value = constant,
-                            enabled = !saving,
-                            role = Role.Switch,
-                            onValueChange = { constant = it },
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("常驻条目")
-                            Text(
-                                if (constant) "不依赖关键词触发" else "命中关键词时触发",
-                                style = COUITheme.textStyles.bodyXS,
-                            )
-                        }
-                        Switch(checked = constant, onCheckedChange = null, enabled = !saving)
-                    }
+                    SwitchPreference(
+                        title = "常驻条目",
+                        summary = if (constant) "不依赖关键词触发" else "命中关键词时触发",
+                        checked = constant,
+                        onCheckedChange = { constant = it },
+                        enabled = !saving,
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                    )
                 }
                 item {
                     val label = if (primaryRequired) "主关键词（必填）" else "主关键词"
@@ -440,22 +428,14 @@ internal fun WorldBookEntryEditor(
                         "期间无法再次触发。设置粘滞时，冷却在粘滞结束后开始。") { cooldown = it }
                 }
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
-                            value = ignoreBudget,
-                            enabled = !saving,
-                            role = Role.Switch,
-                            onValueChange = { ignoreBudget = it },
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("忽略预算")
-                            Text("跳过普通条目配额，仍受总注入上限约束。", style = COUITheme.textStyles.bodyXS)
-                        }
-                        Switch(checked = ignoreBudget, onCheckedChange = null, enabled = !saving)
-                    }
+                    SwitchPreference(
+                        title = "忽略预算",
+                        summary = "跳过普通条目配额，仍受总注入上限约束。",
+                        checked = ignoreBudget,
+                        onCheckedChange = { ignoreBudget = it },
+                        enabled = !saving,
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                    )
                 }
                 item {
                     val options = if (!creating && originalPlacement == null) listOf(null) + WorldBookInjectionPosition.entries

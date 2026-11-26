@@ -3,11 +3,11 @@ package top.wkbin.zaomeng.feature.chat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -16,9 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.suqi8.coui.kmp.basic.Button
@@ -26,11 +24,11 @@ import io.github.suqi8.coui.kmp.basic.Chip
 import io.github.suqi8.coui.kmp.basic.DropdownImpl
 import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.ListPopupColumn
-import io.github.suqi8.coui.kmp.basic.Switch
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
 import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.AuthorNoteDto
 import top.wkbin.zaomeng.data.api.AuthorNotePosition
@@ -78,19 +76,13 @@ internal fun AuthorNoteDialog(
                 modifier = Modifier.heightIn(max = 550.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
-                        value = enabled,
-                        enabled = !saving,
-                        role = Role.Switch,
-                        onValueChange = { enabled = it },
-                    ),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("启用作者注释")
-                    Switch(enabled, onCheckedChange = null, enabled = !saving)
-                }
+                SwitchPreference(
+                    title = "启用作者注释",
+                    checked = enabled,
+                    onCheckedChange = { enabled = it },
+                    enabled = !saving,
+                    insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                )
                 if (enabled) {
                     CouiTextField(
                         value = interval,

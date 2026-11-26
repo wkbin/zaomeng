@@ -247,7 +247,7 @@ private fun RecapHeader(recap: StoryRecapDto) {
                     }
                 }
             }
-            HorizontalDivider(color = COUITheme.colorScheme.divider)
+            HorizontalDivider()
             Text(
                 text = listOfNotNull(
                     "${recap.eventCount} 个事件",
@@ -265,7 +265,7 @@ private fun RecapHeader(recap: StoryRecapDto) {
 private fun EventTimelineCard(events: List<StoryEventDto>) {
     RecapSectionCard(title = "近期事件") {
         events.forEachIndexed { index, event ->
-            if (index > 0) HorizontalDivider(color = COUITheme.colorScheme.divider)
+            if (index > 0) HorizontalDivider()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     event.title,
@@ -302,7 +302,7 @@ private fun EventTimelineCard(events: List<StoryEventDto>) {
 private fun RelationChangesCard(relations: List<StoryRelationChangeDto>) {
     RecapSectionCard(title = "关系变化") {
         relations.forEachIndexed { index, relation ->
-            if (index > 0) HorizontalDivider(color = COUITheme.colorScheme.divider)
+            if (index > 0) HorizontalDivider()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     relation.label,
@@ -333,7 +333,7 @@ private fun RelationChangesCard(relations: List<StoryRelationChangeDto>) {
 private fun CharacterArcsCard(arcs: List<StoryCharacterArcDto>) {
     RecapSectionCard(title = "人物状态") {
         arcs.forEachIndexed { index, arc ->
-            if (index > 0) HorizontalDivider(color = COUITheme.colorScheme.divider)
+            if (index > 0) HorizontalDivider()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     arc.name,
@@ -367,7 +367,7 @@ private fun CharacterArcsCard(arcs: List<StoryCharacterArcDto>) {
 private fun QuoteCard(quotes: List<StoryQuoteDto>) {
     RecapSectionCard(title = "片段") {
         quotes.forEachIndexed { index, quote ->
-            if (index > 0) HorizontalDivider(color = COUITheme.colorScheme.divider)
+            if (index > 0) HorizontalDivider()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

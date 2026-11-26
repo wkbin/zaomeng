@@ -1,6 +1,8 @@
 package top.wkbin.zaomeng.data.api
 
 sealed interface DialogueStreamEvent {
+    data class PromptPreview(val preview: DialoguePromptPreviewDto) : DialogueStreamEvent
+
     data class Status(
         val phase: String,
         val message: String,

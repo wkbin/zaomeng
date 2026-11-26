@@ -148,7 +148,6 @@ private fun SettingsArrowRow(
                 imageVector = icon,
                 contentDescription = null,
                 tint = COUITheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp),
             )
         },
         endActions = {

@@ -1,6 +1,5 @@
 package top.wkbin.zaomeng.feature.redistill
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -380,11 +379,12 @@ private fun RecommendationHeader(state: RedistillUiState, viewModel: RedistillVi
 @Composable
 private fun SegmentCard(segment: RedistillSegmentDto, selected: Boolean, onSelect: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(
             color = if (selected) COUITheme.colorScheme.containerThemeHalftone
             else COUITheme.colorScheme.backgroundWithCard,
         ),
+        onClick = onSelect,
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

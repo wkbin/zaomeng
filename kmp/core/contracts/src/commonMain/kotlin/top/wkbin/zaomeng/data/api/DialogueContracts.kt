@@ -395,6 +395,22 @@ data class DialogueReplyRequest(
     /** false 时响应/流式 complete 不再携带 transcript（客户端用消息分页接口 + appended 增量维护本地列表）。 */
     @SerialName("include_transcript") val includeTranscript: Boolean = false,
     @SerialName("operation_id") val operationId: String = "",
+    @SerialName("include_prompt_preview") val includePromptPreview: Boolean = false,
+)
+
+@Serializable
+data class DialoguePromptPreviewDto(
+    @SerialName("turn_id") val turnId: String,
+    val attempt: Int,
+    val messages: List<DialoguePromptMessageDto>,
+    @SerialName("world_book_matches") val worldBookMatches: List<WorldBookMatchDto> = emptyList(),
+)
+
+@Serializable
+data class DialoguePromptMessageDto(
+    val role: String,
+    val text: String,
+    val truncated: Boolean = false,
 )
 
 @Serializable

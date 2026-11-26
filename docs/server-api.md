@@ -455,10 +455,13 @@ data: {"index":0,"speaker":"林黛玉","role":"character","field":"message","tex
 | 事件 | 数据 | 含义 |
 |---|---|---|
 | `status` | `phase`, `message` | `generating` 表示生成，`restoring` 表示恢复已提交结果 |
+| `prompt_preview` | `turn_id`, `attempt`, `messages`, `world_book_matches` | 请求设置 `include_prompt_preview: true` 时，每次正文生成前返回提示词预览 |
 | `reset` | `message` | 丢弃此前增量并重置可见内容 |
 | `delta` | `index`, `speaker`, `role`, `field`, `text` | 某条角色响应的字段增量；`field` 常为 `message` 或 `inner_thought` |
 | `complete` | `session`, `operation_id`, `turn_id`, `replayed`, `base_revision`, `committed_revision`, `transcript_count`, 可选 `appended_transcript` | 生成及持久化完成，或重放已提交回执 |
 | `error` | `code`, `operation_id`, `message`, `retryable` | 流中失败；HTTP 状态通常已是 `200`，应按事件处理 |
+
+提示词预览默认关闭。消息保留请求顺序并包含 `role`、`text` 和可选 `truncated`。每条正文最多显示 24000 字符，本次预览合计最多显示 64000 字符，截断只影响预览。格式重试会返回 `attempt: 2`，恢复已提交结果时没有新的预览。预览内容随流传输，客户端仅在当前会话页面的内存中保留最近一次捕获；不会写入聊天历史、操作回执或日志。
 
 `complete` 规则：
 

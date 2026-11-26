@@ -84,7 +84,6 @@ private fun MoreItem(title: String, description: String, icon: ImageVector, onCl
                 imageVector = icon,
                 contentDescription = null,
                 tint = COUITheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp),
             )
         },
         onClick = onClick,

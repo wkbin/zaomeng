@@ -22,6 +22,10 @@ object DialogueResponseParser {
 
     private val forbiddenFixed = setOf("user", "你", "模型推理", "system", "assistant")
 
+    /** 模型给 speaker 加括号注释（如「祥子（车夫）」）或标点时，先去掉装饰再比对。 */
+    private val speakerDecoration = Regex("[（(\\[【].*?[）)\\]】]")
+    private const val SPEAKER_TRIM_CHARS = "　 \t·:：,，.。!！?？;；、\"'“”‘’*_-—"
+
     /**
      * 解析 LLM 回复文本为对话响应列表。
      *
@@ -39,16 +43,20 @@ object DialogueResponseParser {
         if (text.isEmpty()) throw IllegalArgumentException("Model returned an empty reply.")
         val items = loadResponseItems(text)
         val allowed = allowedSpeakers.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-        val forbidden = forbiddenFixed + forbiddenSpeakers
-            .mapNotNull { it.trim().lowercase().ifEmpty { null } }
+        val aliasMap = buildSpeakerAliasMap(allowed)
+        val forbidden = (forbiddenFixed + forbiddenSpeakers)
+            .map { normalizeSpeakerKey(it) }
+            .filter { it.isNotEmpty() }
+            .toSet()
         val clean = mutableListOf<DialogueResponse>()
         for (element in items) {
             if (element !is JsonObject) continue
             val rawSpeaker = element["speaker"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val message = element["message"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (rawSpeaker.isEmpty() || message.isEmpty()) continue
-            if (rawSpeaker.lowercase() in forbidden) continue
-            val canonical = canonicalSpeaker(rawSpeaker, allowed) ?: continue
+            if (normalizeSpeakerKey(rawSpeaker) in forbidden) continue
+            val canonical = canonicalSpeaker(rawSpeaker, allowed, aliasMap) ?: continue
+            if (normalizeSpeakerKey(canonical) in forbidden) continue
             val innerThought = element["inner_thought"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?.take(50)?.ifEmpty { null }
             clean.add(
@@ -126,34 +134,104 @@ object DialogueResponseParser {
     }
 
     /**
-     * NDJSON is attempted first so every completed line remains independently usable.
-     * Lines that are not a complete `{speaker,message}` object (truncated tail, noise,
-     * pretty-printed legacy JSON) are skipped; the legacy whole-document parser below
-     * only runs when no usable NDJSON line exists at all.
+     * 宽松化后按以下顺序取回响应对象：
+     * 1. 整段文本是完整 JSON 文档（数组 / `responses` 包装 / 单对象 / 围栏包裹）
+     * 2. NDJSON 或尾部截断：逐行回收完整对象（不能先走 balanced fragment，否则多行对象只剩第一个）
+     * 3. 前后缀噪音中的平衡 JSON 片段
      */
     private fun loadResponseItems(text: String): List<JsonElement> {
-        val stripped = stripCodeFences(text)
-        val nonBlankLines = stripped.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
-        if (nonBlankLines.isNotEmpty()) {
-            val ndjsonItems = mutableListOf<JsonElement>()
-            for (line in nonBlankLines) {
-                val item = runCatching { json.parseToJsonElement(line) as? JsonObject }.getOrNull()
-                if (item != null && item["speaker"] != null && item["message"] != null) {
-                    ndjsonItems += item
-                }
-            }
-            if (ndjsonItems.isNotEmpty()) {
-                return ndjsonItems
-            }
-        }
+        // 模型常把换行直接放进 message 字符串（严格 JSON 非法），先做一次宽松化再尝试各种形态
+        val normalized = normalizeJsonText(text)
+        parseWholeDocument(normalized)?.let { return interpretResponseDocument(it) }
+        val ndjsonItems = salvageNdjsonObjects(normalized)
+        if (ndjsonItems.isNotEmpty()) return ndjsonItems
+        return interpretResponseDocument(loadLlmJson(normalized))
+    }
 
-        return when (val parsed = loadLlmJson(text)) {
-            is JsonArray -> parsed
-            is JsonObject -> parsed["responses"] as? JsonArray
-                ?: if (parsed["speaker"] != null && parsed["message"] != null) listOf(parsed)
-                else throw IllegalArgumentException("Model reply is not a response list.")
-            else -> throw IllegalArgumentException("Model reply is not a response list.")
+    private fun interpretResponseDocument(parsed: JsonElement): List<JsonElement> = when (parsed) {
+        is JsonArray -> parsed
+        is JsonObject -> parsed["responses"] as? JsonArray
+            ?: if (parsed["speaker"] != null && parsed["message"] != null) listOf(parsed)
+            else throw IllegalArgumentException("Model reply is not a response list.")
+        else -> throw IllegalArgumentException("Model reply is not a response list.")
+    }
+
+    /** 只把整段文本当作一个 JSON 文档解析，不做片段截取。 */
+    private fun parseWholeDocument(text: String): JsonElement? {
+        val raw = text.trim()
+        val stripped = stripCodeFences(text)
+        val candidates = if (stripped != raw) listOf(raw, stripped) else listOf(raw)
+        for (candidate in candidates) {
+            val parsed = runCatching { json.parseToJsonElement(candidate) }.getOrNull()
+            if (parsed != null) return parsed
         }
+        return null
+    }
+
+    /** 逐行回收完整 `{speaker,message}` 对象；未闭合或噪音行跳过。 */
+    private fun salvageNdjsonObjects(text: String): List<JsonElement> {
+        val stripped = stripCodeFences(text)
+        return stripped.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .mapNotNull { line ->
+                // 容忍对象后误加的逗号（NDJSON 逐行对象之间常见）
+                val candidate = line.trimEnd(',').trim()
+                runCatching { json.parseToJsonElement(candidate) as? JsonObject }.getOrNull()
+                    ?.takeIf { it["speaker"] != null && it["message"] != null }
+            }
+            .toList()
+    }
+
+    /**
+     * 宽松化模型原始输出，使其能被严格 JSON 解析器接受（对齐 Python `strict=False`）：
+     * - 去除 BOM、把不间断空格换成普通空格
+     * - 把字符串字面量里的裸换行/制表符/控制字符转义成 `\n`/`\t`/`\uXXXX`
+     * 字符串外部的换行保持不变，因此 NDJSON 逐行结构不会被破坏；
+     * 而已被折行的 `message` 会重新并回同一行，避免整条回复被判为非法 JSON。
+     */
+    private fun normalizeJsonText(text: String): String {
+        val source = text.removePrefix("\uFEFF").replace('\u00A0', ' ')
+        val out = StringBuilder(source.length + 16)
+        var inString = false
+        var escaped = false
+        for (ch in source) {
+            if (!inString) {
+                if (ch == '"') inString = true
+                out.append(ch)
+                continue
+            }
+            when {
+                escaped -> {
+                    when {
+                        ch == '\n' -> out.append("\\n")
+                        ch == '\r' -> out.append("\\r")
+                        ch == '\t' -> out.append("\\t")
+                        ch.code < 0x20 -> out.appendControlEscape(ch)
+                        else -> out.append(ch)
+                    }
+                    escaped = false
+                }
+                ch == '\\' -> {
+                    out.append(ch)
+                    escaped = true
+                }
+                ch == '"' -> {
+                    out.append(ch)
+                    inString = false
+                }
+                ch == '\n' -> out.append("\\n")
+                ch == '\r' -> out.append("\\r")
+                ch == '\t' -> out.append("\\t")
+                ch.code < 0x20 -> out.appendControlEscape(ch)
+                else -> out.append(ch)
+            }
+        }
+        return out.toString()
+    }
+
+    private fun StringBuilder.appendControlEscape(ch: Char) {
+        append("\\u").append(ch.code.toString(16).padStart(4, '0'))
     }
 
     /**
@@ -230,12 +308,28 @@ object DialogueResponseParser {
         return candidates
     }
 
-    private fun canonicalSpeaker(speaker: String, allowed: Set<String>): String? {
+    private fun canonicalSpeaker(
+        speaker: String,
+        allowed: Set<String>,
+        aliasMap: Map<String, String>,
+    ): String? {
         if (speaker in allowed) return speaker
-        val normalized = speaker.replace(" ", "").lowercase()
+        return aliasMap[normalizeSpeakerKey(speaker)]
+    }
+
+    /** 归一化 speaker：去括号装饰、去首尾标点、合并空白、忽略大小写。 */
+    private fun normalizeSpeakerKey(name: String): String {
+        val withoutDecoration = speakerDecoration.replace(name, "")
+        val trimmed = withoutDecoration.trim { it in SPEAKER_TRIM_CHARS }
+        return trimmed.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ").lowercase()
+    }
+
+    private fun buildSpeakerAliasMap(allowed: Set<String>): Map<String, String> {
+        val aliasMap = mutableMapOf<String, String>()
         for (name in allowed) {
-            if (name.replace(" ", "").lowercase() == normalized) return name
+            val key = normalizeSpeakerKey(name)
+            if (key.isNotEmpty()) aliasMap.putIfAbsent(key, name)
         }
-        return null
+        return aliasMap
     }
 }

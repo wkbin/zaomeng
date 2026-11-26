@@ -133,6 +133,7 @@ internal class ChatStreamEngine(
                         draftSpeakerOverride = "",
                         error = "",
                         modelReasoning = "",
+                        captureNextPrompt = false,
                         streamingReplies = emptyList(),
                         sendOutcomeUnknown = false,
                         failedOperationId = operationId,
@@ -169,8 +170,12 @@ internal class ChatStreamEngine(
                     suppressTranscriptMessage = suppressTranscriptMessage,
                     includeInnerThoughts = snapshot.includeInnerThoughts,
                     includeModelReasoning = snapshot.chatDisplay.showModelReasoning,
+                    includePromptPreview = snapshot.captureNextPrompt,
                 ).collect { event ->
                     when (event) {
+                        is DialogueStreamEvent.PromptPreview -> if (snapshot.captureNextPrompt) {
+                            updateSendState(snapshot, operationId) { it.copy(promptPreview = event.preview) }
+                        }
                         is DialogueStreamEvent.Status -> updateSendState(snapshot, operationId) {
                             val status = event.message.ifBlank { event.phase }
                             it.copy(

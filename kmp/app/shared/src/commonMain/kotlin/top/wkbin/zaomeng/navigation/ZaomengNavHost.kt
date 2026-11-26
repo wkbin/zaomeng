@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -87,7 +91,10 @@ fun ZaomengNavHost(
     /** 是否由 Navigation3/NavDisplay 处理应用内返回；关闭时回退到 AndroidX BackHandler。 */
     builtInBackHandlingEnabled: Boolean = true,
 ) {
-    val backStack = remember { NavBackStack<NavKey>(BookshelfDestination) }
+    // 顶层三页放在同一个 NavEntry 的 HorizontalPager 里，导航栈只在详情页之间增长。
+    val backStack = remember { NavBackStack<NavKey>(TopLevelDestination) }
+    val pagerState = rememberPagerState(pageCount = { mainTabs.size })
+    val pagerScope = rememberCoroutineScope()
     val platform: AppPlatform = koinInject()
     val runDetailRefreshEpoch = remember { mutableStateOf(0) }
 
@@ -103,20 +110,26 @@ fun ZaomengNavHost(
 
     val wideLayout = isWideWindow()
 
-    // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回首页而不是退出；
-    // 首页（栈深 1）时不做任何事，由系统处理退出。
-    // 书卷架始终作为栈底（tab 切换只替换其上的内容），因此任何 tab 下返回都有真实的
-    // 应用内上一页可供内置返回动画预览，而不是直接预览"退出应用"。
+    // 返回语义（参考 KernelSU）：栈深 >1 时弹栈；在非首页顶层 tab 时先回书架而不是退出；
+    // 书架（栈深 1 且第 0 页）时不做任何事，由系统处理退出。
     val popBack: () -> Unit = {
-        if (backStack.size > 1) {
-            backStack.removeLastOrNull()
+        when {
+            backStack.size > 1 -> backStack.removeLastOrNull()
+            pagerState.currentPage != 0 -> pagerScope.launch { pagerState.animateScrollToPage(0) }
         }
     }
 
     // 内置处理关闭时，隔离 NavDisplay 的 NavigationEventDispatcher，
-    // 由 AndroidX BackHandler 接管应用内导航栈（栈深 >1 才拦截）。
+    // 由 AndroidX BackHandler 接管应用内导航栈（栈深 >1 或顶层不在书架页时拦截）。
     PlatformBackHandler(
-        enabled = !builtInBackHandlingEnabled && backStack.size > 1,
+        enabled = !builtInBackHandlingEnabled && (backStack.size > 1 || pagerState.currentPage != 0),
+        onBack = popBack,
+    )
+
+    // NavDisplay 的返回处理器在栈底不会消费返回事件；顶层停在对话/更多时补一个，
+    // 保证返回先回到书架，和改造前“非首页 tab 先回首页”的语义一致。
+    PlatformBackHandler(
+        enabled = builtInBackHandlingEnabled && backStack.size == 1 && pagerState.currentPage != 0,
         onBack = popBack,
     )
 
@@ -125,22 +138,45 @@ fun ZaomengNavHost(
     )
 
     val navEntryProvider = entryProvider<NavKey> {
-            entry(BookshelfDestination) {
-                val viewModel: BookshelfViewModel = koinViewModel()
-                BookshelfScreen(
-                    viewModel = viewModel,
-                    onImport = { backStack.add(ImportBookDestination) },
-                    onOpenSettings = { backStack.add(ModelConfigurationDestination) },
-                    onOpenRun = { runId -> backStack.add(RunDetailDestination(runId)) },
-                )
-            }
-            entry(MoreDestination) {
-                MoreScreen(
-                    onOpenCards = { backStack.add(CardLibraryDestination) },
-                    onOpenCrossover = { backStack.add(CrossoverDestination) },
-                    onOpenLibrary = { backStack.add(OnlineLibraryDestination) },
-                    onOpenSettings = { backStack.add(ModelSettingsDestination) },
-                )
+            entry(TopLevelDestination) {
+                // 书架 / 对话 / 更多 是同一页里的三个 pager 页面：
+                // 底栏点击只做分页滚动，不再触发 NavDisplay 的整页推入，左右滑动也能直接换 tab。
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
+                    when (page) {
+                        0 -> {
+                            val viewModel: BookshelfViewModel = koinViewModel()
+                            BookshelfScreen(
+                                viewModel = viewModel,
+                                onImport = { backStack.add(ImportBookDestination) },
+                                onOpenSettings = { backStack.add(ModelConfigurationDestination) },
+                                onOpenRun = { runId -> backStack.add(RunDetailDestination(runId)) },
+                            )
+                        }
+
+                        1 -> {
+                            val viewModel: SessionsViewModel = koinViewModel()
+                            SessionsScreen(
+                                viewModel = viewModel,
+                                runId = null,
+                                showBackButton = false,
+                                onBack = {},
+                                onOpenChat = { runId, sessionId ->
+                                    backStack.add(ChatDestination(runId, sessionId))
+                                },
+                            )
+                        }
+
+                        else -> MoreScreen(
+                            onOpenCards = { backStack.add(CardLibraryDestination) },
+                            onOpenCrossover = { backStack.add(CrossoverDestination) },
+                            onOpenLibrary = { backStack.add(OnlineLibraryDestination) },
+                            onOpenSettings = { backStack.add(ModelSettingsDestination) },
+                        )
+                    }
+                }
             }
             entry(ImportBookDestination) {
                 val viewModel: ImportBookViewModel = koinViewModel()
@@ -373,27 +409,28 @@ fun ZaomengNavHost(
             }
         }
 
-    val current = backStack.lastOrNull()
-    val showNavigation = current == BookshelfDestination ||
-        current == SessionsDestination() || current == MoreDestination
-    val selectDestination: (NavKey) -> Unit = { destination ->
-        if (backStack.lastOrNull() != destination) {
-            while (backStack.size > 1) backStack.removeLastOrNull()
-            if (destination != BookshelfDestination) backStack.add(destination)
+    // 只在顶层 pager 上显示底栏/侧栏；进入详情页后退回导航栈，栏自然隐藏。
+    val atTopLevel = backStack.size == 1
+    val selectTab: (Int) -> Unit = { index ->
+        if (pagerState.currentPage != index) {
+            pagerScope.launch {
+                // 宽屏用侧栏，直接换页更利落；窄屏底栏走 ViewPager 式的滑动过渡。
+                if (wideLayout) pagerState.scrollToPage(index) else pagerState.animateScrollToPage(index)
+            }
         }
     }
 
-    val bottomNavigation = !wideLayout && showNavigation
+    val bottomNavigation = !wideLayout && atTopLevel
     CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides navEventOwner) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = { if (bottomNavigation) AppTopLevelBar(current, selectDestination) },
+            bottomBar = { if (bottomNavigation) AppTopLevelBar(pagerState.currentPage, selectTab) },
         ) { navigationPadding ->
             CompositionLocalProvider(LocalCouiNavigationPadding provides navigationPadding) {
                 Row(Modifier.fillMaxSize()) {
-                    if (wideLayout && showNavigation) {
-                        AppTopLevelRail(current, selectDestination)
+                    if (wideLayout && atTopLevel) {
+                        AppTopLevelRail(pagerState.currentPage, selectTab)
                     }
                     NavDisplay(
                         backStack = backStack,

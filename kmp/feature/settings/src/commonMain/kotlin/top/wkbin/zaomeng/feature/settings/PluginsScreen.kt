@@ -43,6 +43,7 @@ import io.github.suqi8.coui.kmp.icon.extended.Add
 import io.github.suqi8.coui.kmp.icon.extended.Refresh
 import io.github.suqi8.coui.kmp.icon.extended.Tasks
 import io.github.suqi8.coui.kmp.icon.extended.Update
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -311,15 +312,12 @@ private fun PluginCard(
                         color = COUITheme.colorScheme.labelSecondary,
                     )
                 }
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.padding(10.dp), strokeWidth = 2.dp)
-                } else {
-                    Switch(
-                        checked = plugin.enabled,
-                        onCheckedChange = onEnabledChange,
-                        enabled = interactionsEnabled && plugin.executable,
-                    )
-                }
+                Switch(
+                    checked = plugin.enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = interactionsEnabled && plugin.executable && !busy,
+                    isLoading = busy,
+                )
             }
             if (!plugin.executable) {
                 Text(
@@ -416,21 +414,13 @@ private fun PluginConfigDialog(
                 plugin.settings.forEach { setting ->
                     val value = draft[setting.key] ?: setting.default
                     when (setting.type) {
-                        "boolean" -> Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                setting.title,
-                                modifier = Modifier.weight(1f),
-                                style = COUITheme.textStyles.bodyM,
-                            )
-                            Switch(
-                                checked = value.jsonPrimitive.booleanOrNull ?: false,
-                                onCheckedChange = { onValueChange(setting.key, JsonPrimitive(it)) },
-                                enabled = !saving,
-                            )
-                        }
+                        "boolean" -> SwitchPreference(
+                            title = setting.title,
+                            checked = value.jsonPrimitive.booleanOrNull ?: false,
+                            onCheckedChange = { onValueChange(setting.key, JsonPrimitive(it)) },
+                            enabled = !saving,
+                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        )
                         "integer" -> {
                             val minimum = setting.min ?: 0
                             val maximum = setting.max ?: 100

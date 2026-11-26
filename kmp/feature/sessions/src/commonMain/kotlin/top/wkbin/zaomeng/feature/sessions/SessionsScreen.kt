@@ -9,16 +9,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -35,8 +32,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,15 +57,16 @@ import io.github.suqi8.coui.kmp.basic.EmptyStateSizeType
 import io.github.suqi8.coui.kmp.basic.FloatingActionButton
 import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.IconButton
-import io.github.suqi8.coui.kmp.basic.InputField
 import io.github.suqi8.coui.kmp.basic.ListPopupColumn
 import io.github.suqi8.coui.kmp.basic.RadioButton
-import io.github.suqi8.coui.kmp.basic.SearchBar
 import io.github.suqi8.coui.kmp.basic.Surface
 import io.github.suqi8.coui.kmp.basic.TagView
 import io.github.suqi8.coui.kmp.basic.TagViewDefaults
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.basic.TextButton
+import io.github.suqi8.coui.kmp.basic.TopAppBarSearchBar
+import io.github.suqi8.coui.kmp.basic.rememberTopAppBarSearchState
+import io.github.suqi8.coui.kmp.basic.topAppBarSearchResults
 import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.Add
 import io.github.suqi8.coui.kmp.icon.extended.Close
@@ -140,7 +136,7 @@ fun SessionsScreen(
     var renameTitle by remember { mutableStateOf("") }
     var pendingBatchDeletion by remember { mutableStateOf(false) }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    val searchFocusRequester = remember { FocusRequester() }
+    val searchState = rememberTopAppBarSearchState(searchExpanded)
     val keyboardController = LocalSoftwareKeyboardController.current
     val dismissSearch = {
         searchExpanded = false
@@ -180,12 +176,6 @@ fun SessionsScreen(
     LaunchedEffect(state.selectedSessionKeys.size) {
         if (state.selectedSessionKeys.isEmpty()) pendingBatchDeletion = false
     }
-    LaunchedEffect(searchExpanded) {
-        if (searchExpanded) {
-            searchFocusRequester.requestFocus()
-            keyboardController?.show()
-        }
-    }
     LaunchedEffect(lazySessions.itemCount, state.deletingSessionKeys) {
         pendingDeletion?.let { pending ->
             if (visibleSessions.none { it.key == pending.key }) pendingDeletion = null
@@ -224,16 +214,19 @@ fun SessionsScreen(
             null
         },
         wide = isWideWindow(),
-        topBarContainer = { topBar ->
-            if (searchExpanded) {
-                SessionsSearchTopBar(
+        searchState = searchState,
+        topBarBottomContent = {
+            if (!state.selectionMode) {
+                TopAppBarSearchBar(
                     query = state.searchQuery,
-                    searchFocusRequester = searchFocusRequester,
                     onQueryChange = viewModel::updateSearchQuery,
-                    onClose = dismissSearch,
+                    expanded = searchExpanded,
+                    onExpandedChange = { expanded ->
+                        if (expanded) searchExpanded = true else dismissSearch()
+                    },
+                    cancelText = "取消",
+                    label = "搜索会话",
                 )
-            } else {
-                topBar()
             }
         },
         actions = {
@@ -262,12 +255,6 @@ fun SessionsScreen(
                     }
                 }
             } else {
-                IconButton(
-                    onClick = { searchExpanded = true },
-                    enabled = !state.loading && state.deletingSessionKeys.isEmpty(),
-                ) {
-                    Icon(COUIIcons.Search, contentDescription = "搜索会话")
-                }
                 Box {
                     IconButton(onClick = { showSessionActions = true }) {
                         Icon(COUIIcons.More, contentDescription = "更多会话操作")
@@ -366,7 +353,7 @@ fun SessionsScreen(
                 onDismissError = viewModel::clearError,
                 onRetry = lazySessions::retry,
                 contentPadding = scope.contentPadding,
-                modifier = Modifier.couiPageScroll(scope),
+                modifier = Modifier.couiPageScroll(scope).topAppBarSearchResults(searchState),
             )
         }
 
@@ -471,39 +458,6 @@ private fun LoadingSessions(
             }
         }
     }
-}
-
-@Composable
-private fun SessionsSearchTopBar(
-    query: String,
-    searchFocusRequester: FocusRequester,
-    onQueryChange: (String) -> Unit,
-    onClose: () -> Unit,
-) {
-    SearchBar(
-        inputField = {
-            InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = false,
-                onExpandedChange = {},
-                modifier = Modifier.focusRequester(searchFocusRequester),
-                label = "搜索会话",
-                leadingIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(COUIIcons.Close, contentDescription = "关闭搜索")
-                    }
-                },
-            )
-        },
-        expanded = false,
-        onExpandedChange = {},
-        modifier = Modifier
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .fillMaxWidth(),
-    ) {}
 }
 
 @Composable
@@ -725,11 +679,7 @@ private fun SessionCard(
     onToggleSelection: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !deleting) {
-                if (selectionMode) onToggleSelection() else onOpen()
-            },
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(
             color = if (selected) {
                 COUITheme.colorScheme.secondaryContainer
@@ -737,6 +687,11 @@ private fun SessionCard(
                 COUITheme.colorScheme.cardBackground
             },
         ),
+        onClick = if (deleting) {
+            null
+        } else {
+            { if (selectionMode) onToggleSelection() else onOpen() }
+        },
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(

@@ -1,11 +1,9 @@
 package top.wkbin.zaomeng.feature.rundetail
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -28,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.suqi8.coui.kmp.basic.BasicComponentDefaults
 import io.github.suqi8.coui.kmp.basic.ButtonDefaults
 import io.github.suqi8.coui.kmp.basic.DropdownImpl
 import io.github.suqi8.coui.kmp.basic.EmptyState
@@ -37,7 +36,6 @@ import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.IconButton
 import io.github.suqi8.coui.kmp.basic.LinearProgressIndicator
 import io.github.suqi8.coui.kmp.basic.ListPopupColumn
-import io.github.suqi8.coui.kmp.basic.Switch
 import io.github.suqi8.coui.kmp.basic.TabRow
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.basic.TextButton
@@ -46,6 +44,7 @@ import io.github.suqi8.coui.kmp.icon.extended.Add
 import io.github.suqi8.coui.kmp.icon.extended.More
 import io.github.suqi8.coui.kmp.icon.extended.Play
 import io.github.suqi8.coui.kmp.overlay.OverlayListPopup
+import io.github.suqi8.coui.kmp.preference.SwitchWithDividerPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import top.wkbin.zaomeng.data.api.CreateWorldBookEntryRequest
 import top.wkbin.zaomeng.data.api.ManagedWorldBookDto
@@ -432,43 +431,24 @@ private fun WorldBookEntryRow(
     onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(
-            Modifier.weight(1f).heightIn(min = 56.dp).clickable(enabled = enabled, onClick = onOpen)
-                .padding(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-        ) {
-            Text(
-                entry.title,
-                style = COUITheme.textStyles.headlineXS,
-                color = if (entry.enabled) COUITheme.colorScheme.labelPrimary else COUITheme.colorScheme.labelSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val subtitle = when {
-                entry.constant -> "常驻"
-                entry.keywords.isNotEmpty() -> entry.keywords.joinToString("、")
-                else -> "无主关键词"
-            }
-            Text(
-                subtitle,
-                style = COUITheme.textStyles.bodyXS,
-                color = COUITheme.colorScheme.labelSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Switch(
-            checked = entry.enabled,
-            onCheckedChange = onToggle,
-            enabled = enabled,
-            modifier = Modifier.semantics { contentDescription = "启用 ${entry.title}" },
-        )
+    val subtitle = when {
+        entry.constant -> "常驻"
+        entry.keywords.isNotEmpty() -> entry.keywords.joinToString("、")
+        else -> "无主关键词"
     }
+    SwitchWithDividerPreference(
+        checked = entry.enabled,
+        onCheckedChange = onToggle,
+        title = entry.title,
+        modifier = Modifier.fillMaxWidth(),
+        onClick = if (enabled) onOpen else null,
+        titleColor = BasicComponentDefaults.titleColor(
+            color = if (entry.enabled) COUITheme.colorScheme.labelPrimary else COUITheme.colorScheme.labelSecondary,
+        ),
+        summary = subtitle,
+        enabled = enabled,
+        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+    )
 }
 
 @Composable

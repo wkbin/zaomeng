@@ -1,6 +1,5 @@
 package top.wkbin.zaomeng.feature.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -167,7 +166,9 @@ fun ModelProfileEditorScreen(
                     onClick = viewModel::testConnection,
                     modifier = Modifier.weight(1f),
                     enabled = !state.loading && !state.saving && !state.testing && !state.detecting && !state.deleting,
-                    colors = ButtonDefaults.buttonColorsTransparent(),
+                    // 用 COUI 的次要按钮底色；buttonColorsTransparent 是给图片上的浮层用的，
+                    // 白字 + 半透明白底在浅色页面上等于看不见。
+                    colors = ButtonDefaults.buttonColors(),
                 ) {
                     if (state.testing) ProgressIcon()
                     Text(if (state.testing) "测试中…" else "测试连接")
@@ -310,7 +311,7 @@ fun ModelProfileEditorScreen(
                                     onClick = viewModel::detectCapabilities,
                                     modifier = Modifier.fillMaxWidth(),
                                     enabled = !state.detecting && !state.testing && !state.saving,
-                                    colors = ButtonDefaults.buttonColorsTransparent(),
+                                    colors = ButtonDefaults.buttonColors(),
                                 ) {
                                     if (state.detecting) ProgressIcon()
                                     Text(if (state.detecting) "检测中，可能需要数十秒…" else "一键检测模型能力")
@@ -373,7 +374,8 @@ fun ModelProfileEditorScreen(
                             Button(
                                 onClick = { showDeleteDialog = true },
                                 enabled = state.profileCount > 1 && !state.deleting && !state.saving,
-                                colors = ButtonDefaults.buttonColorsTransparent(),
+                                // 次要底色 + 错误色文字，既保留危险语义也不会在浅色页面上消失。
+                                colors = ButtonDefaults.buttonColors(contentColor = COUITheme.colorScheme.error),
                             ) {
                                 if (state.deleting) ProgressIcon()
                                 Icon(
@@ -517,7 +519,10 @@ private fun ModelProfileCard(
     onEdit: () -> Unit,
     onActivate: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onEdit,
+    ) {
         Column(
             Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -665,7 +670,7 @@ private fun ModelSelectionSheet(
                             onClick = onDiscover,
                             enabled = !discovering,
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColorsTransparent(),
+                            colors = ButtonDefaults.buttonColors(),
                         ) {
                             if (discovering) ProgressIcon()
                             Text(if (discovering) "正在拉取模型…" else "拉取模型列表")

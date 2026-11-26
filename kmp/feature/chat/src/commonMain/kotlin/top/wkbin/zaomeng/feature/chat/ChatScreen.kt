@@ -49,6 +49,9 @@ import io.github.suqi8.coui.kmp.basic.Scaffold
 import io.github.suqi8.coui.kmp.basic.SnackbarHost
 import io.github.suqi8.coui.kmp.basic.SnackbarHostState
 import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.rememberTopAppBarSearchState
+import io.github.suqi8.coui.kmp.basic.topAppBarSearchContent
+import io.github.suqi8.coui.kmp.basic.topAppBarSearchResults
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -66,8 +69,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -140,7 +141,7 @@ fun ChatScreen(
     val readingLayout = readingLayoutOverride ?: state.session?.let {
         it.mode == "insert" && it.participants.size == 1
     } ?: false
-    val searchFocusRequester = remember { FocusRequester() }
+    val searchState = rememberTopAppBarSearchState(searchOpen)
     val keyboardController = LocalSoftwareKeyboardController.current
     val closeSearch: () -> Unit = {
         searchOpen = false
@@ -190,7 +191,6 @@ fun ChatScreen(
     }
     LaunchedEffect(searchOpen) {
         if (searchOpen) {
-            searchFocusRequester.requestFocus()
             keyboardController?.show()
         }
     }
@@ -225,7 +225,6 @@ fun ChatScreen(
                 if (searchOpen) {
                     ChatSearchTopBar(
                         query = state.searchQuery,
-                        searchFocusRequester = searchFocusRequester,
                         onQueryChange = viewModel::updateSearchQuery,
                         onClose = closeSearch,
                     )
@@ -292,14 +291,14 @@ fun ChatScreen(
                             .widthIn(max = 1000.dp)
                             .fillMaxWidth(),
                     ) {
-                        if (searchOpen && state.searchQuery.isNotBlank()) {
+                        if (searchOpen) {
                             ChatSearchResults(
                                 query = state.searchQuery,
                                 searching = state.searching,
                                 results = state.searchResults,
                                 actionsEnabled = state.canUseTools,
                                 onBranch = viewModel::branchFromTurn,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).topAppBarSearchResults(searchState),
                             )
                         } else {
                             val session = requireNotNull(state.session)
@@ -338,7 +337,7 @@ fun ChatScreen(
                                     viewModel.listImportedSwipes(session.runId, session.sessionId, index, offset)
                                 },
                                 onBranchImportedSwipe = viewModel::branchFromImportedSwipe,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).topAppBarSearchContent(searchState),
                             )
                         }
                     }
@@ -351,6 +350,10 @@ fun ChatScreen(
                 readingLayout = readingLayout,
                 onToggleReadingLayout = {
                     readingLayoutOverride = !readingLayout
+                    toolsOpen = false
+                },
+                onTogglePromptCapture = {
+                    viewModel.togglePromptCapture()
                     toolsOpen = false
                 },
                 onDismiss = { toolsOpen = false },

@@ -9,6 +9,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import top.wkbin.zaomeng.data.api.DialoguePromptMessageDto
+import top.wkbin.zaomeng.data.api.DialoguePromptPreviewDto
+import top.wkbin.zaomeng.data.api.WorldBookMatchDto
 import top.wkbin.zaomeng.ktor.models.DialogueResponse
 import top.wkbin.zaomeng.ktor.utils.DialogueStreamParser
 import top.wkbin.zaomeng.ktor.utils.StreamEvent
@@ -23,8 +26,28 @@ import top.wkbin.zaomeng.platform.randomUuid
  * 流式结束后从完整输出解析 responses 并提交 turn（保存 + 更新会话 manifest）。
  */
 sealed interface DialogueStreamFrame {
+    data class PromptPreview(val preview: DialoguePromptPreviewDto) : DialogueStreamFrame
     data class Delta(val event: StreamEvent) : DialogueStreamFrame
     data class Completed(val outcome: DialogueReplyOutcome) : DialogueStreamFrame
+}
+
+internal fun dialoguePromptPreview(
+    turnId: String,
+    attempt: Int,
+    messages: List<LlmClient.ChatMessage>,
+    worldBookMatches: List<WorldBookMatchDto>,
+): DialoguePromptPreviewDto {
+    var remaining = 64_000
+    val previews = messages.map { message ->
+        val content = message.content.orEmpty()
+        val limit = minOf(remaining, 24_000)
+        val text = if (content.length <= limit) content else content.take(limit).let {
+            if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
+        }
+        remaining -= text.length
+        DialoguePromptMessageDto(message.role, text, truncated = text.length < content.length)
+    }
+    return DialoguePromptPreviewDto(turnId, attempt, previews, worldBookMatches.filter { it.status == "injected" })
 }
 
 class DialogueStreamService(
@@ -76,6 +99,7 @@ class DialogueStreamService(
         suppressTranscriptMessage: Boolean = false,
         includeModelReasoning: Boolean = false,
         prepared: ReplyOperationBegin? = null,
+        includePromptPreview: Boolean = false,
     ): Flow<DialogueStreamFrame> = flow {
         val coordinator = operations
         val begin = prepared ?: coordinator?.begin(
@@ -130,6 +154,9 @@ class DialogueStreamService(
                 suppressTranscriptMessage = suppressTranscriptMessage,
                 includeModelReasoning = includeModelReasoning,
                 operation = lease,
+                onPromptPreview = if (includePromptPreview) {
+                    { preview -> emit(DialogueStreamFrame.PromptPreview(preview)) }
+                } else null,
                 onCompleted = { completed = it },
             ).collect { event -> emit(DialogueStreamFrame.Delta(event)) }
             emit(DialogueStreamFrame.Completed(requireNotNull(completed) { "Dialogue stream completed without a commit" }))
@@ -214,6 +241,7 @@ class DialogueStreamService(
         includeModelReasoning: Boolean = false,
         operation: ActiveReplyOperation? = null,
         onCompleted: suspend (DialogueReplyOutcome) -> Unit = {},
+        onPromptPreview: (suspend (DialoguePromptPreviewDto) -> Unit)? = null,
     ): Flow<StreamEvent> = flow {
         val startedAt = nowEpochMillis()
         PlatformLog.d(TAG, "Starting streaming dialogue reply: run=$runId, session=$sessionId")
@@ -287,6 +315,7 @@ class DialogueStreamService(
 
         // 6. 调用 LLM 流式 API
         try {
+            onPromptPreview?.invoke(dialoguePromptPreview(turnId, 1, conversationHistory, dialogue.extractWorldBookMatches(payload)))
             llmClient.chatCompletionStream(
                 messages = conversationHistory,
                 model = modelName,
@@ -356,6 +385,7 @@ class DialogueStreamService(
                     ),
                 )
                 val retryParser = DialogueStreamParser(chunkSize = 24)
+                onPromptPreview?.invoke(dialoguePromptPreview(turnId, 2, retryHistory, dialogue.extractWorldBookMatches(payload)))
                 val retryStartedAt = nowEpochMillis()
                 var retryFirstContentAt: Long? = null
                 llmClient.chatCompletionStream(

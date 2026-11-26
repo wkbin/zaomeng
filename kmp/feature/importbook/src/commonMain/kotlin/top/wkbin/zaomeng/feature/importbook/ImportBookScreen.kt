@@ -2,6 +2,7 @@ package top.wkbin.zaomeng.feature.importbook
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -28,16 +29,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.suqi8.coui.kmp.basic.BasicComponent
 import io.github.suqi8.coui.kmp.basic.Button
 import io.github.suqi8.coui.kmp.basic.ButtonDefaults
 import io.github.suqi8.coui.kmp.basic.Card
 import io.github.suqi8.coui.kmp.basic.CardDefaults
+import io.github.suqi8.coui.kmp.basic.CardListGroup
 import io.github.suqi8.coui.kmp.basic.CircularProgressIndicator
 import io.github.suqi8.coui.kmp.basic.Icon
-import io.github.suqi8.coui.kmp.basic.RadioButton
 import io.github.suqi8.coui.kmp.basic.Surface
-import io.github.suqi8.coui.kmp.basic.Switch
 import io.github.suqi8.coui.kmp.basic.Text
 import io.github.suqi8.coui.kmp.basic.TextButton
 import io.github.suqi8.coui.kmp.icon.COUIIcons
@@ -46,6 +45,9 @@ import io.github.suqi8.coui.kmp.icon.extended.Download
 import io.github.suqi8.coui.kmp.icon.extended.Folder
 import io.github.suqi8.coui.kmp.icon.extended.Layers
 import io.github.suqi8.coui.kmp.icon.extended.Notes
+import io.github.suqi8.coui.kmp.preference.ArrowPreference
+import io.github.suqi8.coui.kmp.preference.RadioButtonPreference
+import io.github.suqi8.coui.kmp.preference.SwitchPreference
 import io.github.suqi8.coui.kmp.theme.COUITheme
 import org.koin.compose.koinInject
 import top.wkbin.zaomeng.platform.DistillationForeground
@@ -266,23 +268,38 @@ fun ImportBookScreen(
             val canChooseSource = !state.readingFile
             if (!hasDocument) {
                 item {
-                    Column {
-                        ImportSourceRow("小说", "TXT / EPUB", COUIIcons.Notes, canChooseSource) {
-                            chooseDocument(ImportDocumentKind.NovelText)
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        CardListGroup {
+                            item {
+                                ImportSourceRow("小说", "TXT / EPUB", COUIIcons.Notes, canChooseSource) {
+                                    chooseDocument(ImportDocumentKind.NovelText)
+                                }
+                            }
+                            item {
+                                ImportSourceRow("造梦书卷包", ".zaomeng-run.zip", COUIIcons.Folder, canChooseSource) {
+                                    chooseDocument(ImportDocumentKind.RunPackage)
+                                }
+                            }
+                            item {
+                                ImportSourceRow("SillyTavern 角色卡", "JSON / PNG", COUIIcons.Contacts, canChooseSource) {
+                                    chooseDocument(ImportDocumentKind.CharacterCard)
+                                }
+                            }
+                            item {
+                                ImportSourceRow(
+                                    "SillyTavern 世界书", "JSON · 挂载到已有书卷",
+                                    COUIIcons.Layers, canChooseSource,
+                                ) {
+                                    chooseDocument(ImportDocumentKind.WorldBook)
+                                }
+                            }
+                            item {
+                                ImportSourceRow(
+                                    "在线书卷包", "浏览并下载已蒸馏的书卷", COUIIcons.Download,
+                                    canChooseSource, onOpenOnlineLibrary,
+                                )
+                            }
                         }
-                        ImportSourceRow("造梦书卷包", ".zaomeng-run.zip", COUIIcons.Folder, canChooseSource) {
-                            chooseDocument(ImportDocumentKind.RunPackage)
-                        }
-                        ImportSourceRow("SillyTavern 角色卡", "JSON / PNG", COUIIcons.Contacts, canChooseSource) {
-                            chooseDocument(ImportDocumentKind.CharacterCard)
-                        }
-                        ImportSourceRow("SillyTavern 世界书", "JSON · 挂载到已有书卷", COUIIcons.Layers, canChooseSource) {
-                            chooseDocument(ImportDocumentKind.WorldBook)
-                        }
-                        ImportSourceRow(
-                            "在线书卷包", "浏览并下载已蒸馏的书卷", COUIIcons.Download,
-                            canChooseSource, onOpenOnlineLibrary,
-                        )
                     }
                 }
             }
@@ -318,20 +335,20 @@ fun ImportBookScreen(
             }
             if (state.documentKind == ImportDocumentKind.WorldBook && state.worldBookTargets.isNotEmpty()) {
                 item { Text("选择目标书卷", style = COUITheme.textStyles.bodyM) }
-                items(state.worldBookTargets, key = { it.runId }) { run ->
-                    val selected = state.targetRunId == run.runId
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(
-                            selected = selected,
-                            enabled = !state.submitting,
-                            role = Role.RadioButton,
-                            onClick = { viewModel.selectWorldBookTarget(run.runId) },
-                        ).padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        RadioButton(selected = selected, onClick = null, enabled = !state.submitting)
-                        Text(run.title.ifBlank { run.runId }, style = COUITheme.textStyles.bodyM)
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        CardListGroup {
+                            state.worldBookTargets.forEach { run ->
+                                item(key = run.runId) {
+                                    RadioButtonPreference(
+                                        title = run.title.ifBlank { run.runId },
+                                        selected = state.targetRunId == run.runId,
+                                        onClick = { viewModel.selectWorldBookTarget(run.runId) },
+                                        enabled = !state.submitting,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -352,33 +369,18 @@ fun ImportBookScreen(
                     }
                 }
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "导入后立即蒸馏",
-                                style = COUITheme.textStyles.bodyM,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Text(
-                                if (state.autoDistill) {
-                                    "建立书卷后立即在后台处理，并显示进度通知。"
-                                } else {
-                                    "先保存到书架，之后再从书卷详情开始蒸馏。"
-                                },
-                                style = COUITheme.textStyles.bodyXS,
-                                color = COUITheme.colorScheme.labelSecondary,
-                            )
-                        }
-                        Switch(
-                            checked = state.autoDistill,
-                            onCheckedChange = viewModel::updateAutoDistill,
-                            enabled = !state.submitting,
-                        )
-                    }
+                    SwitchPreference(
+                        title = "导入后立即蒸馏",
+                        summary = if (state.autoDistill) {
+                            "建立书卷后立即在后台处理，并显示进度通知。"
+                        } else {
+                            "先保存到书架，之后再从书卷详情开始蒸馏。"
+                        },
+                        checked = state.autoDistill,
+                        onCheckedChange = viewModel::updateAutoDistill,
+                        enabled = !state.submitting,
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                    )
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -461,7 +463,7 @@ private fun ImportSourceRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    BasicComponent(
+    ArrowPreference(
         title = title,
         summary = description,
         startAction = {

@@ -2,7 +2,6 @@ package top.wkbin.zaomeng.feature.rundetail
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -1285,8 +1284,9 @@ private fun PersonaCard(
         .firstOrNull(String::isNotBlank)
         .orEmpty()
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = COUITheme.colorScheme.surface),
+        onClick = onClick,
     ) {
         Row(modifier = Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onAvatarClick, modifier = Modifier.size(44.dp)) {

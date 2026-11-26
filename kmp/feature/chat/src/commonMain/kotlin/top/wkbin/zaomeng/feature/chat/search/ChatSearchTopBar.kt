@@ -47,9 +47,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import io.github.suqi8.coui.kmp.basic.Icon
 import io.github.suqi8.coui.kmp.basic.IconButton
-import io.github.suqi8.coui.kmp.basic.InputField
-import io.github.suqi8.coui.kmp.basic.SearchBar
-import io.github.suqi8.coui.kmp.basic.SearchBarType
+import io.github.suqi8.coui.kmp.basic.Surface
+import io.github.suqi8.coui.kmp.basic.TopAppBarSearchBar
 import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.Close
 import androidx.compose.runtime.Composable
@@ -111,31 +110,18 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 internal fun ChatSearchTopBar(
     query: String,
-    searchFocusRequester: FocusRequester,
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
 ) {
-    SearchBar(
-        inputField = {
-            InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = false,
-                onExpandedChange = {},
-                modifier = Modifier.focusRequester(searchFocusRequester),
-                label = "搜索台词、动作或人物",
-                leadingIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(COUIIcons.Close, contentDescription = "关闭搜索")
-                    }
-                },
-            )
-        },
-        onExpandedChange = {},
+    TopAppBarSearchBar(
+        query = query,
+        onQueryChange = onQueryChange,
+        expanded = true,
+        onExpandedChange = { expanded -> if (!expanded) onClose() },
+        cancelText = "取消",
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .fillMaxWidth(),
-        type = SearchBarType.Instant,
-    ) {}
+        label = "搜索台词、动作或人物",
+    )
 }

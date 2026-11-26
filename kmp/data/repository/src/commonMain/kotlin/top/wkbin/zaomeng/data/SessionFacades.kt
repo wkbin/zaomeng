@@ -110,6 +110,7 @@ interface DialogueRepository {
         includeInnerThoughts: Boolean = false,
         includeModelReasoning: Boolean = false,
         includeTranscript: Boolean = false,
+        includePromptPreview: Boolean = false,
     ): Flow<DialogueStreamEvent>
 
     suspend fun suggestReply(

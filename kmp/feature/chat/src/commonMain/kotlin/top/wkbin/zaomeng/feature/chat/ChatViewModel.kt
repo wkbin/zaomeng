@@ -464,6 +464,12 @@ class ChatViewModel(
         toolsDelegate.toggleGenerationEnhancer(enhancer)
     }
 
+    fun togglePromptCapture() {
+        mutableState.update { current ->
+            if (current.canUseTools) current.copy(captureNextPrompt = !current.captureNextPrompt) else current
+        }
+    }
+
     fun send() {
         val snapshot = state.value
         if (

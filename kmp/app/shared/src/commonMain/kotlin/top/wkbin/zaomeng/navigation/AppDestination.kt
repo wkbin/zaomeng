@@ -3,6 +3,15 @@ package top.wkbin.zaomeng.navigation
 import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
+/**
+ * 顶层三页（书架 / 对话 / 更多）的宿主。
+ *
+ * 这三个 tab 不再各自作为导航栈条目，而是同一个条目里的 HorizontalPager 页面，
+ * 这样切换 tab 是“翻页”而不是 NavDisplay 的整页推入动画；详情页仍压在它上面。
+ */
+@Serializable
+data object TopLevelDestination : NavKey
+
 @Serializable
 data object BookshelfDestination : NavKey
 

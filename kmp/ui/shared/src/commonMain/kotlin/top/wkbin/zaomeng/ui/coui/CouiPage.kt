@@ -44,6 +44,7 @@ import io.github.suqi8.coui.kmp.basic.SnackbarHostState
 import io.github.suqi8.coui.kmp.basic.ToolbarPosition
 import io.github.suqi8.coui.kmp.basic.TopAppBar
 import io.github.suqi8.coui.kmp.basic.TopAppBarDefaults
+import io.github.suqi8.coui.kmp.basic.TopAppBarSearchState
 import io.github.suqi8.coui.kmp.basic.VerticalScrollBar
 import io.github.suqi8.coui.kmp.basic.rememberScrollBarAdapter
 import io.github.suqi8.coui.kmp.icon.COUIIcons
@@ -120,6 +121,7 @@ fun CouiPageScaffold(
     onBack: (() -> Unit)? = null,
     topBarStyle: CouiTopBarStyle = CouiTopBarStyle.Large,
     wide: Boolean = false,
+    searchState: TopAppBarSearchState? = null,
     actions: @Composable RowScope.() -> Unit = {},
     topBarBottomContent: @Composable () -> Unit = {},
     topBarContainer: @Composable (topBar: @Composable () -> Unit) -> Unit = { topBar -> topBar() },
@@ -147,6 +149,7 @@ fun CouiPageScaffold(
                     onBack = onBack,
                     style = topBarStyle,
                     wide = wide,
+                    searchState = searchState,
                     actions = actions,
                     bottomContent = topBarBottomContent,
                 )
@@ -210,6 +213,7 @@ fun CouiPage(
     onBack: (() -> Unit)? = null,
     topBarStyle: CouiTopBarStyle = CouiTopBarStyle.Large,
     wide: Boolean = false,
+    searchState: TopAppBarSearchState? = null,
     actions: @Composable RowScope.() -> Unit = {},
     topBarBottomContent: @Composable () -> Unit = {},
     snackbarHostState: SnackbarHostState? = null,
@@ -224,6 +228,7 @@ fun CouiPage(
         onBack = onBack,
         topBarStyle = topBarStyle,
         wide = wide,
+        searchState = searchState,
         actions = actions,
         topBarBottomContent = topBarBottomContent,
         snackbarHostState = snackbarHostState,
@@ -258,6 +263,7 @@ fun CouiPageTopBar(
     onBack: (() -> Unit)? = null,
     style: CouiTopBarStyle = CouiTopBarStyle.Large,
     wide: Boolean = false,
+    searchState: TopAppBarSearchState? = null,
     color: Color = COUITheme.colorScheme.backgroundWithCard,
     showDivider: Boolean = true,
     actions: @Composable RowScope.() -> Unit = {},
@@ -275,7 +281,9 @@ fun CouiPageTopBar(
             }
         }
     }
-    if (style == CouiTopBarStyle.Small || (wide && style == CouiTopBarStyle.Large)) {
+    val smallBar = searchState == null &&
+        (style == CouiTopBarStyle.Small || (wide && style == CouiTopBarStyle.Large))
+    if (smallBar) {
         SmallTopAppBar(
             title = title,
             modifier = modifier,
@@ -296,6 +304,7 @@ fun CouiPageTopBar(
             showDivider = showDivider,
             subtitle = subtitle,
             scrollBehavior = scrollBehavior,
+            searchState = searchState,
             expandedHeight = if (home) 116.dp else TopAppBarDefaults.ExpandedHeight,
             largeTitleFontSize = if (home) 40.sp else TopAppBarDefaults.largeTitleFontSize(),
             titlePadding = if (home) 24.dp else Dp.Unspecified,

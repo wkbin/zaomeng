@@ -128,7 +128,7 @@ internal fun ChatSessionPane(
                 style = COUITheme.textStyles.buttonM,
                 fontWeight = FontWeight.SemiBold,
             )
-            HorizontalDivider(color = COUITheme.colorScheme.divider)
+            HorizontalDivider()
             if (sorted.isEmpty()) {
                 EmptyState(
                     title = "暂无会话",

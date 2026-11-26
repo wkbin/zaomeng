@@ -9,6 +9,7 @@ import top.wkbin.zaomeng.data.DialogueRepository
 import top.wkbin.zaomeng.data.PluginRepository
 import top.wkbin.zaomeng.data.SessionRepository
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
+import top.wkbin.zaomeng.data.api.DialoguePromptPreviewDto
 import top.wkbin.zaomeng.data.api.MemoryQualityReportDto
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
@@ -126,6 +127,8 @@ data class ChatUiState(
     val failedMessageKind: String = "dialogue",
     val failedSpeakerOverride: String = "",
     val modelReasoning: String = "",
+    val captureNextPrompt: Boolean = false,
+    val promptPreview: DialoguePromptPreviewDto? = null,
     val streamingReplies: List<StreamingReplyPart> = emptyList(),
     val pendingUserMessage: PendingUserMessage? = null,
     val continuousObserveEnabled: Boolean = false,

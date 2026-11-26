@@ -12,10 +12,12 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.utils.io.writeString
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
+import top.wkbin.zaomeng.data.api.DialoguePromptPreviewDto
 import top.wkbin.zaomeng.ktor.services.DialogueOperationException
 import top.wkbin.zaomeng.ktor.services.DialogueStreamFrame
 import top.wkbin.zaomeng.ktor.services.DialogueStreamService
@@ -106,10 +108,14 @@ fun Route.dialogueStreamRoutes(dialogueStreamService: DialogueStreamService) {
                     suppressTranscriptMessage = request.suppressTranscriptMessage,
                     includeModelReasoning = request.includeModelReasoning,
                     prepared = prepared,
+                    includePromptPreview = request.includePromptPreview,
                 )
                 handedOff = true
                 frames.collect { frame ->
                     when (frame) {
+                        is DialogueStreamFrame.PromptPreview -> writeString(SseEncoder.encodeEvent(
+                            "prompt_preview", Json.encodeToJsonElement(DialoguePromptPreviewDto.serializer(), frame.preview),
+                        ))
                         is DialogueStreamFrame.Delta -> {
                             val event = frame.event
                             val eventName = event.kind.ifBlank { "delta" }

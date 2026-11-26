@@ -46,6 +46,7 @@ fun ChatToolsSheet(
     state: ChatUiState,
     readingLayout: Boolean,
     onToggleReadingLayout: () -> Unit,
+    onTogglePromptCapture: () -> Unit,
     onDismiss: () -> Unit,
     onDirector: (String, String) -> Unit,
     onCorrectLatest: () -> Unit,
@@ -76,6 +77,7 @@ fun ChatToolsSheet(
     var relationLockHelpDialog by remember { mutableStateOf(false) }
     var branchMetaDialog by remember { mutableStateOf(false) }
     var authorNoteDialog by remember(state.sessionId) { mutableStateOf(false) }
+    var showPromptPreview by remember(state.sessionId) { mutableStateOf(false) }
     var pendingAuthorNote by remember(state.sessionId) { mutableStateOf<AuthorNoteDto?>(null) }
     var branchLabel by remember(state.session?.sessionId) {
         mutableStateOf(state.session?.branchMeta?.stringValue("label").orEmpty())
@@ -85,6 +87,10 @@ fun ChatToolsSheet(
     }
     val toolsEnabled = state.canUseTools
     val session = state.session
+    val preview = state.promptPreview
+    if (showPromptPreview && preview != null) {
+        DialoguePromptPreviewDialog(preview, onDismiss = { showPromptPreview = false })
+    }
     LaunchedEffect(session?.authorNote, pendingAuthorNote, state.toolBusy) {
         if (pendingAuthorNote != null && session?.authorNote == pendingAuthorNote && state.toolBusy.isBlank()) {
             authorNoteDialog = false
@@ -241,6 +247,23 @@ fun ChatToolsSheet(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = toolsEnabled,
                     )
+                }
+                item {
+                    ToolSection("模型提示词") {
+                        TextButton(
+                            text = if (state.captureNextPrompt) "取消捕获下一轮" else "捕获下一轮提示词",
+                            onClick = onTogglePromptCapture,
+                            enabled = toolsEnabled,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (preview != null) {
+                            TextButton(
+                                text = "查看上次捕获",
+                                onClick = { showPromptPreview = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                 }
             }
 

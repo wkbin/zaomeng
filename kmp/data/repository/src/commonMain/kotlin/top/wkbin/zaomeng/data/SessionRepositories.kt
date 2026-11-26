@@ -34,6 +34,7 @@ import top.wkbin.zaomeng.data.api.DeleteSessionsResponse
 import top.wkbin.zaomeng.data.api.DeleteStatusDto
 import top.wkbin.zaomeng.data.api.DialogueMemoryDto
 import top.wkbin.zaomeng.data.api.DialogueReplyRequest
+import top.wkbin.zaomeng.data.api.DialoguePromptPreviewDto
 import top.wkbin.zaomeng.data.api.DialogueOperationStatusResponse
 import top.wkbin.zaomeng.data.api.DialogueSessionDto
 import top.wkbin.zaomeng.data.api.DialogueStreamEvent
@@ -263,6 +264,7 @@ class DialogueRepositoryImpl(
         includeInnerThoughts: Boolean,
         includeModelReasoning: Boolean,
         includeTranscript: Boolean,
+        includePromptPreview: Boolean,
     ): Flow<DialogueStreamEvent> = flow {
         try {
             val source = ktorDialogue.streamReply(
@@ -278,6 +280,7 @@ class DialogueRepositoryImpl(
                     includeModelReasoning = includeModelReasoning,
                     includeTranscript = includeTranscript,
                     operationId = operationId,
+                    includePromptPreview = includePromptPreview,
                 ),
             )
             try {
@@ -351,6 +354,8 @@ class DialogueRepositoryImpl(
             throw ApiRequestException("无法解析流式回复。", it)
         }
         return when (eventName.ifBlank { payload["event"]?.jsonPrimitive?.contentOrNull.orEmpty() }) {
+            "prompt_preview" -> runCatching { repositoryJson.decodeFromJsonElement<DialoguePromptPreviewDto>(payload) }
+                .getOrNull()?.let { DialogueStreamEvent.PromptPreview(it) }
             "status" -> DialogueStreamEvent.Status(
                 phase = payload["phase"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 message = payload["message"]?.jsonPrimitive?.contentOrNull.orEmpty(),
